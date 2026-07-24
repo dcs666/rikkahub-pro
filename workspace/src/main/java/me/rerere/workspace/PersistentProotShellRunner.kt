@@ -3,8 +3,8 @@ package me.rerere.workspace
 import java.io.File
 
 /**
- * 持久化 proot shell runner
- * 首次启动 proot 后保持进程存活，后续命令通过 FIFO 通信
+ * Persistent proot shell runner.
+ * Keeps the proot process alive across calls to avoid startup overhead.
  */
 class PersistentProotShellRunner(
     private val nativeLibraryDir: File,
@@ -13,73 +13,69 @@ class PersistentProotShellRunner(
 ) : WorkspaceShellRunner {
 
     companion object {
-        private const val PROOT_EXEC = "libproot_exec.so"
-        private const val PROOT_LOADER = "libproot_loader.so"
-        private const val WORKSPACE_DIR = "/workspace"
-        
-        // 缓存进程和FIFO路径
-        private var cachedProcess: Process? = null
+        private var cachedProc: Process? = null
         private var cachedRoot: String = ""
-        private var fifoPath: String = ""
-        private var resultDirPath: String = ""
+        private var cmdFifo: File? = null
+        private var resDir: File? = null
     }
 
     override fun execute(context: WorkspaceShellContext): WorkspaceCommandResult {
-        if (!context.linuxDir.hasUsableRootfs()) {
-            return WorkspaceCommandResult(127, "", "Rootfs is not installed")
-        }
-
-        val proot = File(nativeLibraryDir, PROOT_EXEC)
-        val loader = File(nativeLibraryDir, PROOT_LOADER)
-        if (!proot.isFile || !loader.isFile) {
-            return WorkspaceCommandResult(127, "", "proot executable not found")
-        }
+        val proot = File(nativeLibraryDir, "libproot_exec.so")
+        val loader = File(nativeLibraryDir, "libproot_loader.so")
 
         val key = context.root
-        val alive = try { cachedProcess?.let { it.exitValue(); false } ?: false } catch (e: IllegalThreadStateException) { true }
+        val isAlive = try { cachedProc?.exitValue(); false } catch (e: Exception) { cachedProc != null }
 
-        return if (cachedProcess != null && alive && cachedRoot == key) {
-            // 热路径：发送命令到 FIFO
-            sendCommand(context.command, context.timeoutMillis)
-        } else {
-            // 冷路径：启动 proot 常驻进程
-            cachedProcess?.let { try { it.destroy() } catch (_: Exception) {} }
-            cachedProcess = null
-            startPersistentProot(context, proot, loader, key)
+        if (cachedProc != null && isAlive && cachedRoot == key) {
+            return sendCommand(context.command, context.timeoutMillis)
         }
-    }
 
-    private fun startPersistentProot(
-        context: WorkspaceShellContext, proot: File, loader: File, key: String
-    ): WorkspaceCommandResult {
+        // Start new persistent proot
+        cachedProc?.let { try { it.destroy() } catch (_: Exception) {} }
+        cachedProc = null
+
         context.tempDir.mkdirs()
         patcher.patch(context.linuxDir)
 
-        // FIFO 和结果目录（在 files 目录下，host 可读写）
-        val fifoFile = File(context.filesDir, ".proot_fifo")
-        val resultDir = File(context.filesDir, ".proot_results")
-        resultDir.mkdirs()
-        fifoPath = fifoFile.absolutePath
-        resultDirPath = resultDir.absolutePath
-        fifoFile.delete()
+        val fifo = File(context.filesDir, ".proot_fifo")
+        val results = File(context.filesDir, ".proot_results")
+        fifo.delete()
+        results.mkdirs()
+        cmdFifo = fifo
+        resDir = results
 
-        // 常驻 shell 脚本
         val script = buildString {
-            appendLine("rm -f $WORKSPACE_DIR/.proot_fifo")
-            appendLine("mkfifo $WORKSPACE_DIR/.proot_fifo")
-            appendLine("mkdir -p $WORKSPACE_DIR/.proot_results")
-            appendLine("while true; do")
-            appendLine("  if read -r cmd < $WORKSPACE_DIR/.proot_fifo; then")
-            appendLine("    [ -z \"\$cmd\" ] && continue")
-            appendLine("    [ \"\$cmd\" = \"__exit__\" ] && break")
-            appendLine("    echo \"\$cmd\" | /bin/bash -l > $WORKSPACE_DIR/.proot_results/out 2>&1")
-            appendLine("    echo \"__done__\" >> $WORKSPACE_DIR/.proot_results/out")
-            appendLine("  fi")
-            appendLine("done")
+            append("rm -f /workspace/.proot_fifo\n")
+            append("mkfifo /workspace/.proot_fifo\n")
+            append("mkdir -p /workspace/.proot_results\n")
+            append("while true; do\n")
+            append("  if read -r cmd < /workspace/.proot_fifo; then\n")
+            append("    [ -z \"$cmd\" ] && continue\n")
+            append("    [ \"$cmd\" = \"__exit__\" ] && break\n")
+            append("    echo \"$cmd\" > /workspace/.proot_results/last_cmd\n")
+            append("    eval \"$cmd\" > /workspace/.proot_results/out 2>&1\n")
+            append("    echo __DONE__ >> /workspace/.proot_results/out\n")
+            append("  fi\n")
+            append("done\n")
         }
 
-        val cmdArgs = buildCommand(context, proot, script)
-        val process = ProcessBuilder(cmdArgs)
+        val cmd = mutableListOf(
+            proot.absolutePath, "--root-id", "--link2symlink", "--kill-on-exit",
+            "-r", context.linuxDir.absolutePath,
+            "-w", context.prootCwd(),
+            "-b", "${context.filesDir.absolutePath}:/workspace"
+        )
+        for (mount in extraBindMounts) {
+            if (mount.source.exists()) {
+                cmd.add("-b"); cmd.add("${mount.source.absolutePath}:${mount.target.trimEnd('/')}")
+            }
+        }
+        for (p in listOf("/dev", "/proc", "/sys")) {
+            if (File(p).exists()) { cmd.add("-b"); cmd.add(p) }
+        }
+        cmd.add("/bin/bash"); cmd.add("-c"); cmd.add(script)
+
+        val proc = ProcessBuilder(cmd)
             .directory(context.filesDir)
             .redirectErrorStream(true)
             .apply {
@@ -89,66 +85,34 @@ class PersistentProotShellRunner(
             }
             .start()
 
-        cachedProcess = process
+        cachedProc = proc
         cachedRoot = key
-        Thread.sleep(1500) // 等待 FIFO 创建
-
+        Thread.sleep(1500)
         return sendCommand(context.command, context.timeoutMillis)
     }
 
-    private fun sendCommand(command: String, timeoutMillis: Long): WorkspaceCommandResult {
+    private fun sendCommand(cmd: String, ttl: Long): WorkspaceCommandResult {
         try {
-            File(fifoPath).writeText("cd /workspace\n$command\n")
-            val deadline = System.currentTimeMillis() + timeoutMillis
-            var output = ""
-            var found = false
-
+            cmdFifo?.writeText(cmd + "\n")
+            val deadline = System.currentTimeMillis() + ttl
             while (System.currentTimeMillis() < deadline) {
-                val outFile = File(resultDirPath, "out")
-                if (outFile.exists()) {
-                    output = outFile.readText()
-                    outFile.delete()
-                    found = true
-                    break
+                val out = File(resDir, "out")
+                if (out.exists()) {
+                    val text = out.readText()
+                    out.delete()
+                    val clean = text.replace("__DONE__", "").trim()
+                    return WorkspaceCommandResult(0, clean, "")
                 }
                 Thread.sleep(30)
             }
-
-            if (!found) return WorkspaceCommandResult(-1, "", "Timed out")
-
-            val exitCode = if ("__done__" in output) {
-                output = output.replace("__done__", "").trim()
-                0
-            } else 0
-
-            return WorkspaceCommandResult(exitCode, output, "")
+            return WorkspaceCommandResult(-1, "", "timed out")
         } catch (e: Exception) {
-            return WorkspaceCommandResult(1, "", "Error: ${e.message}")
+            return WorkspaceCommandResult(1, "", e.message ?: "error")
         }
-    }
-
-    private fun buildCommand(context: WorkspaceShellContext, proot: File, script: String): List<String> {
-        val cmd = mutableListOf(
-            proot.absolutePath, "--root-id", "--link2symlink", "--kill-on-exit",
-            "-r", context.linuxDir.absolutePath,
-            "-w", context.prootCwd(),
-            "-b", "${context.filesDir.absolutePath}:$WORKSPACE_DIR",
-        )
-        for (mount in extraBindMounts) {
-            if (mount.source.exists()) { cmd += "-b"; cmd += "${mount.source.absolutePath}:${mount.target.trimEnd('/')}" }
-        }
-        for (path in listOf("/dev", "/proc", "/sys")) {
-            if (File(path).exists()) { cmd += "-b"; cmd += path }
-        }
-        cmd += "/bin/bash"; cmd += "-c"; cmd += script
-        return cmd
     }
 
     private fun WorkspaceShellContext.prootCwd(): String {
         val n = cwd.trim().trim('/')
-        return if (n.isBlank()) WORKSPACE_DIR else "$WORKSPACE_DIR/$n"
+        return if (n.isEmpty()) "/workspace" else "/workspace/$n"
     }
-
-    private fun File.hasUsableRootfs(): Boolean =
-        isDirectory && File(this, "bin/sh").isFile
 }
