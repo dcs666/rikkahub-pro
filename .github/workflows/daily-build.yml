@@ -78,15 +78,21 @@ jobs:
 
       - name: Prepare build files
         run: |
-          # 解码base64编码的keystore文件（如果secrets不存在则跳过）
-          if [ -n "${{ secrets.KEY_BASE64 }}" ]; then
+          # 检查是否有 signing secret，有则构建 release，否则构建 debug
+          if [[ "${{ secrets.KEY_BASE64 }}" != "" ]]; then
             echo "${{ secrets.KEY_BASE64 }}" | base64 -d > app/app.key
             echo "${{ secrets.SIGNING_CONFIG }}" > local.properties
-            echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > app/google-services.json
             echo "BUILD_TYPE=assembleRelease" >> "$GITHUB_ENV"
           else
-            echo "🟡 Secrets not available, building debug APK instead"
+            echo "🟡 Release secrets not available, building debug APK"
             echo "BUILD_TYPE=assembleDebug" >> "$GITHUB_ENV"
+          fi
+          
+          # google-services.json：优先用 secret，没有则用仓库内自带的 dummy 文件
+          if [[ "${{ secrets.GOOGLE_SERVICES_JSON }}" != "" ]]; then
+            echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > app/google-services.json
+          else
+            echo "🟡 Using built-in google-services.json (dummy)"
           fi
 
       - name: Gradle Build
