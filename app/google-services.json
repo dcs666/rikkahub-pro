@@ -26,6 +26,28 @@
           "status": 1
         }
       }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:000000000000:android:deadbeef00000000",
+        "android_client_info": {
+          "package_name": "me.rerere.rikkahub.debug"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDummyKeyForBuildOnly00000000000000"
+        }
+      ],
+      "services": {
+        "analytics_service": {
+          "status": 1
+        },
+        "appinvite_service": {
+          "status": 1
+        }
+      }
     }
   ],
   "configuration_version": "1"
