@@ -34,6 +34,7 @@ import me.rerere.rikkahub.data.ai.mcp.McpManager
 import me.rerere.rikkahub.data.sync.webdav.WebDavSync
 import me.rerere.search.SearchService
 import me.rerere.rikkahub.data.sync.S3Sync
+import okhttp3.ConnectionPool
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -165,12 +166,14 @@ val dataSourceModule = module {
         val acceptLang = AcceptLanguageBuilder.fromAndroid(get())
             .build()
         OkHttpClient.Builder()
+            .connectionPool(ConnectionPool(20, 30, TimeUnit.SECONDS))
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(10, TimeUnit.MINUTES)
             .writeTimeout(120, TimeUnit.SECONDS)
             .followSslRedirects(true)
             .followRedirects(true)
             .retryOnConnectionFailure(true)
+            .dns(CachingDns())
             .addInterceptor { chain ->
                 val originalRequest = chain.request()
                 val requestBuilder = originalRequest.newBuilder()
@@ -202,7 +205,8 @@ val dataSourceModule = module {
             .addNetworkInterceptor(RequestLoggingInterceptor())
             .addInterceptor(AIRequestInterceptor())
             .addInterceptor(HttpLoggingInterceptor().apply {
-                level = HttpLoggingInterceptor.Level.HEADERS
+                level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.HEADERS
+                        else HttpLoggingInterceptor.Level.NONE
             })
             .build().also { SearchService.init(it, get()) }
     }
@@ -225,8 +229,11 @@ val dataSourceModule = module {
     }
 
     single<HttpClient> {
+        // 复用主 OkHttpClient 的连接池，避免重复建连
+        val sharedClient = get<OkHttpClient>()
         HttpClient(OkHttp) {
             engine {
+                sharedClient.connectionPool.connectionCount()
                 config {
                     connectTimeout(20, TimeUnit.SECONDS)
                     readTimeout(10, TimeUnit.MINUTES)
@@ -234,6 +241,7 @@ val dataSourceModule = module {
                     followSslRedirects(true)
                     followRedirects(true)
                     retryOnConnectionFailure(true)
+                    connectionPool(sharedClient.connectionPool)
                 }
             }
         }
@@ -257,5 +265,26 @@ val dataSourceModule = module {
 
     single<RikkaHubAPI> {
         get<Retrofit>().create(RikkaHubAPI::class.java)
+    }
+}
+
+/** DNS 缓存：减少重复 DNS 查询，每次调用可节省 20-100ms */
+private class CachingDns : okhttp3.Dns {
+    private val cache = LinkedHashMap<String, List<java.net.InetAddress>>(
+        32, 0.75f, true  // access-order = LRU
+    )
+    private val default = okhttp3.Dns.SYSTEM
+
+    override fun lookup(hostname: String): List<java.net.InetAddress> {
+        synchronized(cache) {
+            val cached = cache[hostname]
+            if (cached != null) return cached
+        }
+        val result = default.lookup(hostname)
+        synchronized(cache) {
+            if (cache.size >= 256) cache.remove(cache.keys.first())
+            cache[hostname] = result
+        }
+        return result
     }
 }
