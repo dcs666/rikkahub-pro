@@ -1,26 +1,37 @@
 {
   "project_info": {
     "project_number": "000000000000",
-    "project_id": "rikkahub-placeholder",
-    "storage_bucket": "rikkahub-placeholder.appspot.com"
+    "firebase_url": "https://placeholder.firebaseio.com",
+    "project_id": "placeholder",
+    "storage_bucket": "placeholder.appspot.com"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:000000000000:android:0000000000000000",
+        "mobilesdk_app_id": "1:000000000000:android:abc123def456",
         "android_client_info": {
           "package_name": "me.rerere.rikkahub"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "000000000000-xxxxxxxxxxxxxxxx.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
-          "current_key": "placeholder_api_key"
+          "current_key": "AIzaSyDummyKeyForBuildPurposes"
         }
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "000000000000-xxxxxxxxxxxxxxxx.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }
