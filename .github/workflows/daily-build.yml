@@ -78,30 +78,34 @@ jobs:
 
       - name: Prepare build files
         run: |
-          # 解码base64编码的keystore文件
-          echo "${{ secrets.KEY_BASE64 }}" | base64 -d > app/app.key
-
-          # 写入签名配置到local.properties
-          echo "${{ secrets.SIGNING_CONFIG }}" > local.properties
-
-          # 写入Google Services配置
-          echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > app/google-services.json
+          # 解码base64编码的keystore文件（如果secrets不存在则跳过）
+          if [ -n "${{ secrets.KEY_BASE64 }}" ]; then
+            echo "${{ secrets.KEY_BASE64 }}" | base64 -d > app/app.key
+            echo "${{ secrets.SIGNING_CONFIG }}" > local.properties
+            echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > app/google-services.json
+            echo "BUILD_TYPE=assembleRelease" >> "$GITHUB_ENV"
+          else
+            echo "🟡 Secrets not available, building debug APK instead"
+            echo "BUILD_TYPE=assembleDebug" >> "$GITHUB_ENV"
+          fi
 
       - name: Gradle Build
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease
+          ./gradlew ${{ env.BUILD_TYPE }}
 
       # 把 APK 直接发布为 Prerelease，用户点链接即可下载单个 apk，无需登录、无需解压
       - name: Publish nightly prerelease
         uses: softprops/action-gh-release@v2
         if: success()
         with:
-          tag_name: nightly            # 固定 tag，每晚覆盖同一个「最新每日构建」
+          tag_name: nightly
           name: Nightly Build
           prerelease: true
           body: |
             自动每日构建（commit `${{ github.sha }}`）
 
             > ⚠️ 开发版本，可能不稳定，仅供测试。
-          files: app/build/outputs/apk/release/*.apk
+          files: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/release/*.apk
