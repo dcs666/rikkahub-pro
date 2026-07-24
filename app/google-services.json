@@ -1,14 +1,13 @@
 {
   "project_info": {
-    "project_number": "123456789000",
-    "firebase_url": "https://fir-app-00000.firebaseio.com",
-    "project_id": "fir-app-00000",
-    "storage_bucket": "fir-app-00000.appspot.com"
+    "project_number": "000000000000",
+    "project_id": "rikkahub-dummy",
+    "storage_bucket": "rikkahub-dummy.appspot.com"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:123456789000:android:abc123def4567890",
+        "mobilesdk_app_id": "1:000000000000:android:0000000000000000",
         "android_client_info": {
           "package_name": "me.rerere.rikkahub"
         }
@@ -16,12 +15,15 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyAaaaBbbbCcccDdddEeeeFfffGgggHhh"
+          "current_key": "AIzaSyDummyKeyForBuildOnly00000000000000"
         }
       ],
       "services": {
+        "analytics_service": {
+          "status": 1
+        },
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "status": 1
         }
       }
     }
