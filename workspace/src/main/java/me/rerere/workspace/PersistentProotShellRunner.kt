@@ -28,7 +28,7 @@ class PersistentProotShellRunner(
         private const val PROOT_LOADER = "libproot_loader.so"
         private const val WORKSPACE_DIR = "/workspace"
 
-        // � 缓存每个 workspace root 的 proot 进程和通信管道
+        // 缓存每个 workspace root 的 proot 进程和通信管道
         private val prootProcesses = ConcurrentHashMap<String, Process>()
         private val commandPipes = ConcurrentHashMap<String, File>()
     }
@@ -48,10 +48,10 @@ class PersistentProotShellRunner(
         val existingProcess = prootProcesses[key]
 
         return if (existingProcess != null && existingProcess.isAlive) {
-            // � 热路径：proot 进程已存在，通过管道发送命令
+            // 热路径：proot 进程已存在，通过管道发送命令
             sendCommandViaPipe(key, context.command, context.timeoutMillis)
         } else {
-            // � 冷路径：首次启动 proot 常驻进程
+            // 冷路径：首次启动 proot 常驻进程
             startPersistentProot(context, proot, loader)
         }
     }
@@ -71,20 +71,23 @@ class PersistentProotShellRunner(
         resultDir.mkdirs()
 
         // 常驻 shell：创建 FIFO → 循环读取命令 → 执行 → 写结果
+        // $WORKSPACE_DIR 是 Kotlin 常量（值= /workspace），保留插值
+        // ${'$'}FIFO / ${'$'}cmd 等是 shell 变量，必须转义以免 Kotlin 编译器报错
+        val D = "${'$'}"
         val daemonScript = """
             /usr/bin/env -i HOME=/root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin TERM=xterm-256color LANG=C.UTF-8 LC_ALL=C.UTF-8 /bin/bash -l -c '
                 set +m
                 FIFO=$WORKSPACE_DIR/.proot_cmd
                 RESULT_DIR=$WORKSPACE_DIR/.proot_results
-                rm -f "$FIFO"
-                mkfifo "$FIFO"
+                rm -f "${D}FIFO"
+                mkfifo "${D}FIFO"
                 while true; do
-                    if read -r cmd < "$FIFO"; then
-                        [ -z "$cmd" ] && continue
-                        [ "$cmd" = "__exit__" ] && break
-                        result_file="$RESULT_DIR/out_$(date +%s%N)"
-                        eval "$cmd" > "$result_file" 2>&1
-                        echo "__exitcode__$?" >> "$result_file"
+                    if read -r cmd < "${D}FIFO"; then
+                        [ -z "${D}cmd" ] && continue
+                        [ "${D}cmd" = "__exit__" ] && break
+                        result_file="${D}RESULT_DIR/out_$(date +%s%N)"
+                        eval "${D}cmd" > "${D}result_file" 2>&1
+                        echo "__exitcode__${D}?" >> "${D}result_file"
                     fi
                 done
             '
