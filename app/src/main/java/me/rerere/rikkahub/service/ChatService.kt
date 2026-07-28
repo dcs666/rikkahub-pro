@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onCompletion
+import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.jsonObject
@@ -596,7 +597,7 @@ class ChatService(
                             ?.toText()?.take(50)?.trim() ?: "",
                     )
                 )
-            }.collect { chunk ->
+            }.sample(16L).collect { chunk ->
                 when (chunk) {
                     is GenerationChunk.Messages -> {
                         val updatedConversation = getConversationFlow(conversationId).value
@@ -623,7 +624,8 @@ class ChatService(
             Logging.log(TAG, it.stackTraceToString())
         }.onSuccess {
             val finalConversation = getConversationFlow(conversationId).value
-            saveConversation(conversationId, finalConversation)
+            // [PERF] 生成结束只写最后节点，跳过全量序列化
+            saveConversation(conversationId, finalConversation, lastNodeOnly = true)
 
             launchWithConversationReference(conversationId) {
                 generateTitle(conversationId, finalConversation)
@@ -976,7 +978,7 @@ class ChatService(
         }
     }
 
-    suspend fun saveConversation(conversationId: Uuid, conversation: Conversation) {
+    suspend fun saveConversation(conversationId: Uuid, conversation: Conversation, lastNodeOnly: Boolean = false) {
         val exists = conversationRepo.existsConversationById(conversation.id)
         if (!exists && conversation.title.isBlank() && conversation.messageNodes.isEmpty()) {
             return // 新会话且为空时不保存
@@ -987,6 +989,9 @@ class ChatService(
 
         if (!exists) {
             conversationRepo.insertConversation(updatedConversation)
+        } else if (lastNodeOnly && updatedConversation.messageNodes.isNotEmpty()) {
+            // [PERF] 生成结束快速路径：只序列化+写入最后一个节点
+            conversationRepo.updateLastNodeOnly(updatedConversation)
         } else {
             conversationRepo.updateConversation(updatedConversation)
         }

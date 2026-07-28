@@ -315,6 +315,8 @@ private fun ChatListNormal(
             itemsIndexed(
                 items = conversation.messageNodes,
                 key = { index, item -> item.id },
+                // [PERF] contentType 让 Compose 按角色复用组件，减少 inflate 开销
+                contentType = { _, item -> item.currentMessage.role },
             ) { index, node ->
                 Column {
                     ListSelectableItem(

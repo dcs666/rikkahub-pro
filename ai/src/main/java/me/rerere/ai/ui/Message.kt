@@ -228,8 +228,14 @@ fun List<UIMessage>.handleMessageChunk(chunk: MessageChunk, model: Model? = null
     if (this.last().role != message.role) {
         return this + (UIMessage(modelId = model?.id, role = message.role, parts = emptyList()) + chunk)
     } else {
+        // [PERF] 用 ArrayList 原地替换最后一个元素，避免 dropLast(1) 复制整个列表
         val last = this.last() + chunk
-        return this.dropLast(1) + last
+        val result = ArrayList<UIMessage>(this.size)
+        for (i in 0 until this.size - 1) {
+            result.add(this[i])
+        }
+        result.add(last)
+        return result
     }
 }
 

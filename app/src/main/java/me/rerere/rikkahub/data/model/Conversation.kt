@@ -57,6 +57,23 @@ data class Conversation(
     }
 
     fun updateCurrentMessages(messages: List<UIMessage>): Conversation {
+        // [PERF] 快速路径：流式生成时只有最后一条消息在变，跳过全量遍历
+        if (messages.isNotEmpty() && messages.size == this.messageNodes.size) {
+            val lastIndex = messages.lastIndex
+            val lastMessage = messages[lastIndex]
+            val lastNode = this.messageNodes[lastIndex]
+            val lastSelected = lastNode.messages[lastNode.selectIndex]
+
+            if (lastSelected.id == lastMessage.id && lastSelected !== lastMessage) {
+                val newMessages = lastNode.messages.toMutableList()
+                newMessages[lastNode.selectIndex] = lastMessage
+                val newNodes = this.messageNodes.toMutableList()
+                newNodes[lastIndex] = lastNode.copy(messages = newMessages)
+                return this.copy(messageNodes = newNodes)
+            }
+        }
+
+        // 慢速路径：消息数量变化或结构变化，走全量更新
         val newNodes = this.messageNodes.toMutableList()
 
         messages.forEachIndexed { index, message ->
