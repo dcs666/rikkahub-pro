@@ -293,28 +293,6 @@ class ConversationRepository(
         messageFtsManager.indexConversation(conversation)
     }
 
-    /**
-     * [PERF] 快速路径：只更新最后一个消息节点，跳过全量加载+序列化。
-     */
-    suspend fun updateLastNodeOnly(conversation: Conversation) {
-        val lastNode = conversation.messageNodes.lastOrNull() ?: return
-        val conversationId = conversation.id.toString()
-
-        database.withTransaction {
-            conversationDAO.update(conversationToConversationEntity(conversation))
-
-            val entity = MessageNodeEntity(
-                id = lastNode.id.toString(),
-                conversationId = conversationId,
-                nodeIndex = conversation.messageNodes.lastIndex,
-                messages = JsonInstant.encodeToString(lastNode.messages),
-                selectIndex = lastNode.selectIndex
-            )
-            messageNodeDAO.insert(entity)
-        }
-        messageFtsManager.indexConversation(conversation)
-    }
-
     suspend fun updateConversation(conversation: Conversation) {
         database.withTransaction {
             conversationDAO.update(

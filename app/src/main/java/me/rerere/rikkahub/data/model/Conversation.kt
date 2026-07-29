@@ -57,7 +57,10 @@ data class Conversation(
     }
 
     fun updateCurrentMessages(messages: List<UIMessage>): Conversation {
-        // [PERF] 快速路径：流式生成时只有最后一条消息在变，跳过全量遍历
+        // [PERF] 快速路径：流式生成时只有末尾节点的内容在变，跳过全量遍历/拷贝。
+        // 安全不变量：本方法仅有两处调用——流式 chunk（只追加/修改末尾消息，前面节点不变）
+        // 与 preset 初始化（this 为空，size 不等走慢速）。messageRange 等"中间变"的场景
+        // 因 chunk.messages.size != 当前节点数而自动落入慢速路径，故此处只比对末尾即可。
         if (messages.isNotEmpty() && messages.size == this.messageNodes.size) {
             val lastIndex = messages.lastIndex
             val lastMessage = messages[lastIndex]

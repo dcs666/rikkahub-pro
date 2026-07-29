@@ -624,8 +624,9 @@ class ChatService(
             Logging.log(TAG, it.stackTraceToString())
         }.onSuccess {
             val finalConversation = getConversationFlow(conversationId).value
-            // [PERF] 生成结束只写最后节点，跳过全量序列化
-            saveConversation(conversationId, finalConversation, lastNodeOnly = true)
+            // 必须全量落库：regenerate(messageRange) 等场景下新生成的节点落在中间 index，
+            // 末尾可能是残留旧节点；"只写末节点"会写错节点并丢失真正的新节点，故不可优化。
+            saveConversation(conversationId, finalConversation)
 
             launchWithConversationReference(conversationId) {
                 generateTitle(conversationId, finalConversation)
@@ -978,7 +979,7 @@ class ChatService(
         }
     }
 
-    suspend fun saveConversation(conversationId: Uuid, conversation: Conversation, lastNodeOnly: Boolean = false) {
+    suspend fun saveConversation(conversationId: Uuid, conversation: Conversation) {
         val exists = conversationRepo.existsConversationById(conversation.id)
         if (!exists && conversation.title.isBlank() && conversation.messageNodes.isEmpty()) {
             return // 新会话且为空时不保存
@@ -989,9 +990,6 @@ class ChatService(
 
         if (!exists) {
             conversationRepo.insertConversation(updatedConversation)
-        } else if (lastNodeOnly && updatedConversation.messageNodes.isNotEmpty()) {
-            // [PERF] 生成结束快速路径：只序列化+写入最后一个节点
-            conversationRepo.updateLastNodeOnly(updatedConversation)
         } else {
             conversationRepo.updateConversation(updatedConversation)
         }
