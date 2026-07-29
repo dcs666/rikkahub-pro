@@ -93,4 +93,4 @@ jobs:
             自动每日构建（commit `${{ github.sha }}`）
 
             > ⚠️ 开发版本，可能不稳定，仅供测试。
-          files: app/build/outputs/apk/release/*.apk
+          files: app/build/outputs/apk/debug/*.apk
