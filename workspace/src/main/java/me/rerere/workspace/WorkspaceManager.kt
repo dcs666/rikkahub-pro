@@ -134,6 +134,35 @@ class WorkspaceManager(
         return RootfsLocation(linuxDir(root), trimmed.trimStart('/'))
     }
 
+    /**
+     * [PERF] 直接宿主机 IO 写 rootfs 绝对路径，跳过 proot 进程启动。
+     * 文件落在 bind mount (/workspace, /skills) 或 linuxDir，宿主机可直接读写，
+     * 无需为每次写文件拉起 proot + cat，写入延迟从秒级降到毫秒级。
+     */
+    fun writeTextRootfs(
+        root: String,
+        path: String,
+        text: String,
+        overwrite: Boolean = true,
+        charset: Charset = StandardCharsets.UTF_8,
+    ): WorkspaceFileEntry {
+        requireValidRoot(root)
+        val location = resolveRootfsPath(root, path)
+        val file = fileSystem.resolve(location.rootDir, location.relativePath)
+        require(!file.exists() || overwrite) { "File already exists: $path" }
+        require(!file.exists() || file.isFile) { "Path is not a file: $path" }
+        file.parentFile?.mkdirs()
+        file.writeText(text, charset)
+        val normalized = path.trim().trimEnd('/')
+        return WorkspaceFileEntry(
+            path = normalized.ifBlank { "/" },
+            name = normalized.substringAfterLast('/').ifBlank { "/" },
+            isDirectory = false,
+            sizeBytes = file.length(),
+            updatedAt = file.lastModified(),
+        )
+    }
+
     fun rootfsFileSize(root: String, path: String): Long =
         resolveRootfsFile(root, path).also { it.requireReadableFile(path) }.length()
 
