@@ -7,9 +7,11 @@ import androidx.paging.PagingData
 import androidx.paging.PagingSource
 import androidx.paging.map
 import androidx.room.withTransaction
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import me.rerere.ai.ui.UIMessage
 import me.rerere.rikkahub.data.db.AppDatabase
 import me.rerere.rikkahub.data.db.fts.MessageFtsManager
@@ -267,9 +269,9 @@ class ConversationRepository(
             }
         }
 
-    suspend fun getConversationById(uuid: Uuid): Conversation? {
+    suspend fun getConversationById(uuid: Uuid): Conversation? = withContext(Dispatchers.IO) {
         val entity = conversationDAO.getConversationById(uuid.toString())
-        return if (entity != null) {
+        if (entity != null) {
             val nodes = loadMessageNodes(entity.id)
             conversationEntityToConversation(entity, nodes)
         } else null
@@ -426,46 +428,57 @@ class ConversationRepository(
         )
     }
 
-    private suspend fun loadMessageNodes(conversationId: String): List<MessageNode> {
-        val favoriteNodeIds = favoriteDAO
-            .getFavoriteNodeIdsOfConversation(conversationId)
-            .mapNotNull { runCatching { Uuid.parse(it) }.getOrNull() }
-            .toSet()
+    private suspend fun loadMessageNodes(conversationId: String): List<MessageNode> =
+        withContext(Dispatchers.IO) {
+            val favoriteNodeIds = favoriteDAO
+                .getFavoriteNodeIdsOfConversation(conversationId)
+                .mapNotNull { runCatching { Uuid.parse(it) }.getOrNull() }
+                .toSet()
 
-        return database.withTransaction {
-            val nodes = mutableListOf<MessageNode>()
-            var offset = 0
-            val pageSize = 64
-            while (true) {
-                val page = try {
-                    messageNodeDAO.getNodesOfConversationPaged(conversationId, pageSize, offset)
-                } catch (e: SQLiteBlobTooBigException) {
-                    e.printStackTrace()
-                    offset += pageSize
-                    continue
-                } catch (e: IllegalStateException) {
-                    e.printStackTrace()
-                    offset += pageSize
-                    continue
+            // [PERF] 事务内只做分页读取，把 entity 收成轻量三元组(id, messagesJson, selectIndex)；
+            // CPU 密集的 JSON 反序列化移到事务外。原因：Room 的 transaction executor 默认单线程，
+            // 原来 N 次 decode 压在 withTransaction 内会长时间占住该线程，使并发的写事务
+            // （生成结束 saveConversation、FTS 索引等）排队；decode 移出后事务只占该线程做 query。
+            // 同时整体 withContext(IO)：否则 withTransaction 返回后 decode 会恢复到调用方 dispatcher
+            // （打开会话时是 Main），反而污染主线程；放 IO 池既保主线程干净又不占 transaction 线程。
+            // decode 仍串行（不并行化）：单次 decode 很快，并行需限制并发且扰动 IO 池，收益边际，
+            // 不值得为此引入复杂度/风险。
+            val raw = database.withTransaction {
+                val acc = mutableListOf<Triple<String, String, Int>>()
+                var offset = 0
+                val pageSize = 64
+                while (true) {
+                    val page = try {
+                        messageNodeDAO.getNodesOfConversationPaged(conversationId, pageSize, offset)
+                    } catch (e: SQLiteBlobTooBigException) {
+                        e.printStackTrace()
+                        offset += pageSize
+                        continue
+                    } catch (e: IllegalStateException) {
+                        e.printStackTrace()
+                        offset += pageSize
+                        continue
+                    }
+                    if (page.isEmpty()) break
+                    page.forEach { entity ->
+                        acc.add(Triple(entity.id, entity.messages, entity.selectIndex))
+                    }
+                    offset += page.size
                 }
-                if (page.isEmpty()) break
-                page.forEach { entity ->
-                    val messages = JsonInstant.decodeFromString<List<UIMessage>>(entity.messages)
-                    val nodeId = Uuid.parse(entity.id)
-                    nodes.add(
-                        MessageNode(
-                            id = nodeId,
-                            messages = messages,
-                            selectIndex = entity.selectIndex,
-                            isFavorite = favoriteNodeIds.contains(nodeId)
-                        )
-                    )
-                }
-                offset += page.size
+                acc
             }
-            nodes
+
+            raw.map { (id, messagesJson, selectIndex) ->
+                val messages = JsonInstant.decodeFromString<List<UIMessage>>(messagesJson)
+                val nodeId = Uuid.parse(id)
+                MessageNode(
+                    id = nodeId,
+                    messages = messages,
+                    selectIndex = selectIndex,
+                    isFavorite = favoriteNodeIds.contains(nodeId),
+                )
+            }
         }
-    }
 
     private suspend fun saveMessageNodes(conversationId: String, nodes: List<MessageNode>) {
         val entities = nodes.mapIndexed { index, node ->
