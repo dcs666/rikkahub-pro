@@ -127,9 +127,11 @@ fun MarkdownNew(
     style: TextStyle = LocalTextStyle.current,
     onClickCitation: (String) -> Unit = {},
 ) {
+    // 同 MarkdownBlock：初始值取缓存（key 加 "html:" 前缀，避免与 AST 缓存条目类型冲突），
+    // 历史消息滚回命中缓存 → 主线程零 HTML 生成。
     var html by remember {
         mutableStateOf(
-            value = generateMarkdownHtml(content),
+            value = MarkdownParseCache.getOrPut("html:$content") { generateMarkdownHtml(content) },
         )
     }
 
@@ -137,7 +139,7 @@ fun MarkdownNew(
     LaunchedEffect(Unit) {
         snapshotFlow { updatedContent }
             .distinctUntilChanged()
-            .mapLatest { generateMarkdownHtml(it) }
+            .mapLatest { MarkdownParseCache.getOrPut("html:$it") { generateMarkdownHtml(it) } }
             .catch { it.printStackTrace() }
             .flowOn(Dispatchers.Default)
             .collect { html = it }

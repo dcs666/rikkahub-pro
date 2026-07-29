@@ -120,6 +120,39 @@ private val parser by lazy {
     MarkdownParser(flavour)
 }
 
+/**
+ * 进程内 Markdown 解析结果 LRU 缓存。
+ *
+ * 解决的历史滚动掉帧问题：[MarkdownBlock]/[MarkdownNew] 的 `remember { parse(content) }`
+ * 初始值在组合期间**同步**解析；当一条消息滚出 LazyColumn 被回收、再滚回重建时 remember 重置，
+ * 主线程同步解析一次长文本 → 掉帧。引入缓存后，滚回重建时初始值直接命中缓存，主线程零解析。
+ * 流式期间 content 频变大多 miss，但解析在 [Dispatchers.Default] 异步执行（见各 LaunchedEffect），
+ * 不阻塞主线程，且解析完入缓存利好后续重复显示。
+ *
+ * 注意：compute 在锁外执行，避免持锁串行化所有解析；并发 miss 同 key 可能重复 compute，
+ * 但解析幂等，结果正确，仅少量浪费，可接受。accessOrder=true 的 get 会改结构，故 get/put 均加锁。
+ */
+internal object MarkdownParseCache {
+    private const val MAX_ENTRIES = 30
+
+    private val cache = object : LinkedHashMap<String, Any>(MAX_ENTRIES, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Any>): Boolean =
+            size > MAX_ENTRIES
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    fun <T : Any> getOrPut(key: String, compute: () -> T): T {
+        synchronized(cache) {
+            cache[key]?.let { return it as T }
+        }
+        val value = compute()
+        synchronized(cache) {
+            cache[key] = value
+        }
+        return value
+    }
+}
+
 private val INLINE_LATEX_REGEX = Regex("\\\\\\((.+?)\\\\\\)")
 private val BLOCK_LATEX_REGEX = Regex("\\\\\\[(.+?)\\\\\\]", RegexOption.DOT_MATCHES_ALL)
 val THINKING_REGEX = Regex("<think>([\\s\\S]*?)(?:</think>|$)", RegexOption.DOT_MATCHES_ALL)
@@ -237,15 +270,19 @@ fun MarkdownBlock(
     style: TextStyle = LocalTextStyle.current,
     onClickCitation: (String) -> Unit = {}
 ) {
-    var (data, setData) = remember { mutableStateOf(parseMarkdown(content)) }
+    // 初始值优先取进程内缓存：历史消息滚回 LazyColumn 重建时命中缓存 → 主线程零解析，
+    // 避免 remember 初始值同步解析长文本导致掉帧；首次 miss 才同步解析一次并入缓存。
+    var (data, setData) = remember {
+        mutableStateOf(MarkdownParseCache.getOrPut(content) { parseMarkdown(content) })
+    }
 
-    // 监听内容变化，重新解析AST树
-    // 这里在后台线程解析AST树, 防止频繁更新的时候掉帧
+    // 监听内容变化，在后台线程解析 AST 树（flowOn Default + mapLatest conflate），防掉帧；
+    // 解析结果写入缓存，供后续重组 / 滚回直接命中。
     val updatedContent by rememberUpdatedState(content)
     LaunchedEffect(Unit) {
         snapshotFlow { updatedContent }
             .distinctUntilChanged()
-            .mapLatest { parseMarkdown(it) }
+            .mapLatest { MarkdownParseCache.getOrPut(it) { parseMarkdown(it) } }
             .catch { exception -> exception.printStackTrace() }
             .flowOn(Dispatchers.Default)
             .collect { setData(it) }
