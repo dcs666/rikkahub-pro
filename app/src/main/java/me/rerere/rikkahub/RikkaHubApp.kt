@@ -11,6 +11,9 @@ import androidx.compose.runtime.tooling.ComposeStackTraceMode
 import androidx.core.app.NotificationChannelCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
@@ -67,20 +70,21 @@ class RikkaHubApp : Application() {
         // Init QuickJS native library
         QuickJSLoader.init()
 
-        // delete temp files
-        deleteTempFiles()
-
-        // cleanup stale tool output files
-        cleanupToolOutputs()
-
-        // cleanup workspace temp dirs (proot + rootfs /tmp)
-        cleanupWorkspaceTempDirs()
-
-        // check workspace integrity (mark workspaces with missing files as broken after backup restore)
-        checkWorkspaceIntegrity()
-
-        // sync upload files to DB
-        syncManagedFiles()
+        // [PERF] 重 IO 的后台维护任务（删 temp、扫 workspace/upload 目录、FTS 同步等）
+        // 不在 Application.onCreate 立即触发，而是延后到首个 Activity onResume 之后。
+        // 冷启动关键路径是 Activity 的 inflate/首帧绘制，原来这些 IO 任务在 onCreate 就
+        // launch，会与首帧争抢 IO 线程与 CPU；延后到首屏出现后再跑，首屏更跟手。
+        // lifecycle-process 已在依赖中，ProcessLifecycleOwner 由 ContentProvider 自动初始化。
+        ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onResume(owner: LifecycleOwner) {
+                owner.lifecycle.removeObserver(this) // 只触发一次
+                deleteTempFiles()
+                cleanupToolOutputs()
+                cleanupWorkspaceTempDirs()
+                checkWorkspaceIntegrity()
+                syncManagedFiles()
+            }
+        })
 
         // Start WebServer if enabled in settings
         startWebServerIfEnabled()
