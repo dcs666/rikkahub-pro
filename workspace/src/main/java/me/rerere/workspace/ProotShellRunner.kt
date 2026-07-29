@@ -113,14 +113,16 @@ class ProotShellRunner(
             "TERM=xterm-256color",
             "LANG=C.UTF-8",
             "LC_ALL=C.UTF-8",
-            "/bin/bash",
+            // [FIX] 用 `bash` 走 PATH 解析: rootfs 的 /bin/bash 可能被 link2symlink 错映射/损坏成 dash,
+            // 而 /usr/bin/bash 才是完整 bash; 硬编码 /bin/bash 会让 ; | > & if heredoc 等全部失效。
+            "bash",
             "-l",
             "-c",
-            // 命令通过位置参数传入, 避免任何转义; eval "$2" 对命令文本只求值一次, 等价于 bash -c "$cmd"
-            "cd -- \"\$1\" && eval \"\$2\"",
-            "rikkahub",
-            context.prootCwd(),
-            context.command,
+            // [FIX] 命令直接内联进 -c 脚本, 去掉 eval "$2" + 位置参数间接层。
+            // proot 重写 argv 时字符串池尾指针在边界未重置, 多余位置参数会被错位/截断,
+            // 导致 $2 取不到完整命令、元字符解析全乱; 内联后命令文本完整位于单个 -c argv 内,
+            // 由 bash 自行解析, 规避该问题。cwd 用单引号包裹防注入。
+            "cd -- ${context.prootCwd().shellQuote()} && ${context.command}",
         )
         return command
     }
@@ -145,3 +147,5 @@ class ProotShellRunner(
         private val prootLock = ReentrantLock(true)
     }
 }
+
+private fun String.shellQuote(): String = "'" + replace("'", "'\"'\"'") + "'"

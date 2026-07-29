@@ -63,8 +63,9 @@ internal fun createWorkspaceTerminalSession(
         "LANG=C.UTF-8",
         "LC_ALL=C.UTF-8",
         "USER=root",
-        "SHELL=/bin/bash",
-        "/bin/bash",
+        "SHELL=/usr/bin/bash",
+        // [FIX] 走 PATH 解析 bash, 避开可能被 link2symlink 错映射成 dash 的 /bin/bash
+        "bash",
     )
 
     val env = arrayOf(
