@@ -1,6 +1,8 @@
 package me.rerere.workspace
 
 import java.io.File
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.locks.ReentrantLock
 
 data class WorkspaceBindMount(
     val source: File,
@@ -41,19 +43,35 @@ class ProotShellRunner(
             )
         }
 
-        context.tempDir.mkdirs()
-        patcher.patch(context.linuxDir)
-        val process = ProcessBuilder(buildCommand(context, proot))
-            .directory(context.filesDir)
-            .redirectErrorStream(false)
-            .apply {
-                environment()["PROOT_LOADER"] = loader.absolutePath
-                environment()["PROOT_TMP_DIR"] = context.tempDir.absolutePath
-                environment()["TMPDIR"] = context.tempDir.absolutePath
-            }
-            .start()
+        // [PERF-FIX] proot --link2symlink 使用共享数据库，不支持并发。
+        // 并行 tool call 会导致多个 proot 进程死锁。加公平锁串行化执行。
+        val waitMs = context.timeoutMillis + 5_000L
+        val acquired = prootLock.tryLock(waitMs, TimeUnit.MILLISECONDS)
+        if (!acquired) {
+            return WorkspaceCommandResult(
+                exitCode = -1,
+                stdout = "",
+                stderr = "proot lock timeout: another shell command is still running",
+                timedOut = true,
+            )
+        }
+        try {
+            context.tempDir.mkdirs()
+            patcher.patch(context.linuxDir)
+            val process = ProcessBuilder(buildCommand(context, proot))
+                .directory(context.filesDir)
+                .redirectErrorStream(false)
+                .apply {
+                    environment()["PROOT_LOADER"] = loader.absolutePath
+                    environment()["PROOT_TMP_DIR"] = context.tempDir.absolutePath
+                    environment()["TMPDIR"] = context.tempDir.absolutePath
+                }
+                .start()
 
-        return process.readResult(context.timeoutMillis, context.stdin)
+            return process.readResult(context.timeoutMillis, context.stdin)
+        } finally {
+            prootLock.unlock()
+        }
     }
 
     private fun buildCommand(
@@ -123,5 +141,7 @@ class ProotShellRunner(
         private const val PROOT_EXEC = "libproot_exec.so"
         private const val PROOT_LOADER = "libproot_loader.so"
         private val WORKSPACE_DIR = WorkspaceManager.ROOTFS_WORKSPACE_DIR
+        // [PERF-FIX] 公平锁：保证并行 tool call 排队执行，不会死锁
+        private val prootLock = ReentrantLock(true)
     }
 }
