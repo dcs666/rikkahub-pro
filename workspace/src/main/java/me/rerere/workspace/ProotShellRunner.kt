@@ -116,7 +116,10 @@ class ProotShellRunner(
             // [FIX] 用 `bash` 走 PATH 解析: rootfs 的 /bin/bash 可能被 link2symlink 错映射/损坏成 dash,
             // 而 /usr/bin/bash 才是完整 bash; 硬编码 /bin/bash 会让 ; | > & if heredoc 等全部失效。
             "bash",
-            "-l",
+            // [PERF] 去掉 -l (login shell): login 模式会 source /etc/profile + ~/.bash_profile +
+            // /etc/profile.d/*.sh, 每次 shell 调用白付几十~上百 ms; PATH/HOME/LANG/LC_ALL/TERM
+            // 已在上方 env 显式给全, AI 工具调用不依赖 login shell 的 alias/变量, 故非 login 启动
+            // 既快又干净, 无功能损失。
             "-c",
             // [FIX] 命令直接内联进 -c 脚本, 去掉 eval "$2" + 位置参数间接层。
             // proot 重写 argv 时字符串池尾指针在边界未重置, 多余位置参数会被错位/截断,

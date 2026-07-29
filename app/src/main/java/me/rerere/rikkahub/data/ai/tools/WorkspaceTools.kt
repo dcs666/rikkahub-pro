@@ -67,6 +67,8 @@ private fun createReadFileTool(
         Read a file using the assistant's bound workspace Rootfs. Paths must be absolute inside Rootfs.
         Use /workspace for the workspace files area.
         Supports UTF-8 text files and image files (png, jpg, jpeg, gif, webp, bmp).
+        PREFER THIS TOOL over shell commands (cat/head/tail) for reading files: it reads via direct
+        host IO (no process spawn) and is far faster than running a shell command.
     """.trimIndent().replace("\n", " "),
     parameters = {
         InputSchema.Obj(
@@ -104,6 +106,9 @@ private fun createWriteFileTool(
     description = """
         Write a UTF-8 text file using the assistant's bound workspace Rootfs. Paths must be absolute inside Rootfs.
         Use /workspace for the workspace files area.
+        PREFER THIS TOOL over shell commands (echo/printf/cat with redirection, heredoc) for writing
+        files: it writes via direct host IO (no process spawn) and is far faster than running a shell
+        command, and avoids shell quoting/escaping pitfalls.
     """.trimIndent().replace("\n", " "),
     parameters = {
         InputSchema.Obj(
@@ -143,6 +148,8 @@ private fun createEditFileTool(
         Use /workspace for the workspace files area.
         Provide old_text and new_text. By default old_text must occur exactly once; set replace_all=true to replace every occurrence.
         If no exact match is found, whitespace-tolerant line matching is attempted automatically.
+        PREFER THIS TOOL over shell (sed/awk/perl) for editing files: it is direct host IO (no process
+        spawn), far faster than running a shell command, and avoids shell quoting/escaping pitfalls.
     """.trimIndent().replace("\n", " "),
     parameters = {
         InputSchema.Obj(
