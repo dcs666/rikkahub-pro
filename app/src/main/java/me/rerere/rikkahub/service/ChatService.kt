@@ -597,7 +597,12 @@ class ChatService(
                             ?.toText()?.take(50)?.trim() ?: "",
                     )
                 )
-            }.sample(16L).collect { chunk ->
+            // [TURBO R1] 流式 UI 更新从 60fps(16ms) 降到 ~30fps(32ms)。
+            // 长回答生成时主线程每帧要重组正在流式的那条 markdown 消息，30fps 给每帧
+            // 多一倍的预算，直接缓解"生成时顿"。多数人对 30fps 文本流无感；若装上后
+            // 觉得流式不够跟手，可调回 16 或折中 24。kotlin sample 在源 flow 完成时仍
+            // emit 最后采样值，不丢最终消息。
+            }.sample(32L).collect { chunk ->
                 when (chunk) {
                     is GenerationChunk.Messages -> {
                         val updatedConversation = getConversationFlow(conversationId).value

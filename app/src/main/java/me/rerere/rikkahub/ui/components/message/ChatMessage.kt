@@ -374,7 +374,8 @@ private fun MessagePartsBlock(
                                                 scope = AssistantAffectScope.USER,
                                                 visual = true,
                                             ),
-                                            onClickCitation = handleClickCitation
+                                            onClickCitation = handleClickCitation,
+                                            streaming = loading,
                                         )
                                     }
                                 }
@@ -393,6 +394,7 @@ private fun MessagePartsBlock(
                                                     visual = true,
                                                 ),
                                                 onClickCitation = handleClickCitation,
+                                                streaming = loading,
                                             )
                                         }
                                     }
@@ -405,6 +407,7 @@ private fun MessagePartsBlock(
                                         ),
                                         onClickCitation = handleClickCitation,
                                         modifier = contentModifier,
+                                        streaming = loading,
                                     )
                                 }
                             }

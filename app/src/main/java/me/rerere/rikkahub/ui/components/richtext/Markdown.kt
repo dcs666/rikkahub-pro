@@ -268,7 +268,9 @@ fun MarkdownBlock(
     content: String,
     modifier: Modifier = Modifier,
     style: TextStyle = LocalTextStyle.current,
-    onClickCitation: (String) -> Unit = {}
+    onClickCitation: (String) -> Unit = {},
+    // [TURBO R3] 流式生成期间降级渲染开关，由 ChatMessage 传 loading。
+    streaming: Boolean = false,
 ) {
     // 初始值优先取进程内缓存：历史消息滚回 LazyColumn 重建时命中缓存 → 主线程零解析，
     // 避免 remember 初始值同步解析长文本导致掉帧；首次 miss 才同步解析一次并入缓存。
@@ -288,7 +290,21 @@ fun MarkdownBlock(
             .collect { setData(it) }
     }
 
-    if (data.hasHtml) {
+    if (streaming) {
+        // [TURBO R3] 流式降级渲染：生成中的消息每帧 content 真变、markdown 树真变，
+        // 长回答时主线程每帧重组整棵 markdown 子树 = "生成时顿"的根因（sample 只降频率
+        // 不降单帧成本）。降级为单个 Text(content)：主线程只 layout 一个文本节点，成本比
+        // 几百节点的 markdown 树低一个数量级。上方后台 LaunchedEffect 仍 parse 预热 data，
+        // 故 streaming→false 切完整分支时 data 已就绪，零 parse 零跳变卡顿。
+        // trade-off：生成中显示原始 markdown 标记（**、``` 等），结束才格式化——激进实验场
+        // 的有意取舍，换取生成跟手；仅作用于正在生成的末条消息，历史消息 streaming=false 不受影响。
+        ProvideTextStyle(style) {
+            Text(
+                text = content,
+                modifier = modifier.padding(horizontal = 4.dp),
+            )
+        }
+    } else if (data.hasHtml) {
         MarkdownNew(
             content = content,
             modifier = modifier,
