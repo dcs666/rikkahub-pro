@@ -144,6 +144,13 @@ class PersistentShellSession(
             "TERM=xterm-256color",
             "LANG=C.UTF-8",
             "LC_ALL=C.UTF-8",
+            // [TURBO 修复] stdbuf -oL -eL：让 bash 的 stdout/stderr 走行缓冲。
+            // 根因：bash 非交互长驻、stdout 是 pipe 时，glibc 默认 block-buffered(4KB)。
+            // 短输出命令（cd/mkdir/短 echo/写文件/grep 无结果）连同结尾 sentinel（几十字节）
+            // 会留在缓冲区不 flush，读线程等不到 sentinel → "persistent shell command timed out"。
+            // 行缓冲后每行（含 \n）即 flush，sentinel 立即到达。已在 workspace proot 复现并验证。
+            // （一次性 proot 无此问题：bash 执行完即退出，退出时 flush 全部缓冲。）
+            "stdbuf", "-oL", "-eL",
             // 非交互 bash：stdin 是 pipe 时自动非交互地读命令执行，无 prompt。
             // --norc --noprofile 不加载 rc（更快更干净，AI 工具调用不依赖 alias/变量）。
             "bash", "--norc", "--noprofile",
