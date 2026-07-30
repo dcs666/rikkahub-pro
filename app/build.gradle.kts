@@ -92,6 +92,20 @@ android {
             buildConfigField("String", "VERSION_NAME", "\"${android.defaultConfig.versionName}\"")
             buildConfigField("String", "VERSION_CODE", "\"${android.defaultConfig.versionCode}\"")
         }
+        // [TURBO] profileable：让 baseline profile 真正生效的发布变体。
+        // 背景：baseline-prof.txt(48545行)已生成、profileinstaller 已集成，但 AGP 默认只把
+        // baseline.prof 打包进 release/minified 变体，debug nightly 从不打包→从没生效(已验证
+        // debug APK 无 assets/dexopt/baseline.prof)。此变体让 nightly 用上 baseline 的 AOT 优化。
+        create("profileable") {
+            initWith(getByName("release"))   // 继承 release 的 buildConfigField 等
+            signingConfig = signingConfigs.getByName("debug")  // 用 debug 签名(CI 无 release keystore)
+            applicationIdSuffix = ".debug"   // 包名仍 dev.nebula.turbo.debug→与现 nightly 同包名同签名,覆盖安装免卸载
+            isMinifyEnabled = false          // 项目从未在 CI 验证过 R8/proguard,贸然 minify 可能 crash;baseline 打包不依赖 minify
+            isShrinkResources = false
+            isProfileable = true             // 让 AGP 把 baseline.prof 打包进 assets/dexopt/ + 允许性能分析
+            isDebuggable = false             // 非 debuggable,ART 优化更积极(继承 release)
+            matchingFallbacks += "release"   // 库模块(ai/workspace等)无此变体,回退用其 release 变体
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

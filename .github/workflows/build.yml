@@ -51,11 +51,11 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug --stacktrace
+        run: ./gradlew assembleProfileable --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: rikkahub-pro-debug
-          path: app/build/outputs/apk/debug/*.apk
+          name: rikkahub-turbo-profileable
+          path: app/build/outputs/apk/profileable/*.apk
           retention-days: 7
