@@ -27,6 +27,13 @@ import kotlin.coroutines.resumeWithException
 class Highlighter(ctx: Context) {
     private val executor = Executors.newSingleThreadExecutor()
 
+    // [TURBO] 高亮结果 LRU 缓存。accessOrder=true 让 get 也刷新顺序（真正的 LRU）；
+    // 所有访问都 synchronized 保护（get 会改链表顺序，多线程下必须同步）。最多 100 条。
+    private val cache = object : LinkedHashMap<String, List<HighlightToken>>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<HighlightToken>>?): Boolean =
+            size > MAX_CACHE_SIZE
+    }
+
     init {
         executor.submit {
             context // init context
@@ -49,7 +56,18 @@ class Highlighter(ctx: Context) {
         context.globalObject.getJSFunction("highlight")
     }
 
-    suspend fun highlight(code: String, language: String) =
+    suspend fun highlight(code: String, language: String): List<HighlightToken> {
+        // [TURBO] 高亮结果 LRU 缓存：代码块每次进 composition（滚回/切对话/展开折叠）都会重新跑
+        // QuickJS tokenize，且 Highlighter 是全局单线程串行——含多代码块的对话高亮"陆续慢出"、
+        // 滚回还要重算。缓存后命中即零 tokenize，直接返回。key 用完整 language+code（无哈希碰撞风险）。
+        val key = "$language\n$code"
+        synchronized(cache) { cache[key]?.let { return it } }
+        val tokens = highlightRaw(code, language)
+        synchronized(cache) { cache[key] = tokens }
+        return tokens
+    }
+
+    private suspend fun highlightRaw(code: String, language: String): List<HighlightToken> =
         suspendCancellableCoroutine { continuation ->
             executor.submit {
                 runCatching {
@@ -90,6 +108,10 @@ class Highlighter(ctx: Context) {
 
     fun destroy() {
         context.destroy()
+    }
+
+    private companion object {
+        private const val MAX_CACHE_SIZE = 100
     }
 }
 

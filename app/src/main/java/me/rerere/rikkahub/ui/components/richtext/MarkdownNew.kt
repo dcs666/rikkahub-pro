@@ -146,7 +146,11 @@ fun MarkdownNew(
     }
 
     val document = remember(html) {
-        runCatching { Jsoup.parse(html) }.getOrElse { Jsoup.parse("") }
+        // [TURBO] Jsoup.parse 结果缓存：generateMarkdownHtml（markdown→HTML）已缓存，但 HTML→DOM
+        // 这步原本没缓存、在主线程同步跑。缓存后历史消息滚回/重组命中即零 parse。复用 MarkdownParseCache。
+        MarkdownParseCache.getOrPut("jsoup:$html") {
+            runCatching { Jsoup.parse(html) }.getOrElse { Jsoup.parse("") }
+        }
     }
 
     ProvideTextStyle(style) {
