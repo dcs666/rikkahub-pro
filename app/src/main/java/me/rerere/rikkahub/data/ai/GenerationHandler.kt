@@ -30,6 +30,8 @@ import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.ToolApprovalState
 import me.rerere.ai.ui.handleMessageChunk
+import android.os.SystemClock
+import kotlinx.serialization.json.JsonObject
 import me.rerere.ai.ui.limitContext
 import me.rerere.rikkahub.data.ai.transformers.InputMessageTransformer
 import me.rerere.rikkahub.data.ai.transformers.MessageTransformer
@@ -416,23 +418,87 @@ class GenerationHandler(
             }
         )
         if (stream) {
+            // [TURBO] 流式 text O(n²) 缓解。长回答"reasoning 完成后 text 暴涨"阶段，原逻辑每个网络
+            // token 都跑 appendChunk 的 `lastText + delta`（O(n) 复制整段 text），在 IO 线程累计 O(n²)，
+            // 表现为长回答末段出字变慢 + GC 压力。优化：该阶段用 StringBuilder 累积 text（每 token
+            // O(1) append），降频 ~30fps 才 snapshot 回末尾消息的 text 槽。仅当"末尾 part 是 Text 且本帧
+            // delta 是单个纯 Text 且 role 匹配且无 usage/annotations"时启用 text-only 累积器；其余一律
+            // fallback 原 handleMessageChunk（tool/role 切换/reasoning/image/usage/annotations/首帧正确性
+            // 不变）。text-only 累积器只镜像 appendChunk 的"acc 末尾是 Text 则追加"这一条分支，故纯 text
+            // 流式场景结果与原逻辑逐条等价，仅降低复制频率。不动 UIMessage 不可变模型。
+            var textBuf: StringBuilder? = null
+            var textBaseParts: List<UIMessagePart>? = null
+            var textMeta: JsonObject? = null
+            var lastFlush = 0L
+
+            fun flushText() {
+                val buf = textBuf ?: return
+                val base = textBaseParts ?: return
+                val last = messages.last()
+                val newParts = base + UIMessagePart.Text(text = buf.toString(), metadata = textMeta)
+                messages = ArrayList<UIMessage>(messages.size).apply {
+                    for (i in 0 until messages.size - 1) add(messages[i])
+                    add(last.copy(parts = newParts))
+                }
+                textBuf = null
+                textBaseParts = null
+            }
+
             providerImpl.streamText(
                 providerSetting = provider,
                 messages = internalMessages,
                 params = params
-            ).collect {
-                messages = messages.handleMessageChunk(chunk = it, model = model)
-                it.usage?.let { usage ->
-                    messages = messages.mapIndexed { index, message ->
-                        if (index == messages.lastIndex) {
-                            message.copy(usage = message.usage.merge(usage))
+            ).collect { chunk ->
+                val choice = chunk.choices.getOrNull(0)
+                val delta = choice?.delta ?: choice?.message
+                val lastParts = messages.lastOrNull()?.parts
+                val lastIsText = lastParts?.lastOrNull() is UIMessagePart.Text
+                val deltaTextPart = (delta?.parts?.singleOrNull() as? UIMessagePart.Text)
+                val canAbsorbText = deltaTextPart != null &&
+                    deltaTextPart.metadata == null &&
+                    chunk.usage == null &&
+                    (delta?.annotations?.isEmpty() == true) &&
+                    delta?.role == messages.lastOrNull()?.role &&
+                    lastIsText
+
+                if (canAbsorbText && deltaTextPart != null) {
+                    val dt = deltaTextPart.text
+                    if (dt.isNotEmpty()) {
+                        val buf = textBuf
+                        if (buf == null) {
+                            val lp = messages.last().parts
+                            val lastText = lp.last() as UIMessagePart.Text
+                            textBaseParts = lp.subList(0, lp.size - 1)
+                            textMeta = lastText.metadata
+                            textBuf = StringBuilder(lastText.text).append(dt)
                         } else {
-                            message
+                            buf.append(dt)
+                        }
+                        val now = SystemClock.elapsedRealtime()
+                        if (now - lastFlush >= 32L) {
+                            flushText()
+                            onUpdateMessages(messages)
+                            lastFlush = now
                         }
                     }
+                } else {
+                    flushText()
+                    messages = messages.handleMessageChunk(chunk = chunk, model = model)
+                    chunk.usage?.let { usage ->
+                        messages = messages.mapIndexed { index, message ->
+                            if (index == messages.lastIndex) {
+                                message.copy(usage = message.usage.merge(usage))
+                            } else {
+                                message
+                            }
+                        }
+                    }
+                    onUpdateMessages(messages)
+                    lastFlush = SystemClock.elapsedRealtime()
                 }
-                onUpdateMessages(messages)
             }
+            flushText()
+            onUpdateMessages(messages)
         } else {
             val chunk = providerImpl.generateText(
                 providerSetting = provider,
