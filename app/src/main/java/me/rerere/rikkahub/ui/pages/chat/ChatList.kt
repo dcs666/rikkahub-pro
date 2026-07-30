@@ -132,6 +132,7 @@ fun ChatList(
     onTranslate: ((UIMessage, java.util.Locale) -> Unit)? = null,
     onClearTranslation: (UIMessage) -> Unit = {},
     onJumpToMessage: (Int) -> Unit = {},
+    expandedMessages: MutableMap<Uuid, Boolean>,
     onToolApproval: ((toolCallId: String, approved: Boolean, reason: String) -> Unit)? = null,
     onToolAnswer: ((toolCallId: String, answer: String) -> Unit)? = null,
     onToggleFavorite: ((MessageNode) -> Unit)? = null,
@@ -178,6 +179,7 @@ fun ChatList(
                 onToolAnswer = onToolAnswer,
                 onToggleFavorite = onToggleFavorite,
                 onConversationSystemPromptChange = onConversationSystemPromptChange,
+                expandedMessages = expandedMessages,
             )
         }
     }
@@ -185,6 +187,7 @@ fun ChatList(
 
 @Composable
 private fun ChatListNormal(
+    expandedMessages: MutableMap<Uuid, Boolean>,
     innerPadding: PaddingValues,
     conversation: Conversation,
     state: LazyListState,
@@ -245,9 +248,8 @@ private fun ChatListNormal(
 
     // 聊天选择
     val selectedItems = remember { mutableStateListOf<Uuid>() }
-    // [TURBO R2] 长消息展开状态：key=消息 id，value=是否已展开。提升到 ChatList 是因为
-    // LazyColumn 滚出会回收 item、丢掉 ChatMessage 内的 remember；放在这里滚回后仍保持展开。
-    val expandedMessages = remember { mutableStateMapOf<Uuid, Boolean>() }
+    // [TURBO R2] 长消息展开状态：由 ChatPage 通过参数传入（深链/搜索跳转时 ChatPage 写入展开标记）。
+    // map 实例在 ChatPage remember，不随 LazyColumn item 回收，滚回仍保持展开。
     var selecting by remember { mutableStateOf(false) }
     var showExportSheet by remember { mutableStateOf(false) }
 
