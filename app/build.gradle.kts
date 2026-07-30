@@ -20,7 +20,12 @@ android {
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "dev.nebula.hub"
+        // [TURBO] 独立包名，与 pro(dev.nebula.hub.debug) 共存，免卸载。
+        // 仅改 applicationId：三个 provider authority 均为 ${applicationId}.xxx 动态引用，
+        // 自动跟随；namespace 保持 me.rerere.rikkahub 不动（改它牵连全部 import 且无助于共存，
+        // shortcuts.xml 的 targetClass 也依赖该 namespace 类路径）。firebase 插件已禁用、无
+        // google-services.json，故不触发包名校验。
+        applicationId = "dev.nebula.turbo"
         minSdk = 26
         targetSdk = 37
         versionCode = 171
