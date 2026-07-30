@@ -57,6 +57,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -244,6 +245,9 @@ private fun ChatListNormal(
 
     // 聊天选择
     val selectedItems = remember { mutableStateListOf<Uuid>() }
+    // [TURBO R2] 长消息展开状态：key=消息 id，value=是否已展开。提升到 ChatList 是因为
+    // LazyColumn 滚出会回收 item、丢掉 ChatMessage 内的 remember；放在这里滚回后仍保持展开。
+    val expandedMessages = remember { mutableStateMapOf<Uuid, Boolean>() }
     var selecting by remember { mutableStateOf(false) }
     var showExportSheet by remember { mutableStateOf(false) }
 
@@ -366,6 +370,9 @@ private fun ChatListNormal(
                             onToolApproval = onToolApproval,
                             onToolAnswer = onToolAnswer,
                             lastMessage = index == lastMessageIndex,
+                            // [TURBO R2] 长消息折叠：展开状态由 ChatList 的 expandedMessages 统一管理
+                            isExpanded = expandedMessages[node.currentMessage.id] == true,
+                            onExpand = { expandedMessages[node.currentMessage.id] = true },
                         )
                     }
                 }

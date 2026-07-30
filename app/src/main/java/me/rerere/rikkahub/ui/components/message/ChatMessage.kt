@@ -117,8 +117,23 @@ fun ChatMessage(
     onClearTranslation: (UIMessage) -> Unit = {},
     onToolApproval: ((toolCallId: String, approved: Boolean, reason: String) -> Unit)? = null,
     onToolAnswer: ((toolCallId: String, answer: String) -> Unit)? = null,
+    // [TURBO R2] 长消息折叠状态：由 ChatList 提升管理（LazyColumn 滚出回收 item 会丢
+    // ChatMessage 内的 remember，提升到 ChatList 后滚回仍保持展开）。
+    isExpanded: Boolean = false,
+    onExpand: () -> Unit = {},
 ) {
     val message = node.messages[node.selectIndex]
+    // [TURBO R2] 长消息折叠：滚回长 assistant 消息时 LazyColumn 必须 initial compose 整棵
+    // markdown 子树 = "滚历史卡"根因。超长消息默认折叠成轻量纯文本预览，滚回只组合预览（极轻），
+    // 展开才渲染完整 markdown 树。仅折叠 assistant（滚历史卡主因；user 消息短且点击=编辑，折叠
+    // 会与编辑手势冲突）。复制/编辑/fork 仍基于完整 message.parts（折叠只是渲染层），全文功能不受影响。
+    val messageTextLength = remember(message.parts) {
+        message.parts.filterIsInstance<UIMessagePart.Text>().sumOf { it.text.length }
+    }
+    val shouldCollapse = message.role != MessageRole.USER &&
+        !loading &&
+        !isExpanded &&
+        messageTextLength > MESSAGE_COLLAPSE_THRESHOLD
     val settings = LocalSettings.current.displaySetting
     val chatFontFamily = LocalChatFontFamily.current ?: rememberChatFontFamily(settings)
     val textStyle = LocalTextStyle.current.copy(
@@ -159,23 +174,32 @@ fun ChatMessage(
             }
         }
         ProvideTextStyle(textStyle) {
-            MessagePartsBlock(
-                assistant = assistant,
-                role = message.role,
-                parts = message.parts,
-                annotations = message.annotations,
-                loading = loading,
-                model = model,
-                onToolApproval = onToolApproval,
-                onToolAnswer = onToolAnswer,
-                onUserMessageClick = if (message.role == MessageRole.USER) onEdit else null,
-            )
-
-            message.translation?.let { translation ->
-                CollapsibleTranslationText(
-                    content = translation,
-                    onClickCitation = {}
+            if (shouldCollapse) {
+                // [TURBO R2] 折叠态：只组合一个纯文本预览 + 展开按钮，不组合 markdown 树。
+                CollapsedMessagePreview(
+                    message = message,
+                    textLength = messageTextLength,
+                    onExpand = onExpand,
                 )
+            } else {
+                MessagePartsBlock(
+                    assistant = assistant,
+                    role = message.role,
+                    parts = message.parts,
+                    annotations = message.annotations,
+                    loading = loading,
+                    model = model,
+                    onToolApproval = onToolApproval,
+                    onToolAnswer = onToolAnswer,
+                    onUserMessageClick = if (message.role == MessageRole.USER) onEdit else null,
+                )
+
+                message.translation?.let { translation ->
+                    CollapsibleTranslationText(
+                        content = translation,
+                        onClickCitation = {}
+                    )
+                }
             }
         }
 
@@ -627,6 +651,48 @@ private fun MessagePartsBlock(
                 }
             ) {
                 Text(stringResource(R.string.citations_count, annotations.size))
+            }
+        }
+    }
+}
+
+// [TURBO R2] 长消息折叠：阈值（文本超过此长度则默认折叠）与折叠态预览截取长度。
+private const val MESSAGE_COLLAPSE_THRESHOLD = 1500
+private const val MESSAGE_COLLAPSE_PREVIEW_LENGTH = 300
+
+/**
+ * [TURBO R2] 长消息折叠态占位符。
+ *
+ * 只组合一个纯文本预览 + 展开按钮，**不解析 markdown、不组合 markdown 树**——这是滚历史卡
+ * 的关键：LazyColumn 滚回长消息时只需 initial compose 这个极轻的占位符，而非几百节点的
+ * markdown 子树。点击展开后由 [ChatMessage] 切回完整的 MessagePartsBlock 渲染。
+ * 预览用原始文本（含 markdown 标记），与 R3 流式降级一致的取舍。
+ */
+@Composable
+private fun CollapsedMessagePreview(
+    message: UIMessage,
+    textLength: Int,
+    onExpand: () -> Unit,
+) {
+    val previewText = remember(message.parts) {
+        message.parts
+            .filterIsInstance<UIMessagePart.Text>()
+            .joinToString("\n") { it.text }
+            .take(MESSAGE_COLLAPSE_PREVIEW_LENGTH)
+    }
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            text = previewText,
+            maxLines = 8,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            TextButton(onClick = onExpand) {
+                // TODO(i18n): 折叠按钮文案暂硬编码中文，后续可抽到 strings.xml
+                Text("展开全文（约 $textLength 字）")
             }
         }
     }
