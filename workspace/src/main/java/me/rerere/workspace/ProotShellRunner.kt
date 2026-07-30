@@ -17,6 +17,9 @@ class ProotShellRunner(
     private val nativeLibraryDir: File,
     private val patcher: RootfsPatcher = RootfsPatcher(),
 ) : WorkspaceShellRunner {
+    // [TURBO] 常驻 proot+bash 会话，shell 性能质变核心。与一次性路径共享 patcher（patch 幂等）。
+    private val persistentSession = PersistentShellSession(patcher)
+
     override fun execute(context: WorkspaceShellContext): WorkspaceCommandResult {
         if (!context.linuxDir.hasUsableRootfs()) {
             return WorkspaceCommandResult(
@@ -57,21 +60,41 @@ class ProotShellRunner(
         }
         try {
             context.tempDir.mkdirs()
-            patcher.patch(context.linuxDir)
-            val process = ProcessBuilder(buildCommand(context, proot))
-                .directory(context.filesDir)
-                .redirectErrorStream(false)
-                .apply {
-                    environment()["PROOT_LOADER"] = loader.absolutePath
-                    environment()["PROOT_TMP_DIR"] = context.tempDir.absolutePath
-                    environment()["TMPDIR"] = context.tempDir.absolutePath
-                }
-                .start()
-
-            return process.readResult(context.timeoutMillis, context.stdin)
+            // [TURBO] 需要 stdin 输入的命令走一次性 proot：常驻会话的 stdin 是命令通道，
+            // 不能再喂给命令本身，故 stdin 非空时直接走一次性路径。
+            if (context.stdin != null) {
+                return executeOneShot(context, proot, loader)
+            }
+            // [TURBO] 优先走常驻 proot+bash 会话（首次秒级、后续几十 ms）。任何失败
+            // （启动失败/进程死/读超时/sentinel 缺失）都销毁会话并退回一次性 proot，绝不丢功能。
+            return try {
+                persistentSession.execute(context, proot, loader)
+            } catch (e: Exception) {
+                persistentSession.destroy()
+                executeOneShot(context, proot, loader)
+            }
         } finally {
             prootLock.unlock()
         }
+    }
+
+    // [TURBO] 一次性 proot 执行路径（原逻辑），作为常驻会话的 fallback 与 stdin 命令的路径。
+    private fun executeOneShot(
+        context: WorkspaceShellContext,
+        proot: File,
+        loader: File,
+    ): WorkspaceCommandResult {
+        patcher.patch(context.linuxDir)
+        val process = ProcessBuilder(buildCommand(context, proot))
+            .directory(context.filesDir)
+            .redirectErrorStream(false)
+            .apply {
+                environment()["PROOT_LOADER"] = loader.absolutePath
+                environment()["PROOT_TMP_DIR"] = context.tempDir.absolutePath
+                environment()["TMPDIR"] = context.tempDir.absolutePath
+            }
+            .start()
+        return process.readResult(context.timeoutMillis, context.stdin)
     }
 
     private fun buildCommand(
