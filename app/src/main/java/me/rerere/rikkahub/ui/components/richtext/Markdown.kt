@@ -161,6 +161,36 @@ private val BREAK_LINE_REGEX = Regex("(?i)<br\\s*/?>")
 private val LATEX_BLOCK_LINE_BREAK_REGEX = Regex("""[ \t]*\r?\n[ \t]*""")
 
 // 预处理markdown内容
+// [TURBO R3+] 流式降级渲染专用：把 markdown 源码擦成"近似干净文本"，消除生成中裸标记闪烁。
+// 顶层正则只编译一次。擦除是确定性的（同 content → 同结果），故不会"闪现又消失"。
+// 流式半截未闭合标记由末尾兜底删除处理；生成结束 streaming=false 切完整渲染，显示真正格式。
+private val STREAM_FENCED_CODE = Regex("```[^\\n]*\\n([\\s\\S]*?)```")
+private val STREAM_INLINE_CODE = Regex("`([^`\\n]+)`")
+private val STREAM_LINK = Regex("!?\\[([^\\]]*)]\\([^)]*\\)")
+private val STREAM_BOLD = Regex("\\*\\*([\\s\\S]+?)\\*\\*|__([\\s\\S]+?)__")
+private val STREAM_ITALIC =
+    Regex("(?<![\\*\\w])\\*([^\\*\\n]+?)\\*(?![\\*\\w])|(?<![_\\w])_([^_\\n]+?)_(?![_\\w])")
+private val STREAM_HEADING = Regex("(?m)^#{1,6}\\s+")
+private val STREAM_QUOTE = Regex("(?m)^>\\s?")
+private val STREAM_STRAY_STAR = Regex("(?<!\\*)\\*{1,3}(?!\\*)")
+
+private fun stripStreamingMarkdown(content: String): String {
+    if (content.isEmpty()) return content
+    var r = content
+    r = STREAM_FENCED_CODE.replace(r) { it.groupValues[1] }
+    r = STREAM_INLINE_CODE.replace(r) { it.groupValues[1] }
+    r = STREAM_LINK.replace(r) { it.groupValues[1] }
+    r = STREAM_BOLD.replace(r) { it.groupValues[1].ifEmpty { it.groupValues[2] } }
+    r = STREAM_ITALIC.replace(r) { it.groupValues[1].ifEmpty { it.groupValues[2] } }
+    r = STREAM_HEADING.replace(r, "")
+    r = STREAM_QUOTE.replace(r, "")
+    // 兜底：删除流式未闭合残留的裸标记（```、孤立 * ** ***、`）。近似处理，生成完即恢复。
+    r = r.replace("```", "")
+    r = r.replace(STREAM_STRAY_STAR, "")
+    r = r.replace("`", "")
+    return r
+}
+
 private fun preProcess(content: String): String {
     // 先找出所有代码块的位置
     val codeBlocks = mutableListOf<IntRange>()
@@ -297,10 +327,13 @@ fun MarkdownBlock(
         // 几百节点的 markdown 树低一个数量级。上方后台 LaunchedEffect 仍 parse 预热 data，
         // 故 streaming→false 切完整分支时 data 已就绪，零 parse 零跳变卡顿。
         // trade-off：生成中显示原始 markdown 标记（**、``` 等），结束才格式化——激进实验场
-        // 的有意取舍，换取生成跟手；仅作用于正在生成的末条消息，历史消息 streaming=false 不受影响。
+        // [TURBO R3+] 不再显示原始标记：喂给 Text 的是 stripStreamingMarkdown 擦除标记后的近似
+        // 干净文本（remember 缓存，content 变才重算）。擦除是确定性的→不会"闪现又消失"；成本为
+        // 每帧若干 O(n) 正则 replace，远低于完整 parse+compose 树，不退化生成跟手。生成结束
+        // streaming=false 切完整渲染分支，显示真正格式化的 markdown。
         ProvideTextStyle(style) {
             Text(
-                text = content,
+                text = remember(content) { stripStreamingMarkdown(content) },
                 modifier = modifier.padding(horizontal = 4.dp),
             )
         }
