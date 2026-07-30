@@ -25,7 +25,13 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 class Highlighter(ctx: Context) {
-    private val executor = Executors.newSingleThreadExecutor()
+    // [TURBO] 并行高亮：单线程 executor → 固定线程池（池大小 PARALLELISM）。QuickJS 单 context
+    // 线程不安全，故每线程一个独立 context（threadContext，ThreadLocal）。批次1的缓存已消除重复
+    // tokenize，本并行进一步把"首次打开多代码块对话"的串行 tokenize 并行化。
+    private val executor = Executors.newFixedThreadPool(PARALLELISM)
+
+    // 所有已创建的 context（destroy 时统一销毁）。ThreadLocal 无法遍历各线程的值，故自维护列表。
+    private val contexts = mutableListOf<QuickJSContext>()
 
     // [TURBO] 高亮结果 LRU 缓存。accessOrder=true 让 get 也刷新顺序（真正的 LRU）；
     // 所有访问都 synchronized 保护（get 会改链表顺序，多线程下必须同步）。最多 100 条。
@@ -34,26 +40,26 @@ class Highlighter(ctx: Context) {
             size > MAX_CACHE_SIZE
     }
 
-    init {
-        executor.submit {
-            context // init context
-        }
-    }
-
     private val script: String by lazy {
         ctx.resources.openRawResource(R.raw.prism).use {
             it.bufferedReader().readText()
         }
     }
 
-    private val context: QuickJSContext by lazy {
-        QuickJSContext.create().also {
-            it.evaluate(script)
+    // 每线程一个独立 QuickJS context（QuickJS 单 context 线程不安全）。创建时登记到 contexts。
+    private val threadContext = object : ThreadLocal<QuickJSContext>() {
+        override fun initialValue(): QuickJSContext {
+            val context = QuickJSContext.create().also { it.evaluate(script) }
+            synchronized(contexts) { contexts.add(context) }
+            return context
         }
     }
 
-    private val highlightFn by lazy {
-        context.globalObject.getJSFunction("highlight")
+    init {
+        // 预热：让一个线程提前创建 context，避免首次高亮的创建延迟。
+        executor.submit {
+            threadContext.get()
+        }
     }
 
     suspend fun highlight(code: String, language: String): List<HighlightToken> {
@@ -71,6 +77,7 @@ class Highlighter(ctx: Context) {
         suspendCancellableCoroutine { continuation ->
             executor.submit {
                 runCatching {
+                    val highlightFn = threadContext.get().globalObject.getJSFunction("highlight")
                     val result = highlightFn.call(code, language)
                     require(result is QuickJSArray) {
                         "highlight result must be an array"
@@ -107,11 +114,16 @@ class Highlighter(ctx: Context) {
         }
 
     fun destroy() {
-        context.destroy()
+        synchronized(contexts) {
+            contexts.forEach { runCatching { it.destroy() } }
+            contexts.clear()
+        }
     }
 
     private companion object {
         private const val MAX_CACHE_SIZE = 100
+        // 并行高亮线程池大小。每线程一个 QuickJS context（各占几 MB），3 是并行度与内存的平衡。
+        private const val PARALLELISM = 3
     }
 }
 
