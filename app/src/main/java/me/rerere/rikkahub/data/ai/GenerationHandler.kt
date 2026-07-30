@@ -1,7 +1,6 @@
 package me.rerere.rikkahub.data.ai
 
 import android.content.Context
-import android.os.SystemClock
 import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -30,8 +29,6 @@ import me.rerere.ai.registry.ModelRegistry
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.ToolApprovalState
-import me.rerere.ai.ui.MessageChunk
-import me.rerere.ai.ui.UIMessageChoice
 import me.rerere.ai.ui.handleMessageChunk
 import me.rerere.ai.ui.limitContext
 import me.rerere.rikkahub.data.ai.transformers.InputMessageTransformer
@@ -419,107 +416,23 @@ class GenerationHandler(
             }
         )
         if (stream) {
-            // [TURBO] 流式 O(n²) 优化：provider 每个网络 token chunk 原本都触发 handleMessageChunk
-            // → appendChunk 的 `lastPart.text + delta` O(n) 字符串复制，长回答/图片(base64)生成累计
-            // O(n²)（越到后面越卡 + 海量临时 String 的 GC 压力）。
-            // 优化：用 StringBuilder 把连续"简单 chunk"（同 role、纯 Text/Reasoning/Image、无 usage/
-            // annotations）的 delta 合并（每 token 仅 O(1) append），降频到 ~30fps 才构建一次合并
-            // chunk 走 handleMessageChunk，把 O(n) 复制的频率从"每 token"降到"每帧"（约 30 倍改善）。
-            // 复杂 chunk（role 切换 / Tool / usage / annotations）先 flush 缓冲再走原逻辑，正确性不变。
-            val textDelta = StringBuilder()
-            val reasoningDelta = StringBuilder()
-            val imageDelta = StringBuilder()
-            var accumulatedRole: MessageRole? = null
-            var lastFlushTime = 0L
-
-            suspend fun flushBuffer() {
-                if (textDelta.isEmpty() && reasoningDelta.isEmpty() && imageDelta.isEmpty()) return
-                val deltaParts = buildList {
-                    if (reasoningDelta.isNotEmpty()) {
-                        add(UIMessagePart.Reasoning(reasoning = reasoningDelta.toString(), finishedAt = null))
-                    }
-                    if (textDelta.isNotEmpty()) {
-                        add(UIMessagePart.Text(text = textDelta.toString()))
-                    }
-                    if (imageDelta.isNotEmpty()) {
-                        add(UIMessagePart.Image(url = imageDelta.toString()))
-                    }
-                }
-                val mergedChunk = MessageChunk(
-                    id = "turbo-merged",
-                    model = model.id.toString(),
-                    choices = listOf(
-                        UIMessageChoice(
-                            index = 0,
-                            delta = UIMessage(
-                                role = accumulatedRole ?: MessageRole.ASSISTANT,
-                                parts = deltaParts,
-                                modelId = model.id,
-                            ),
-                            message = null,
-                            finishReason = null,
-                        )
-                    ),
-                )
-                messages = messages.handleMessageChunk(chunk = mergedChunk, model = model)
-                textDelta.clear()
-                reasoningDelta.clear()
-                imageDelta.clear()
-            }
-
             providerImpl.streamText(
                 providerSetting = provider,
                 messages = internalMessages,
                 params = params
-            ).collect { chunk ->
-                val choice = chunk.choices.getOrNull(0)
-                val delta = choice?.delta ?: choice?.message
-                val isSimple = delta != null &&
-                    chunk.usage == null &&
-                    delta.annotations.isEmpty() &&
-                    (accumulatedRole == null || delta.role == accumulatedRole) &&
-                    delta.parts.all {
-                        it is UIMessagePart.Text || it is UIMessagePart.Reasoning || it is UIMessagePart.Image
-                    }
-
-                if (isSimple && delta != null) {
-                    // 快路：O(1) append 到缓冲，降频 flush
-                    if (accumulatedRole == null) accumulatedRole = delta.role
-                    delta.parts.forEach { part ->
-                        when (part) {
-                            is UIMessagePart.Text -> textDelta.append(part.text)
-                            is UIMessagePart.Reasoning -> reasoningDelta.append(part.reasoning)
-                            is UIMessagePart.Image -> imageDelta.append(part.url)
-                            else -> Unit
+            ).collect {
+                messages = messages.handleMessageChunk(chunk = it, model = model)
+                it.usage?.let { usage ->
+                    messages = messages.mapIndexed { index, message ->
+                        if (index == messages.lastIndex) {
+                            message.copy(usage = message.usage.merge(usage))
+                        } else {
+                            message
                         }
                     }
-                    val now = SystemClock.elapsedRealtime()
-                    if (now - lastFlushTime >= 32L) {
-                        flushBuffer()
-                        onUpdateMessages(messages)
-                        lastFlushTime = now
-                    }
-                } else {
-                    // 慢路：先 flush 缓冲，再走原逻辑（role 切换 / Tool / usage / annotations）
-                    flushBuffer()
-                    messages = messages.handleMessageChunk(chunk = chunk, model = model)
-                    chunk.usage?.let { usage ->
-                        messages = messages.mapIndexed { index, message ->
-                            if (index == messages.lastIndex) {
-                                message.copy(usage = message.usage.merge(usage))
-                            } else {
-                                message
-                            }
-                        }
-                    }
-                    onUpdateMessages(messages)
-                    accumulatedRole = null
-                    lastFlushTime = SystemClock.elapsedRealtime()
                 }
+                onUpdateMessages(messages)
             }
-            // 流结束：flush 剩余缓冲，确保尾部 delta 不丢
-            flushBuffer()
-            onUpdateMessages(messages)
         } else {
             val chunk = providerImpl.generateText(
                 providerSetting = provider,
