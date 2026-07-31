@@ -73,6 +73,33 @@ android {
                 }
             }
         }
+
+        // [TURBO] 固定 debug 签名：CI 的 workflow 从 DEBUG_KEYSTORE_B64 secret 解出固定 keystore
+        // 写入 local.properties（debug.storeFile 等），各次构建签名一致 → 覆盖安装免卸载。
+        // local.properties 缺失对应属性时保持 AGP 默认行为（本地开发不受影响）。
+        getByName("debug").apply {
+            val localProperties = Properties()
+            val localPropertiesFile = rootProject.file("local.properties")
+
+            if (localPropertiesFile.exists()) {
+                localProperties.load(FileInputStream(localPropertiesFile))
+
+                val storeFilePath = localProperties.getProperty("debug.storeFile")
+                val storePasswordValue = localProperties.getProperty("debug.storePassword")
+                val keyAliasValue = localProperties.getProperty("debug.keyAlias")
+                val keyPasswordValue = localProperties.getProperty("debug.keyPassword")
+
+                if (storeFilePath != null && storePasswordValue != null &&
+                    keyAliasValue != null && keyPasswordValue != null
+                ) {
+                    storeFile = file(storeFilePath)
+                    storePassword = storePasswordValue
+                    keyAlias = keyAliasValue
+                    keyPassword = keyPasswordValue
+                    storeType = "PKCS12"
+                }
+            }
+        }
     }
 
     buildTypes {

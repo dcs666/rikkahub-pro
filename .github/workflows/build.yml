@@ -50,6 +50,19 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      - name: Setup fixed debug signing
+        if: secrets.DEBUG_KEYSTORE_B64 != ''
+        env:
+          DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
+        run: |
+          printf '%s' "$DEBUG_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/debug.keystore"
+          {
+            echo "debug.storeFile=$RUNNER_TEMP/debug.keystore"
+            echo "debug.storePassword=android"
+            echo "debug.keyAlias=androiddebugkey"
+            echo "debug.keyPassword=android"
+          } >> local.properties
+
       - name: Build debug APK
         run: ./gradlew assembleProfileable --stacktrace
 
