@@ -77,10 +77,13 @@ jobs:
           key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
 
       - name: Setup fixed debug signing
-        if: secrets.DEBUG_KEYSTORE_B64 != ''
         env:
           DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
         run: |
+          if [ -z "$DEBUG_KEYSTORE_B64" ]; then
+            echo "DEBUG_KEYSTORE_B64 not set, skipping fixed signing"
+            exit 0
+          fi
           printf '%s' "$DEBUG_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/debug.keystore"
           {
             echo "debug.storeFile=$RUNNER_TEMP/debug.keystore"
