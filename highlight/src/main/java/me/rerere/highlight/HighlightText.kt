@@ -3,7 +3,6 @@ package me.rerere.highlight
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -11,23 +10,48 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.util.fastForEach
-
-val LocalHighlighter = compositionLocalOf<Highlighter> { error("No Highlighter provided") }
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private const val MAX_CODE_LENGTH = 4096
 
+// [TURBO] 全局高亮结果 LRU 缓存（引擎无关，跨 composition 生命周期生效）。
+// LazyColumn 滚出回收后滚回时 remember 状态丢失，上游 CodeHighlightText 会重新 tokenize；
+// 本缓存让滚回命中零重复计算。accessOrder=true 使 get 也刷新顺序（真 LRU），多线程同步保护。
+private object HighlightCache {
+    private const val MAX_SIZE = 100
+    private val cache = object : LinkedHashMap<String, List<HighlightToken>>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<HighlightToken>>?): Boolean =
+            size > MAX_SIZE
+    }
+
+    private fun key(code: String, language: String): String = "$language\u0000$code"
+
+    fun get(code: String, language: String): List<HighlightToken>? =
+        synchronized(this) { cache[key(code, language)] }
+
+    fun put(code: String, language: String, tokens: List<HighlightToken>) {
+        synchronized(this) { cache[key(code, language)] = tokens }
+    }
+}
+
+/**
+ * Async code highlighting built on the upstream pure-Kotlin [CodeHighlighter].
+ *
+ * [TURBO] Unlike upstream's synchronous [CodeHighlightText] (which runs the engine inside
+ * `remember` on the main thread during composition), this component runs the engine on
+ * [Dispatchers.Default] via a snapshotFlow, so opening a conversation with many code blocks
+ * never blocks the main thread. Results are cached in the process-wide [HighlightCache], so
+ * scrolling back into a recycled item costs zero re-tokenization.
+ */
 @Composable
 fun HighlightText(
     code: String,
@@ -44,23 +68,24 @@ fun HighlightText(
     maxLines: Int = Int.MAX_VALUE,
     minLines: Int = 1,
 ) {
-    val highlighter = LocalHighlighter.current
-    var tokens: List<HighlightToken> by remember { mutableStateOf(emptyList()) }
+    val highlighter = LocalCodeHighlighter.current
     var annotatedString by remember { mutableStateOf(AnnotatedString(code)) }
 
     val updatedCode by rememberUpdatedState(code)
     val updatedLanguage by rememberUpdatedState(language)
     LaunchedEffect(Unit) {
-        snapshotFlow { updatedCode to updatedLanguage }.collect {
-            tokens = if (updatedCode.length <= MAX_CODE_LENGTH) {
-                highlighter.highlight(updatedCode, updatedLanguage)
+        snapshotFlow { updatedCode to updatedLanguage }.collect { (currentCode, currentLanguage) ->
+            val tokens = if (currentCode.length <= MAX_CODE_LENGTH) {
+                HighlightCache.get(currentCode, currentLanguage)
+                    ?: withContext(Dispatchers.Default) {
+                        highlighter.highlight(currentCode, currentLanguage)
+                            .also { HighlightCache.put(currentCode, currentLanguage, it) }
+                    }
             } else {
-                listOf(
-                    HighlightToken.Plain(content = updatedCode)
-                )
+                listOf(HighlightToken.Plain(currentCode))
             }
             annotatedString = buildAnnotatedString {
-                tokens.fastForEach { token ->
+                tokens.forEach { token ->
                     buildHighlightText(token, colors)
                 }
             }
@@ -78,96 +103,6 @@ fun HighlightText(
         overflow = overflow,
         softWrap = softWrap,
         maxLines = maxLines,
-        minLines = minLines
+        minLines = minLines,
     )
-}
-
-fun AnnotatedString.Builder.buildHighlightText(
-    token: HighlightToken,
-    colors: HighlightTextColorPalette
-) {
-    when (token) {
-        is HighlightToken.Plain -> {
-            append(token.content)
-        }
-
-        is HighlightToken.Token.StringContent -> {
-            withStyle(getStyleForTokenType(token.type, colors)) {
-                append(token.content)
-            }
-        }
-
-        is HighlightToken.Token.StringListContent -> {
-            withStyle(getStyleForTokenType(token.type, colors)) {
-                token.content.fastForEach { append(it) }
-            }
-        }
-
-        is HighlightToken.Token.Nested -> {
-            token.content.forEach {
-                buildHighlightText(it, colors)
-            }
-        }
-    }
-}
-
-data class HighlightTextColorPalette(
-    val keyword: Color,
-    val string: Color,
-    val number: Color,
-    val comment: Color,
-    val function: Color,
-    val operator: Color,
-    val punctuation: Color,
-    val className: Color,
-    val property: Color,
-    val boolean: Color,
-    val variable: Color,
-    val tag: Color,
-    val attrName: Color,
-    val attrValue: Color,
-    val fallback: Color
-) {
-    companion object {
-        val Default = HighlightTextColorPalette(
-            keyword = Color(0xFFCC7832),
-            string = Color(0xFF6A8759),
-            number = Color(0xFF6897BB),
-            comment = Color(0xFF808080),
-            function = Color(0xFFFFC66D),
-            operator = Color(0xFFCC7832),
-            punctuation = Color(0xFFCC7832),
-            className = Color(0xFFCB772F),
-            property = Color(0xFFCB772F),
-            boolean = Color(0xFF6897BB),
-            variable = Color(0xFF6A8759),
-            tag = Color(0xFFE8BF6A),
-            attrName = Color(0xFFBABABA),
-            attrValue = Color(0xFF6A8759),
-            fallback = Color(0xFF808080),
-        )
-    }
-}
-
-// 根据token类型返回对应的文本样式
-private fun getStyleForTokenType(type: String, colors: HighlightTextColorPalette): SpanStyle {
-    return when (type) {
-        "keyword" -> SpanStyle(color = colors.keyword)
-        "string" -> SpanStyle(color = colors.string) // 绿色
-        "number" -> SpanStyle(color = colors.number) // 蓝色
-        "comment" -> SpanStyle(color = colors.comment, fontStyle = FontStyle.Italic) // 灰色斜体
-        "function", "method" -> SpanStyle(color = colors.function) // 黄色
-        "operator" -> SpanStyle(color = colors.operator) // 橙色
-        "punctuation" -> SpanStyle(color = colors.punctuation) // 橙色
-        "class-name", "property" -> SpanStyle(color = colors.className) // 棕色
-        "boolean", "constant" -> SpanStyle(color = colors.boolean) // 蓝色
-        "regex", "important", "variable" -> SpanStyle(color = colors.variable)
-        "tag" -> SpanStyle(color = colors.tag) // 黄色
-        "attr-name" -> SpanStyle(color = colors.attrName) // 浅灰色
-        "attr-value" -> SpanStyle(color = colors.attrValue) // 绿色
-        else -> {
-            // println("unknown type $type")
-            SpanStyle(color = colors.fallback)
-        }
-    }
 }
