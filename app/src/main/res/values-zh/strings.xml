@@ -1252,6 +1252,15 @@ mDNS 地址：使用 .local 主机名，同一网络中的其他设备可通过�
   <string name="error_mcp_invalid_server_name">无效的MCP服务器名称（仅允许字母数字字符）：%1$s</string>
   <string name="log_page_record_requests">记录请求</string>
   <string name="log_page_record_requests_desc">捕获请求标头、正文和响应元数据</string>
+  <string name="log_purpose_chat">主对话</string>
+  <string name="log_purpose_suggestion">建议回复</string>
+  <string name="log_purpose_title">标题生成</string>
+  <string name="log_purpose_other">其他</string>
+  <string name="log_request_model">模型</string>
+  <string name="log_request_effort">推理档位</string>
+  <string name="log_request_stream">流式</string>
+  <string name="log_request_stream_yes">流式</string>
+  <string name="log_request_stream_no">非流式</string>
   <string name="chat_message_tool_recent_chats">查看最近的对话</string>
   <string name="chat_message_tool_conversation_search">搜索历史：%1$s</string>
   <string name="assistant_page_local_tools_screen_time_title">屏幕时间</string>

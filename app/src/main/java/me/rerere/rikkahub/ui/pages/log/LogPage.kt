@@ -32,6 +32,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
@@ -215,6 +216,51 @@ private fun RequestLogCard(log: LogEntry.RequestLog, onClick: () -> Unit) {
             )
 
             Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                log.purpose?.let { purpose ->
+                    Text(
+                        text = purposeLabel(purpose),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = if (purpose == "chat") {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.tertiary
+                        }
+                    )
+                }
+                log.model?.let { model ->
+                    Text(
+                        text = model,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = JetbrainsMono,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                log.effort?.let { effort ->
+                    Text(
+                        text = effort,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = JetbrainsMono,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+                log.stream?.let { streaming ->
+                    Text(
+                        text = stringResource(
+                            if (streaming) R.string.log_request_stream_yes
+                            else R.string.log_request_stream_no
+                        ),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Row(
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 log.responseCode?.let { code ->
@@ -276,6 +322,30 @@ private fun RequestLogDetail(log: LogEntry.RequestLog) {
 
             item {
                 DetailSection("Method", log.method)
+            }
+
+            log.purpose?.let { purpose ->
+                item {
+                    DetailSection("Purpose", purposeLabel(purpose))
+                }
+            }
+
+            log.model?.let { model ->
+                item {
+                    DetailSection("Model", model)
+                }
+            }
+
+            log.effort?.let { effort ->
+                item {
+                    DetailSection("Effort", effort)
+                }
+            }
+
+            log.stream?.let { streaming ->
+                item {
+                    DetailSection("Stream", streaming.toString())
+                }
             }
 
             log.responseCode?.let { code ->
@@ -359,6 +429,14 @@ private fun RequestLogDetail(log: LogEntry.RequestLog) {
             }
         }
     }
+}
+
+@Composable
+private fun purposeLabel(purpose: String): String = when (purpose) {
+    "chat" -> stringResource(R.string.log_purpose_chat)
+    "suggestion" -> stringResource(R.string.log_purpose_suggestion)
+    "title" -> stringResource(R.string.log_purpose_title)
+    else -> stringResource(R.string.log_purpose_other)
 }
 
 @Composable

@@ -31,7 +31,11 @@ sealed class LogEntry {
         val responseCode: Int? = null,
         val responseHeaders: Map<String, String> = emptyMap(),
         val durationMs: Long? = null,
-        val error: String? = null
+        val error: String? = null,
+        val model: String? = null,
+        val effort: String? = null,
+        val stream: Boolean? = null,
+        val purpose: String? = null
     ) : LogEntry()
 }
 

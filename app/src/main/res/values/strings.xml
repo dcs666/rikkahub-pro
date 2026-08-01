@@ -1258,6 +1258,15 @@
   <string name="setting_mcp_page_name_invalid">Name can only contain English letters and numbers</string>
   <string name="log_page_record_requests">Record requests</string>
   <string name="log_page_record_requests_desc">Capture request headers, bodies, and response metadata</string>
+  <string name="log_purpose_chat">Chat</string>
+  <string name="log_purpose_suggestion">Suggestion</string>
+  <string name="log_purpose_title">Title</string>
+  <string name="log_purpose_other">Other</string>
+  <string name="log_request_model">Model</string>
+  <string name="log_request_effort">Effort</string>
+  <string name="log_request_stream">Stream</string>
+  <string name="log_request_stream_yes">Streaming</string>
+  <string name="log_request_stream_no">Non-streaming</string>
   <string name="chat_message_tool_recent_chats">View recent chats</string>
   <string name="chat_message_tool_conversation_search">Search history: %1$s</string>
   <string name="assistant_page_local_tools_screen_time_title">Screen Time</string>
