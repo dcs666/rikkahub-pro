@@ -394,7 +394,10 @@ class ChatCompletionsAPI(
                             put("type", if (!level.isEnabled) "disabled" else "enabled")
                         })
                         if (level.isEnabled && level != ReasoningLevel.AUTO) {
-                            put("reasoning_effort", level.effort)
+                            // DeepSeek 官方 OpenAI 格式支持 reasoning_effort: low/high/max
+                            // (https://api-docs.deepseek.com/zh-cn/guides/thinking_mode/)
+                            // App 的最高档 XHIGH("xhigh") 映射成官方支持的 "max"
+                            put("reasoning_effort", if (level == ReasoningLevel.XHIGH) "max" else level.effort)
                         }
                     }
 
