@@ -398,8 +398,20 @@ class ChatCompletionsAPI(
                         if (level.isEnabled && level != ReasoningLevel.AUTO) {
                             // DeepSeek 官方 OpenAI 格式支持 reasoning_effort: low/high/max
                             // (https://api-docs.deepseek.com/zh-cn/guides/thinking_mode/)
-                            // App 的最高档 XHIGH("xhigh") 映射成官方支持的 "max"
-                            put("reasoning_effort", if (level == ReasoningLevel.XHIGH) "max" else level.effort)
+                            // 请求传入 effort 与模型实际映射见文档表格（v4-flash: low/high/max 三档；
+                            // v4-pro 8 月初前 low 按 high 处理、xhigh 按 max 处理，之后支持三档）。
+                            // App 档位映射：
+                            //   XHIGH("xhigh") -> "max"
+                            //   MEDIUM("medium") -> "high"（官方枚举无 medium，服务端会把 medium/xhigh
+                            //     映射为 high；此处显式映射保证 ChatCompletions / Responses / Anthropic
+                            //     三条路径一致，也为将来服务端映射变化兜底）
+                            //   LOW -> "low" / HIGH -> "high" 透传
+                            val effort = when (level) {
+                                ReasoningLevel.XHIGH -> "max"
+                                ReasoningLevel.MEDIUM -> "high"
+                                else -> level.effort
+                            }
+                            put("reasoning_effort", effort)
                         }
                     }
 
@@ -497,11 +509,17 @@ class ChatCompletionsAPI(
         val contentBuffer = mutableListOf<UIMessagePart>()
         var reasoningPart: UIMessagePart.Reasoning? = null
 
+        // DeepSeek 思考模式文档：携带 tools 参数的请求，在后续所有请求中必须完整回传
+        // reasoning_content，否则 API 返回 400。因此只要该 assistant 消息含工具调用
+        // （Tool part，含已执行的工具输出），无论用户是否关闭 includeHistoryReasoning
+        // 都必须回传其思维链。
+        val forceIncludeReasoning = message.parts.any { it is UIMessagePart.Tool }
+
         for (group in groups) {
             when (group) {
                 is PartGroup.Content -> {
                     // 从当前 group 中提取 reasoning（保持顺序）
-                    if (includeReasoning) {
+                    if (includeReasoning || forceIncludeReasoning) {
                         group.parts.filterIsInstance<UIMessagePart.Reasoning>().firstOrNull()?.let {
                             reasoningPart = it
                         }

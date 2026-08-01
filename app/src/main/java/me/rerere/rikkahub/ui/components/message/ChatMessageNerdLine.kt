@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.datetime.toJavaLocalDateTime
 import me.rerere.ai.ui.UIMessage
 import me.rerere.hugeicons.HugeIcons
+import me.rerere.hugeicons.stroke.AiBrain01
 import me.rerere.hugeicons.stroke.Clock02
 import me.rerere.hugeicons.stroke.Download04
 import me.rerere.hugeicons.stroke.Upload02
@@ -81,6 +82,21 @@ fun ChatMessageNerdLine(
                             Text(text = "${usage.completionTokens.formatNumber()} tokens")
                         }
                     )
+                    // Reasoning (thinking) tokens — DeepSeek 等模型在 usage 中单独汇报思维链 token 数
+                    if (usage.reasoningTokens > 0) {
+                        StatsItem(
+                            icon = {
+                                Icon(
+                                    imageVector = HugeIcons.AiBrain01,
+                                    contentDescription = "Thinking",
+                                    modifier = Modifier.size(12.dp)
+                                )
+                            },
+                            content = {
+                                Text(text = "${usage.reasoningTokens.formatNumber()} thinking")
+                            }
+                        )
+                    }
                     // TPS
                     if (message.finishedAt != null) {
                         val duration = Duration.between(

@@ -63,4 +63,22 @@ class ChatCompletionsAPIUsageTest {
             usage("""{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}""")?.cachedTokens
         )
     }
+
+    // DeepSeek 在 usage.completion_tokens_details.reasoning_tokens 汇报思维链 token 数
+    // （https://api-docs.deepseek.com/zh-cn/guides/thinking_mode/ 输入输出参数）
+    @Test
+    fun `reasoning tokens parsed from completion_tokens_details`() {
+        fun usage(jsonStr: String) = parseTokenUsage(Json.parseToJsonElement(jsonStr).jsonObject)
+
+        // DeepSeek 嵌套格式
+        assertEquals(
+            42,
+            usage("""{"prompt_tokens":1,"completion_tokens":100,"total_tokens":101,"completion_tokens_details":{"reasoning_tokens":42}}""")?.reasoningTokens
+        )
+        // 没有该字段时为 0
+        assertEquals(
+            0,
+            usage("""{"prompt_tokens":1,"completion_tokens":100,"total_tokens":101}""")?.reasoningTokens
+        )
+    }
 }

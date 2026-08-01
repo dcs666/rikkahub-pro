@@ -135,7 +135,7 @@
   <string name="assistant_page_tab_request">カスタムリクエスト</string>
   <string name="assistant_page_tags">タグ</string>
   <string name="assistant_page_temperature">温度</string>
-  <string name="assistant_page_temperature_warning">通常は 1 です。推論モデルでは変更を推奨しません。</string>
+  <string name="assistant_page_temperature_warning">通常は 1 です。推論モデルでは変更を推奨しません。注意：思考モードでは temperature/top_p は無効です（エラーは出ませんが効果もありません）。</string>
   <string name="assistant_page_template_preview">プレビュー:</string>
   <string name="assistant_page_template_variable_date">日付</string>
   <string name="assistant_page_template_variable_message">内容</string>

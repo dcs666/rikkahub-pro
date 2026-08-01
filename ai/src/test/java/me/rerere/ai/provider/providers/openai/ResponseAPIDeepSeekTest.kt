@@ -112,6 +112,26 @@ class ResponseAPIDeepSeekTest {
     }
 
     @Test
+    fun `deepseek request omits unsupported summary and encrypted content params`() {
+        // DeepSeek Responses API 文档：reasoning.summary 可传入但不生成摘要；encrypted_content 不支持
+        // → 不发送 reasoning.summary，也不请求 reasoning.encrypted_content 输出
+        val body = invokeBuildRequestBody(deepSeekSetting(), reasoningParams(ReasoningLevel.HIGH))
+        assertNull(body["reasoning"]?.jsonObject?.get("summary"))
+        assertNull(body["include"])
+    }
+
+    @Test
+    fun `non deepseek host keeps summary and encrypted content params`() {
+        // OpenAI 官方 Responses API 不受影响：仍请求 summary 与 encrypted content
+        val body = invokeBuildRequestBody(
+            ProviderSetting.OpenAI(baseUrl = "https://api.openai.com/v1"),
+            reasoningParams(ReasoningLevel.HIGH)
+        )
+        assertEquals("auto", body["reasoning"]?.jsonObject?.get("summary")?.jsonPrimitive?.content)
+        assertEquals("reasoning.encrypted_content", body["include"]?.jsonArray?.first()?.jsonPrimitive?.content)
+    }
+
+    @Test
     fun `deepseek reasoning history uses plaintext content not summary`() {
         val assistant = UIMessage(
             role = MessageRole.ASSISTANT,

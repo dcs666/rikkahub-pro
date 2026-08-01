@@ -251,6 +251,11 @@ object ModelRegistry {
         toolAbility()
     }
 
+    // 2026-07-24 起 deepseek-chat / deepseek-reasoner 旧模型名已停用（官方公告，见
+    // https://api-docs.deepseek.com/zh-cn/news/news250929 及 2026-07-24 更新日志）：
+    // - deepseek-chat 对应新名 deepseek-v3.2（非思考模型，仅 tool）
+    // - deepseek-reasoner 对应新名 deepseek-v3.2 / v4-flash / v4-pro（思考模型）
+    // 此处仍保留匹配 token 仅用于兼容旧配置；新配置应使用 v3.2/v4 系列模型名。
     private val DEEPSEEK_CHAT = defineModel {
         tokens("deepseek", "chat")
         toolAbility()
@@ -260,6 +265,7 @@ object ModelRegistry {
         add(DEEPSEEK_V3_MODEL, DEEPSEEK_CHAT)
     }
 
+    // 已停用的旧思考模型名（2026-07-24），仅保留用于兼容旧配置，见 DEEPSEEK_CHAT 注释
     private val DEEPSEEK_R1_MODEL = defineModel {
         tokens("deepseek", "r", "1")
         toolReasoningAbility()

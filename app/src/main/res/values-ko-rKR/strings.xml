@@ -135,7 +135,7 @@
   <string name="assistant_page_tab_request">사용자 요청</string>
   <string name="assistant_page_tags">태그</string>
   <string name="assistant_page_temperature">온도</string>
-  <string name="assistant_page_temperature_warning">일반적으로 1입니다. 추론 모델에서는 변경을 권장하지 않습니다.</string>
+  <string name="assistant_page_temperature_warning">일반적으로 1입니다. 추론 모델에서는 변경을 권장하지 않습니다. 참고: 생각 모드에서는 temperature/top_p가 적용되지 않습니다(오류는 없지만 효과도 없음).</string>
   <string name="assistant_page_template_preview">미리보기:</string>
   <string name="assistant_page_template_variable_date">날짜</string>
   <string name="assistant_page_template_variable_message">내용</string>

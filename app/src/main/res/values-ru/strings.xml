@@ -135,7 +135,7 @@
   <string name="assistant_page_tab_request">Пользовательский запрос</string>
   <string name="assistant_page_tags">Теги</string>
   <string name="assistant_page_temperature">Температура</string>
-  <string name="assistant_page_temperature_warning">Обычно 1. Для моделей рассуждения изменение не рекомендуется.</string>
+  <string name="assistant_page_temperature_warning">Обычно 1. Для моделей рассуждения изменение не рекомендуется. Примечание: в режиме мышления temperature/top_p не действуют (ошибки нет, но и эффекта нет).</string>
   <string name="assistant_page_template_preview">Предпросмотр:</string>
   <string name="assistant_page_template_variable_date">Дата</string>
   <string name="assistant_page_template_variable_message">Содержимое</string>

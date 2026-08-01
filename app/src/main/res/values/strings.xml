@@ -135,7 +135,7 @@
   <string name="assistant_page_tab_request">Custom Request</string>
   <string name="assistant_page_tags">Tags</string>
   <string name="assistant_page_temperature">Temperature</string>
-  <string name="assistant_page_temperature_warning">Usually 1. Not recommended to change for reasoning models.</string>
+  <string name="assistant_page_temperature_warning">Usually 1. Not recommended to change for reasoning models. Note: thinking mode ignores temperature/top_p (no error, but no effect either).</string>
   <string name="assistant_page_template_preview">Preview:</string>
   <string name="assistant_page_template_variable_date">Date</string>
   <string name="assistant_page_template_variable_message">Content</string>

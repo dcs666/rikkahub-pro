@@ -53,6 +53,7 @@ data class MessageTokenStats(
     val promptTokens: Long = 0,
     val completionTokens: Long = 0,
     val cachedTokens: Long = 0,
+    val reasoningTokens: Long = 0,
 )
 
 data class MessageDayCount(val day: String, val count: Int)
@@ -62,7 +63,8 @@ private val TOKEN_STATS_SQL = SimpleSQLiteQuery(
     "SELECT COUNT(*) AS totalMessages, " +
         "COALESCE(SUM(CAST(json_extract(j.value, '$.usage.promptTokens') AS INTEGER)), 0) AS promptTokens, " +
         "COALESCE(SUM(CAST(json_extract(j.value, '$.usage.completionTokens') AS INTEGER)), 0) AS completionTokens, " +
-        "COALESCE(SUM(CAST(json_extract(j.value, '$.usage.cachedTokens') AS INTEGER)), 0) AS cachedTokens " +
+        "COALESCE(SUM(CAST(json_extract(j.value, '$.usage.cachedTokens') AS INTEGER)), 0) AS cachedTokens, " +
+        "COALESCE(SUM(CAST(json_extract(j.value, '$.usage.reasoningTokens') AS INTEGER)), 0) AS reasoningTokens " +
         "FROM message_node mn, json_each(mn.messages) j"
 )
 

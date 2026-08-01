@@ -135,7 +135,7 @@
   <string name="assistant_page_tab_request">自定義請求</string>
   <string name="assistant_page_tags">標籤</string>
   <string name="assistant_page_temperature">溫度</string>
-  <string name="assistant_page_temperature_warning">通常為 1。對於推理模型不建議修改。</string>
+  <string name="assistant_page_temperature_warning">通常為 1。對於推理模型不建議修改。注意：思考模式下 temperature/top_p 不生效（不報錯但無效）。</string>
   <string name="assistant_page_template_preview">預覽:</string>
   <string name="assistant_page_template_variable_date">日期</string>
   <string name="assistant_page_template_variable_message">內容</string>

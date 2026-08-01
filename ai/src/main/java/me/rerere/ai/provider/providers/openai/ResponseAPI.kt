@@ -816,6 +816,14 @@ internal fun resolveResponseProviderCapabilities(host: String): ResponseProvider
             supportEncryptedContent = false
         )
 
+        "api.deepseek.com" -> ResponseProviderCapabilities(
+            // DeepSeek Responses API 文档（guides/responses_api）：reasoning 输入 item 仅支持
+            // 明文 content，summary / encrypted_content 不支持；请求参数 reasoning.summary
+            // 可传入但不生成摘要 → 不发送无效参数；也不请求 reasoning.encrypted_content 输出
+            supportsReasoningSummary = false,
+            supportEncryptedContent = false
+        )
+
         else -> ResponseProviderCapabilities()
     }
 }
