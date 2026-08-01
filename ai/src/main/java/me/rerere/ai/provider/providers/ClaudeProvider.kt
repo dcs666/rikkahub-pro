@@ -53,6 +53,7 @@ import me.rerere.ai.util.stringSafe
 import me.rerere.ai.util.toHeaders
 import me.rerere.common.http.await
 import me.rerere.common.http.jsonPrimitiveOrNull
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -315,26 +316,58 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
             // Anthropic 新 API: adaptive 模式 + output_config.effort 控制强度
             // 旧的 type=enabled + budget_tokens 在 Opus 4.7+ 上已不支持
             if (params.model.abilities.contains(ModelAbility.REASONING)) {
-                when (params.reasoningLevel) {
-                    ReasoningLevel.OFF -> {
-                        put("thinking", buildJsonObject { put("type", "disabled") })
-                    }
+                val host = providerSetting.baseUrl.toHttpUrl().host
+                if (host == "api.deepseek.com") {
+                    // DeepSeek Anthropic 兼容层（base_url=api.deepseek.com/anthropic）：
+                    // 官方文档支持 thinking 开关（budget_tokens 被忽略）与 output_config.effort
+                    // （仅 none/low/high/max）。App 的 XHIGH("xhigh")/MEDIUM("medium") 需映射到
+                    // 官方枚举，否则思考强度控制静默失效；adaptive/display 为 Anthropic 新格式，
+                    // 兼容层未声明支持，此处用老格式 type=enabled/disabled。
+                    when (params.reasoningLevel) {
+                        ReasoningLevel.OFF -> {
+                            put("thinking", buildJsonObject { put("type", "disabled") })
+                        }
 
-                    ReasoningLevel.AUTO -> {
-                        put("thinking", buildJsonObject {
-                            put("type", "adaptive")
-                            put("display", "summarized")
-                        })
-                    }
+                        ReasoningLevel.AUTO -> {
+                            put("thinking", buildJsonObject { put("type", "enabled") })
+                        }
 
-                    else -> {
-                        put("thinking", buildJsonObject {
-                            put("type", "adaptive")
-                            put("display", "summarized")
-                        })
-                        put("output_config", buildJsonObject {
-                            put("effort", params.reasoningLevel.effort)
-                        })
+                        else -> {
+                            put("thinking", buildJsonObject { put("type", "enabled") })
+                            put("output_config", buildJsonObject {
+                                put(
+                                    "effort",
+                                    when (params.reasoningLevel) {
+                                        ReasoningLevel.XHIGH -> "max"
+                                        ReasoningLevel.MEDIUM -> "high"
+                                        else -> params.reasoningLevel.effort // low/high
+                                    }
+                                )
+                            })
+                        }
+                    }
+                } else {
+                    when (params.reasoningLevel) {
+                        ReasoningLevel.OFF -> {
+                            put("thinking", buildJsonObject { put("type", "disabled") })
+                        }
+
+                        ReasoningLevel.AUTO -> {
+                            put("thinking", buildJsonObject {
+                                put("type", "adaptive")
+                                put("display", "summarized")
+                            })
+                        }
+
+                        else -> {
+                            put("thinking", buildJsonObject {
+                                put("type", "adaptive")
+                                put("display", "summarized")
+                            })
+                            put("output_config", buildJsonObject {
+                                put("effort", params.reasoningLevel.effort)
+                            })
+                        }
                     }
                 }
             }

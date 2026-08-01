@@ -204,7 +204,9 @@ class ResponseAPI(
             put("stream", stream)
             put("store", false)
 
-            if (isModelAllowTemperature(params.model)) {
+            // DeepSeek 思考模式下 temperature/top_p 不生效（官方文档：不报错但无效），不发送避免误导
+            val deepSeekThinking = host == "api.deepseek.com" && params.reasoningLevel.isEnabled
+            if (isModelAllowTemperature(params.model) && !deepSeekThinking) {
                 if (params.temperature != null) put("temperature", params.temperature)
                 if (params.topP != null) put("top_p", params.topP)
             }
@@ -219,7 +221,9 @@ class ResponseAPI(
             }
 
             // messages
-            put("input", buildMessages(messages))
+            // DeepSeek Responses API 的 reasoning 输入 item 不支持 summary 字段（官方文档：
+            // 明文 content 才被归并），需用明文 content 回传思维链（工具调用场景必须回传）
+            put("input", buildMessages(messages, usePlainReasoningContent = host == "api.deepseek.com"))
 
             // reasoning
             if (params.model.abilities.contains(ModelAbility.REASONING)) {
@@ -229,7 +233,18 @@ class ResponseAPI(
                         put("summary", "auto")
                     }
                     if (level != ReasoningLevel.AUTO) {
-                        put("effort", level.effort)
+                        // DeepSeek Responses API 的 effort 只支持 low/high/max（thinking_mode 文档），
+                        // App 的 XHIGH("xhigh")/MEDIUM("medium") 需映射到官方枚举，否则强度静默失效
+                        val effort = if (host == "api.deepseek.com") {
+                            when (level) {
+                                ReasoningLevel.XHIGH -> "max"
+                                ReasoningLevel.MEDIUM -> "high"
+                                else -> level.effort // none/low/high
+                            }
+                        } else {
+                            level.effort
+                        }
+                        put("effort", effort)
                     }
                 })
                 if (capabilities.supportEncryptedContent) {
@@ -285,19 +300,25 @@ class ResponseAPI(
         }.mergeCustomBody(params.customBody)
     }
 
-    internal fun buildMessages(messages: List<UIMessage>) = buildJsonArray {
+    internal fun buildMessages(
+        messages: List<UIMessage>,
+        usePlainReasoningContent: Boolean = false,
+    ) = buildJsonArray {
         messages
             .filter { it.isValidToUpload() && it.role != MessageRole.SYSTEM }
             .forEach { message ->
                 if (message.role == MessageRole.ASSISTANT) {
-                    addAssistantItems(message)
+                    addAssistantItems(message, usePlainReasoningContent)
                 } else {
                     addUserItems(message)
                 }
             }
     }
 
-    private fun JsonArrayBuilder.addAssistantItems(message: UIMessage) {
+    private fun JsonArrayBuilder.addAssistantItems(
+        message: UIMessage,
+        usePlainReasoningContent: Boolean = false,
+    ) {
         val groups = groupPartsByToolBoundary(message.parts)
         val contentBuffer = mutableListOf<UIMessagePart>()
 
@@ -319,12 +340,17 @@ class ResponseAPI(
                                     reasoningMetadata?.reasoningId?.let {
                                         put("id", it)
                                     }
-                                    put("summary", buildJsonArray {
-                                        add(buildJsonObject {
-                                            put("type", "summary_text")
-                                            put("text", part.reasoning)
+                                    if (usePlainReasoningContent) {
+                                        // DeepSeek Responses API 不支持 summary 字段，用明文 content 回传思维链
+                                        put("content", part.reasoning)
+                                    } else {
+                                        put("summary", buildJsonArray {
+                                            add(buildJsonObject {
+                                                put("type", "summary_text")
+                                                put("text", part.reasoning)
+                                            })
                                         })
-                                    })
+                                    }
                                     reasoningMetadata?.encryptedContent?.let {
                                         put("encrypted_content", it)
                                     }
@@ -760,6 +786,9 @@ class ResponseAPI(
             completionTokens = jsonObject["output_tokens"]?.jsonPrimitive?.intOrNull ?: 0,
             totalTokens = jsonObject["total_tokens"]?.jsonPrimitive?.intOrNull ?: 0,
             cachedTokens = jsonObject["input_tokens_details"]?.jsonObjectOrNull?.get("cached_tokens")?.jsonPrimitive?.intOrNull
+                ?: 0,
+            // DeepSeek 等 provider 汇报思维链 token 数
+            reasoningTokens = jsonObject["output_tokens_details"]?.jsonObjectOrNull?.get("reasoning_tokens")?.jsonPrimitive?.intOrNull
                 ?: 0
         )
     }

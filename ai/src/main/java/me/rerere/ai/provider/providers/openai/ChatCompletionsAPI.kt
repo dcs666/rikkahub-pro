@@ -270,7 +270,9 @@ class ChatCompletionsAPI(
                 )
             )
 
-            if (isModelAllowTemperature(params.model)) {
+            // DeepSeek 思考模式下 temperature/top_p 不生效（官方文档：不报错但无效），不发送避免误导
+            val deepSeekThinking = host == "api.deepseek.com" && params.reasoningLevel.isEnabled
+            if (isModelAllowTemperature(params.model) && !deepSeekThinking) {
                 if (params.temperature != null) put("temperature", params.temperature)
                 if (params.topP != null) put("top_p", params.topP)
             }
@@ -810,6 +812,9 @@ class ChatCompletionsAPI(
             cachedTokens = jsonObject["prompt_tokens_details"]?.jsonObjectOrNull?.get("cached_tokens")?.jsonPrimitive?.intOrNull
                 ?: jsonObject["cached_tokens"]?.jsonPrimitive?.intOrNull
                 ?: jsonObject["prompt_cache_hit_tokens"]?.jsonPrimitive?.intOrNull
+                ?: 0,
+            // DeepSeek 在 usage.completion_tokens_details.reasoning_tokens 汇报思维链 token 数
+            reasoningTokens = jsonObject["completion_tokens_details"]?.jsonObjectOrNull?.get("reasoning_tokens")?.jsonPrimitive?.intOrNull
                 ?: 0
         )
     }
