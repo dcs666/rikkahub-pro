@@ -63,13 +63,22 @@ class PersistentShellSession(
         val w = writer ?: error("persistent shell: writer unavailable")
         val r = reader ?: error("persistent shell: reader unavailable")
 
-        // 子 shell 包裹隔离状态；结尾 printf sentinel 携带退出码（NUL 包裹防冲突）。
+        // [TURBO-FIX] 命令在主 bash 进程内直接执行，不再用 `( ... )` 子 shell 包裹。
+        // 根因（用户实测：短命令 cd/ls/echo 每次都 "persistent shell command timed out"）：
+        // `( cmd )` 会让 bash 纯 fork 一个子 shell（bash 克隆，不 exec）。proot --link2symlink
+        // 的共享数据库不支持并发访问，fork 出的子 shell 继承父 bash 的 db 状态后与父进程
+        // 并发访问 → 死锁/卡住 → 命令永不结束 → sentinel 永不到达 → 30s 超时。
+        // warmUp（主 bash 直接 printf，无 fork）成功、实际命令（强制子 shell）超时，完全吻合。
+        // 一次性 proot（bash -c → fork+exec 全新进程，不继承 db 锁状态）无此问题，故从未超时。
+        // 修复后：cd 是 builtin 不 fork；外部命令（ls/grep/curl）fork+exec 全新进程，
+        // 与一次性路径等价，不死锁。状态隔离降级：cwd 会残留，但每条命令开头都会 cd 到
+        // 目标目录覆盖；export 变量残留概率低，可接受。
         val script = buildString {
-            append("( cd -- ")
+            append("cd -- ")
             append(context.prootCwd().shellQuote())
             append(" && ")
             append(context.command)
-            append(" ) ; __rikka_s=${'$'}? ; printf '\\000__RIKKA_DONE_%d__\\000' \"${'$'}__rikka_s\"\n")
+            append(" ; __rikka_s=${'$'}? ; printf '\\000__RIKKA_DONE_%d__\\000' \"${'$'}__rikka_s\"\n")
         }
         runCatching {
             w.write(script)
