@@ -365,7 +365,9 @@ class BackgroundTaskManager(
 
         val elapsed = System.currentTimeMillis() - task.createdAt
         if (elapsed >= config.delayMs) {
-            completeTask(task, success = true, resultJson = """{"message":"${config.message}"}""")
+            completeTask(task, success = true, resultJson = kotlinx.serialization.json.buildJsonObject {
+                put("message", config.message)
+            }.toString())
         } else if (task.status == TaskStatus.PENDING) {
             taskDao.markRunningIfPending(task.id)
         }

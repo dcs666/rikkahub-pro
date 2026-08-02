@@ -1,0 +1,51 @@
+=====================================================================
+网络超时诊断日志 — RikkaHub-Turbo 排查过程
+时间: 2026-08-01 14:30 ~ 15:00 (UTC+8)
+=====================================================================
+
+【时间线】
+
+14:31  首次调用 api.github.com/repos/dcs666/rikkahub-turbo (python urllib)
+       → 成功, 200 OK (500 字节)          ← 唯一一次 python 网络成功
+
+14:33  api.github.com/releases (releases 列表)  → 超时
+14:35  api.github.com/tags                      → 超时
+14:36  github.com/releases HTML 页面            → 超时
+14:37  带 token 调 api.github.com/user          → 超时
+14:39  api.github.com/releases/tags/v1.1.3-turbo → 超时
+14:41  纯本地 python 解析 JSON (无网络)         → 超时  ← 沙箱整体卡顿
+14:45  api.github.com 重试 (多次)               → 全部超时
+14:50  网络分层诊断: 结论见下
+15:00  openssl s_client 发 HTTP 请求            → 成功 (200 OK)
+       随后全部下载/请求改用 openssl 直连        → 全部成功
+
+【超时原因分类】
+
+原因 1: python 网络栈在沙箱内不可用 (主因)
+  - 现象: python3 的 urllib / socket / ssl 调用全部挂死;
+          socket.getaddrinfo (DNS) 无超时机制, 卡住即无限挂起
+  - 证据: 同一时刻系统级测试全部正常:
+          * getent hosts api.github.com  → DNS-OK
+          * /dev/tcp/<host>/443          → TCP-OK (5 个域名全通)
+          * openssl s_client 握手        → TLS-OK, 证书正常
+          * git ls-remote                → 一直稳定成功
+          * openssl 发 HTTP GET          → 200 OK, token 有效
+  - 结论: 沙箱对 python 进程的网络访问受限/异常, 网络本身无问题
+  - 解决: 全程改用 openssl s_client 发原始 HTTP 请求, 绕开 python
+
+原因 2: 沙箱间歇性整体卡顿 (偶发)
+  - 现象: 有一次连纯本地文件解析(无任何网络)都超时
+  - 原因: 沙箱进程调度/负载波动, persistent shell 整体超时
+  - 解决: 重试即恢复
+
+原因 3: 脚本 bug 导致的一次 HTTP 400 (非超时, 但属同类排查弯路)
+  - 第一次下载脚本用 printf "$req": URL 中 %2B/%3A 等百分号编码
+    被 printf 当作格式符吃掉 → 请求被破坏
+  - 第二次改 printf '%s': \r\n 不再被解释成回车换行
+    → HTTP 请求行非法 → 400 Bad Request
+  - 最终 printf '%b' 正确解释转义 → 下载成功, 字节数与 GitHub 记录完全一致
+
+【一句话总结】
+  网络没坏; 坏的是 (a) python 联网在沙箱里不可用 (b) 沙箱偶发卡顿。
+  换用 openssl 直连后所有请求均一次成功。
+=====================================================================

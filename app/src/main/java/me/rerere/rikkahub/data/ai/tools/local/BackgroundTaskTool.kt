@@ -82,6 +82,14 @@ internal fun buildBackgroundTaskTool(
                     put("type", "string")
                     put("description", "Task ID for cancel_task.")
                 })
+                put("poll_interval_sec", buildJsonObject {
+                    put("type", "number")
+                    put("description", "Polling interval in seconds for CI monitor. Optional, uses app setting default.")
+                })
+                put("run_id", buildJsonObject {
+                    put("type", "number")
+                    put("description", "Specific GitHub Actions run ID to monitor. Optional, defaults to latest run.")
+                })
             },
             required = listOf("action"),
         )
