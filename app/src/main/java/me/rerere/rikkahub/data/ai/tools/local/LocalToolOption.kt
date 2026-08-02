@@ -32,4 +32,8 @@ sealed class LocalToolOption {
     @Serializable
     @SerialName("calendar")
     data object Calendar : LocalToolOption()
+
+    @Serializable
+    @SerialName("background_task")
+    data object BackgroundTask : LocalToolOption()
 }

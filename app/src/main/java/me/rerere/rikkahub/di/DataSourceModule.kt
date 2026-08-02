@@ -147,6 +147,10 @@ val dataSourceModule = module {
     }
 
     single {
+        get<AppDatabase>().taskDao()
+    }
+
+    single {
         MessageFtsManager(get())
     }
 

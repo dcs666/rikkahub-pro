@@ -30,4 +30,16 @@ sealed class AppEvent {
         val senderName: String,
         val contentPreview: String?,
     ) : AppEvent()
+
+    /**
+     * 后台任务完成（CI 监控、定时器等）。
+     * 由 BackgroundTaskManager 发出，TaskNotificationManager 消费。
+     */
+    data class BackgroundTaskCompleted(
+        val taskId: String,
+        val taskType: String,
+        val success: Boolean,
+        val conversationId: String, // 关联的对话 UUID string，空则不注入
+        val resultSummary: String,
+    ) : AppEvent()
 }

@@ -42,7 +42,8 @@ class WebServerManager(
     private val conversationRepo: ConversationRepository,
     private val folderRepo: FolderRepository,
     private val settingsStore: SettingsStore,
-    private val filesManager: FilesManager
+    private val filesManager: FilesManager,
+    private val taskManager: me.rerere.rikkahub.data.task.BackgroundTaskManager? = null,
 ) {
     private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
     private val nsdRegistrar = NsdServiceRegistrar(context)
@@ -77,7 +78,7 @@ class WebServerManager(
                     return@launch
                 }
                 server = startWebServer(port = port, host = host) {
-                    configureWebApi(context, chatService, conversationRepo, folderRepo, settingsStore, filesManager)
+                    configureWebApi(context, chatService, conversationRepo, folderRepo, settingsStore, filesManager, taskManager)
                 }.start(wait = false)
 
                 _state.value = baseState.copy(isRunning = true)

@@ -4,8 +4,11 @@ import kotlinx.serialization.json.Json
 import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.data.ai.tools.local.LocalTools
 import me.rerere.rikkahub.data.event.AppEventBus
+import me.rerere.rikkahub.data.task.BackgroundTaskManager
+import me.rerere.rikkahub.data.task.GitHubActionsClient
 import me.rerere.rikkahub.service.ChatNotificationManager
 import me.rerere.rikkahub.service.ChatService
+import me.rerere.rikkahub.service.TaskNotificationManager
 import me.rerere.rikkahub.utils.EmojiData
 import me.rerere.rikkahub.utils.EmojiUtils
 import me.rerere.rikkahub.utils.JsonInstant
@@ -23,7 +26,29 @@ val appModule = module {
     }
 
     single {
-        LocalTools(get(), get(), get(), get())
+        LocalTools(get(), get(), get(), get(), getOrNull())
+    }
+
+    single {
+        GitHubActionsClient()
+    }
+
+    single(createdAtStart = true) {
+        BackgroundTaskManager(
+            app = get(),
+            taskDao = get(),
+            eventBus = get(),
+            gitHubClient = get(),
+        ).also { it.start() }
+    }
+
+    single(createdAtStart = true) {
+        TaskNotificationManager(
+            app = get(),
+            appScope = get(),
+            eventBus = get(),
+            chatService = get(),
+        )
     }
 
     single {
@@ -85,7 +110,8 @@ val appModule = module {
             conversationRepo = get(),
             folderRepo = get(),
             settingsStore = get(),
-            filesManager = get()
+            filesManager = get(),
+            taskManager = get(),
         )
     }
 }

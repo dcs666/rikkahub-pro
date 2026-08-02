@@ -36,6 +36,7 @@ import me.rerere.rikkahub.web.routes.eventsRoutes
 import me.rerere.rikkahub.web.routes.filesRoutes
 import me.rerere.rikkahub.web.routes.folderRoutes
 import me.rerere.rikkahub.web.routes.settingsRoutes
+import me.rerere.rikkahub.web.routes.taskRoutes
 import java.security.MessageDigest
 import java.util.Date
 import java.util.UUID
@@ -64,7 +65,8 @@ fun Application.configureWebApi(
     conversationRepo: ConversationRepository,
     folderRepo: FolderRepository,
     settingsStore: SettingsStore,
-    filesManager: FilesManager
+    filesManager: FilesManager,
+    taskManager: me.rerere.rikkahub.data.task.BackgroundTaskManager? = null,
 ) {
     val jwtEnabled = settingsStore.settingsFlow.value.webServerJwtEnabled
 
@@ -175,6 +177,7 @@ fun Application.configureWebApi(
                     settingsRoutes(settingsStore)
                     filesRoutes(filesManager, context)
                     assetsRoutes(context)
+                    taskManager?.let { taskRoutes(it) }
                 }
             } else {
                 conversationRoutes(chatService, conversationRepo, folderRepo, settingsStore)
@@ -183,6 +186,7 @@ fun Application.configureWebApi(
                 settingsRoutes(settingsStore)
                 filesRoutes(filesManager, context)
                 assetsRoutes(context)
+                taskManager?.let { taskRoutes(it) }
             }
         }
     }
