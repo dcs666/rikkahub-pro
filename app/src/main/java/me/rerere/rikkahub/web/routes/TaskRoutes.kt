@@ -165,6 +165,7 @@ data class TaskDto(
     val id: String,
     val type: String,
     val status: String,
+    val description: String,
     val createdAt: Long,
     val updatedAt: Long,
     val completedAt: Long,
@@ -176,11 +177,36 @@ data class TaskDto(
             id = entity.id,
             type = entity.type,
             status = entity.status,
+            description = buildDescription(entity),
             createdAt = entity.createdAt,
             updatedAt = entity.updatedAt,
             completedAt = entity.completedAt,
             errorMessage = entity.errorMessage,
             pollCount = entity.pollCount,
         )
+
+        private fun buildDescription(entity: me.rerere.rikkahub.data.task.TaskEntity): String {
+            return try {
+                val json = me.rerere.rikkahub.utils.JsonInstant
+                when (entity.type) {
+                    "ci_monitor" -> {
+                        val config = json.decodeFromString(
+                            me.rerere.rikkahub.data.task.TaskConfig.serializer(), entity.config
+                        ) as? me.rerere.rikkahub.data.task.TaskConfig.CIMonitor ?: return ""
+                        buildString {
+                            append(config.repo)
+                            if (config.branch.isNotBlank()) append(" @ ${config.branch}")
+                        }
+                    }
+                    "timer" -> {
+                        val config = json.decodeFromString(
+                            me.rerere.rikkahub.data.task.TaskConfig.serializer(), entity.config
+                        ) as? me.rerere.rikkahub.data.task.TaskConfig.Timer ?: return ""
+                        config.message.ifBlank { "${config.delayMs / 1000}s timer" }
+                    }
+                    else -> ""
+                }
+            } catch (_: Exception) { "" }
+        }
     }
 }

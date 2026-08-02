@@ -367,7 +367,7 @@ class BackgroundTaskManager(
         if (elapsed >= config.delayMs) {
             completeTask(task, success = true, resultJson = """{"message":"${config.message}"}""")
         } else if (task.status == TaskStatus.PENDING) {
-            taskDao.updateStatus(task.id, TaskStatus.RUNNING)
+            taskDao.markRunningIfPending(task.id)
         }
     }
 
@@ -485,6 +485,6 @@ class BackgroundTaskManager(
 
     private suspend fun refreshState() {
         _activeTaskCount.value = taskDao.countActive()
-        _recentTasks.value = taskDao.getRecentTasks(10)
+        _recentTasks.value = taskDao.getRecentTasks(20)
     }
 }
