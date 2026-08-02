@@ -75,15 +75,20 @@ jobs:
           body: |
             RikkaHub Turbo ${{ inputs.tag != '' && inputs.tag || github.ref_name }}
 
-            ## DeepSeek 思考模式完整对齐（V4）
-            - `XHIGH → reasoning_effort=max`、`MEDIUM → high`：ChatCompletions / Responses / Anthropic 三条官方路径统一
-            - 工具调用轮次的思维链强制回传（即使关闭"回传历史思维链"开关，避免 400）
-            - 工具调用场景思维链以明文 `content` 回传；不再向 DeepSeek 发送不支持的 summary / encrypted_content 参数
-            - 思考模式不再发送 `temperature` / `top_p`（官方文档：不报错但不生效），设置页已加提示
-            - 解析并展示 `reasoning_tokens`（思维链 token 消耗：消息统计行 + 数据统计聚合）
+            ## 异步后台任务队列 + 事件驱动 AI
+            - **CI 监控**：AI 调用 `background_task` 工具创建 GitHub Actions 监控，后台轮询状态
+            - **自动通知**：CI 完成时弹 Android 通知，结果自动注入关联对话
+            - **AI 自动分析**：CI 失败时自动触发 AI 分析错误日志并建议修复
+            - **定时器**：支持创建延时任务（秒/分钟/毫秒精度）
+            - **Webhook**：GitHub Actions 可直接推送到手机（局域网），即时完成监控
+            - **任务管理 UI**：设置 → Background Tasks，查看/取消任务
+            - **GitHub Token 配置**：支持私有 repo 监控
+            - **指数退避**：轮询间隔自适应（30s→5min），省电省 API 配额
+            - **去重**：同 repo+branch 不重复创建监控
+            - **REST API**：`/api/tasks/*` 端点（CI 监控/定时器/Webhook/取消）
 
-            ## 其他
-            - 思考档位 UI 标签更新为 max
-            - 旧模型名 deepseek-chat / deepseek-reasoner（2026-07-24 停用）已在代码中标注
-            - 单元测试覆盖全部 6 档 × V4-Flash/V4-Pro
+            ## 技术细节
+            - Room DB v24→25（AutoMigration），background_tasks 表含索引
+            - 120 轮深度代码审查：竞态修复、JSON 注入防护、Okio API 修正等
+            - 自适应轮询（5s active / 30s idle）
           files: app/build/outputs/apk/profileable/*.apk
