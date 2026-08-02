@@ -86,9 +86,9 @@ class GitHubActionsClient(
         token: String
     ): CITaskResult {
         val params = buildList {
-            add("per_page=5")
+            // 如果指定了 workflowName，多取一些结果用于客户端过滤
+            add(if (workflowName.isNotBlank()) "per_page=20" else "per_page=5")
             if (branch.isNotBlank()) add("branch=$branch")
-            if (workflowName.isNotBlank()) add("event=push")
         }.joinToString("&")
 
         val url = "https://api.github.com/repos/$repo/actions/runs?$params"

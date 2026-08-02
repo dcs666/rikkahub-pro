@@ -71,7 +71,9 @@ class BackgroundTaskManager(
                 } catch (e: Exception) {
                     Log.e(TAG, "Poll cycle error", e)
                 }
-                delay(5_000) // 每 5s 检查一次
+                // 自适应间隔：有活跃任务 5s，无活跃任务 30s（省电省 IO）
+                val hasActive = (taskDao.countActive() > 0)
+                delay(if (hasActive) 5_000L else 30_000L)
             }
         }
         // 定期清理旧任务
@@ -296,9 +298,10 @@ class BackgroundTaskManager(
             return // 还没到时间
         }
 
-        // 标记为 running
+        // 标记为 running（条件更新：仅 PENDING→RUNNING，防止覆盖 webhook 已完成的状态）
         if (task.status == TaskStatus.PENDING) {
-            taskDao.updateStatus(task.id, TaskStatus.RUNNING)
+            val updated = taskDao.markRunningIfPending(task.id)
+            if (updated == 0) return // 已被 webhook 完成/取消，放弃轮询
         }
 
         // 执行轮询

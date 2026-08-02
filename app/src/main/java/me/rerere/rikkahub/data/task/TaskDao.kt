@@ -40,6 +40,9 @@ interface TaskDao {
     @Query("UPDATE background_tasks SET status = :status, updated_at = :updatedAt WHERE id = :id")
     suspend fun updateStatus(id: String, status: String, updatedAt: Long = System.currentTimeMillis())
 
+    @Query("UPDATE background_tasks SET status = 'running', updated_at = :updatedAt WHERE id = :id AND status = 'pending'")
+    suspend fun markRunningIfPending(id: String, updatedAt: Long = System.currentTimeMillis()): Int
+
     @Query("UPDATE background_tasks SET status = 'cancelled', updated_at = :updatedAt WHERE status IN ('pending', 'running')")
     suspend fun cancelAllActive(updatedAt: Long = System.currentTimeMillis())
 

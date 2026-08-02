@@ -50,8 +50,13 @@ fun Route.taskRoutes(taskManager: BackgroundTaskManager) {
         // 创建定时任务
         post("/timer") {
             val request = call.receive<CreateTimerRequest>()
+            val delayMs = request.delayMs ?: (request.delaySeconds?.times(1000)) ?: 0
+            if (delayMs <= 0) {
+                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "delayMs or delaySeconds must be positive"))
+                return@post
+            }
             val taskId = taskManager.createTimerTask(
-                delayMs = request.delayMs ?: (request.delaySeconds?.times(1000)) ?: 0,
+                delayMs = delayMs,
                 message = request.message ?: "Timer",
                 conversationId = request.conversationId ?: "",
             )

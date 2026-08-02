@@ -23,6 +23,7 @@ import me.rerere.rikkahub.data.task.BackgroundTaskManager
 internal fun buildBackgroundTaskTool(
     taskManager: BackgroundTaskManager,
     settingsStore: SettingsStore,
+    defaultConversationId: String = "",
 ): Tool = Tool(
     name = "background_task",
     description = """
@@ -104,7 +105,7 @@ internal fun buildBackgroundTaskTool(
                 val branch = obj["branch"]?.jsonPrimitive?.content ?: ""
                 val runId = obj["run_id"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0
                 val workflow = obj["workflow"]?.jsonPrimitive?.content ?: ""
-                val conversationId = obj["conversation_id"]?.jsonPrimitive?.content ?: ""
+                val conversationId = obj["conversation_id"]?.jsonPrimitive?.content ?: defaultConversationId
                 val autoAnalyze = obj["auto_analyze"]?.jsonPrimitive?.content?.toBoolean()
                     ?: settings.taskAutoAnalyze
                 val token = obj["github_token"]?.jsonPrimitive?.content
@@ -140,7 +141,7 @@ internal fun buildBackgroundTaskTool(
                     ?: obj["delay_minutes"]?.jsonPrimitive?.content?.toLongOrNull()?.let { it * 60_000 }
                     ?: 0L
                 val message = obj["message"]?.jsonPrimitive?.content ?: "Timer"
-                val conversationId = obj["conversation_id"]?.jsonPrimitive?.content ?: ""
+                val conversationId = obj["conversation_id"]?.jsonPrimitive?.content ?: defaultConversationId
 
                 if (delayMs <= 0) {
                     """{"error": "Specify delay_ms, delay_seconds, or delay_minutes"}"""
