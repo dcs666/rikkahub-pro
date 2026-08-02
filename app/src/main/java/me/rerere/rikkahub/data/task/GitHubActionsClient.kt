@@ -123,8 +123,8 @@ class GitHubActionsClient(
             if (!response.isSuccessful) return ""
             // 限制读取大小，防止超大日志 OOM（最多读 512KB）
             val source = response.body?.source() ?: return ""
-            source.request(512 * 1024)
-            val logText = source.buffer.snapshot().readUtf8()
+            source.request(512L * 1024)
+            val logText = source.buffer.snapshot().utf8()
             // 提取错误行（包含 Error、FAILED、error: 的行），取最后 30 行
             val errorLines = logText.lines()
                 .filter { line ->

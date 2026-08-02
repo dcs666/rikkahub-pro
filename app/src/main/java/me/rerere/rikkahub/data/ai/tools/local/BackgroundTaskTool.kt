@@ -1,6 +1,8 @@
 package me.rerere.rikkahub.data.ai.tools.local
 
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -37,7 +39,48 @@ internal fun buildBackgroundTaskTool(
     parameters = {
         InputSchema.Obj(
             properties = buildJsonObject {
-                put("type", "object")
+                put("action", buildJsonObject {
+                    put("type", "string")
+                    put("description", "The action to perform: create_ci_monitor, create_timer, list_tasks, or cancel_task")
+                    put("enum", buildJsonArray {
+                        add(JsonPrimitive("create_ci_monitor"))
+                        add(JsonPrimitive("create_timer"))
+                        add(JsonPrimitive("list_tasks"))
+                        add(JsonPrimitive("cancel_task"))
+                    })
+                })
+                put("repo", buildJsonObject {
+                    put("type", "string")
+                    put("description", "GitHub repo full name, e.g. 'owner/repo'. Required for create_ci_monitor.")
+                })
+                put("branch", buildJsonObject {
+                    put("type", "string")
+                    put("description", "Git branch to monitor. Optional, defaults to all branches.")
+                })
+                put("workflow", buildJsonObject {
+                    put("type", "string")
+                    put("description", "Workflow name filter. Optional.")
+                })
+                put("conversation_id", buildJsonObject {
+                    put("type", "string")
+                    put("description", "Conversation UUID to inject results into. Optional.")
+                })
+                put("delay_seconds", buildJsonObject {
+                    put("type", "number")
+                    put("description", "Delay in seconds for create_timer.")
+                })
+                put("delay_minutes", buildJsonObject {
+                    put("type", "number")
+                    put("description", "Delay in minutes for create_timer.")
+                })
+                put("message", buildJsonObject {
+                    put("type", "string")
+                    put("description", "Message for the timer.")
+                })
+                put("task_id", buildJsonObject {
+                    put("type", "string")
+                    put("description", "Task ID for cancel_task.")
+                })
             },
             required = listOf("action"),
         )

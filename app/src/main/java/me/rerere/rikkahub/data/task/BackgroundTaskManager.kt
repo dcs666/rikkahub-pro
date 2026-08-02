@@ -47,6 +47,7 @@ class BackgroundTaskManager(
     private val json: Json = JsonInstant
 
     private var pollerJob: Job? = null
+    private var cleanupJob: Job? = null
 
     // 活跃任务数量（UI 可观察）
     private val _activeTaskCount = MutableStateFlow(0)
@@ -74,7 +75,7 @@ class BackgroundTaskManager(
             }
         }
         // 定期清理旧任务
-        scope.launch {
+        cleanupJob = scope.launch {
             while (isActive) {
                 delay(CLEANUP_INTERVAL_MS)
                 taskDao.cleanupOld(System.currentTimeMillis() - MAX_TASK_AGE_MS)
@@ -85,6 +86,8 @@ class BackgroundTaskManager(
     fun stop() {
         pollerJob?.cancel()
         pollerJob = null
+        cleanupJob?.cancel()
+        cleanupJob = null
     }
 
     // ---- 公开 API ----

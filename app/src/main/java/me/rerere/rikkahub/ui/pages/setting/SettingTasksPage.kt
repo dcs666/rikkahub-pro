@@ -41,12 +41,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Cancel01
-import me.rerere.hugeicons.stroke.CheckmarkCircle02
 import me.rerere.hugeicons.stroke.Clock01
-import me.rerere.hugeicons.stroke.Github01
-import me.rerere.hugeicons.stroke.Loading03
+import me.rerere.hugeicons.stroke.Github
+import me.rerere.hugeicons.stroke.Refresh01
 import me.rerere.hugeicons.stroke.Settings03
-import me.rerere.hugeicons.stroke.TimeQuarter02
+import me.rerere.hugeicons.stroke.Tick02
 import me.rerere.hugeicons.stroke.View
 import me.rerere.hugeicons.stroke.ViewOff
 import me.rerere.hugeicons.stroke.AlertCircle
@@ -108,7 +107,7 @@ fun SettingTasksPage() {
                     item {
                         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(HugeIcons.Github01, null, modifier = Modifier.padding(end = 8.dp))
+                                Icon(HugeIcons.Github, null, modifier = Modifier.padding(end = 8.dp))
                                 Text("GitHub Token", style = MaterialTheme.typography.bodyLarge)
                             }
                             Text(
@@ -168,7 +167,7 @@ fun SettingTasksPage() {
 
                     // Notify on success
                     item(
-                        leadingContent = { Icon(HugeIcons.CheckmarkCircle02, null) },
+                        leadingContent = { Icon(HugeIcons.Tick02, null) },
                         headlineContent = { Text("Notify on success") },
                         supportingContent = { Text("Show notification when CI passes") },
                         trailingContent = {
@@ -185,7 +184,7 @@ fun SettingTasksPage() {
 
                     // Poll interval
                     item(
-                        leadingContent = { Icon(HugeIcons.TimeQuarter02, null) },
+                        leadingContent = { Icon(HugeIcons.Clock01, null) },
                         headlineContent = { Text("Poll interval") },
                         supportingContent = { Text("${settings.taskPollIntervalSec}s between status checks") },
                     )
@@ -295,10 +294,10 @@ private fun TaskCard(
                     // Status icon
                     Icon(
                         when (task.status) {
-                            TaskStatus.COMPLETED -> HugeIcons.CheckmarkCircle02
+                            TaskStatus.COMPLETED -> HugeIcons.Tick02
                             TaskStatus.FAILED -> HugeIcons.AlertCircle
                             TaskStatus.CANCELLED -> HugeIcons.Cancel01
-                            else -> HugeIcons.Loading03
+                            else -> HugeIcons.Refresh01
                         },
                         null,
                         tint = when (task.status) {
