@@ -7,6 +7,7 @@ import kotlinx.serialization.json.put
 import me.rerere.ai.core.InputSchema
 import me.rerere.ai.core.Tool
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.task.BackgroundTaskManager
 
 /**
@@ -17,7 +18,10 @@ import me.rerere.rikkahub.data.task.BackgroundTaskManager
  * - 用户说"CI 跑完了告诉我"，AI 创建监控
  * - 用户说"5分钟后提醒我"，AI 创建定时器
  */
-internal fun buildBackgroundTaskTool(taskManager: BackgroundTaskManager): Tool = Tool(
+internal fun buildBackgroundTaskTool(
+    taskManager: BackgroundTaskManager,
+    settingsStore: SettingsStore,
+): Tool = Tool(
     name = "background_task",
     description = """
         Create and manage background tasks that run asynchronously.
@@ -34,7 +38,6 @@ internal fun buildBackgroundTaskTool(taskManager: BackgroundTaskManager): Tool =
         InputSchema.Obj(
             properties = buildJsonObject {
                 put("type", "object")
-                // Using a flat schema for simplicity
             },
             required = listOf("action"),
         )
@@ -50,6 +53,7 @@ internal fun buildBackgroundTaskTool(taskManager: BackgroundTaskManager): Tool =
     execute = { input ->
         val obj = input.jsonObject
         val action = obj["action"]?.jsonPrimitive?.content ?: "list_tasks"
+        val settings = settingsStore.settingsFlow.value
 
         val result = when (action) {
             "create_ci_monitor" -> {
@@ -58,8 +62,12 @@ internal fun buildBackgroundTaskTool(taskManager: BackgroundTaskManager): Tool =
                 val runId = obj["run_id"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0
                 val workflow = obj["workflow"]?.jsonPrimitive?.content ?: ""
                 val conversationId = obj["conversation_id"]?.jsonPrimitive?.content ?: ""
-                val autoAnalyze = obj["auto_analyze"]?.jsonPrimitive?.content?.toBoolean() ?: true
-                val token = obj["github_token"]?.jsonPrimitive?.content ?: ""
+                val autoAnalyze = obj["auto_analyze"]?.jsonPrimitive?.content?.toBoolean()
+                    ?: settings.taskAutoAnalyze
+                val token = obj["github_token"]?.jsonPrimitive?.content
+                    ?: settings.taskGithubToken
+                val pollInterval = (obj["poll_interval_sec"]?.jsonPrimitive?.content?.toLongOrNull()
+                    ?: settings.taskPollIntervalSec.toLong()) * 1000
 
                 if (repo.isBlank()) {
                     """{"error": "repo is required, e.g. 'dcs666/rikkahub-turbo'"}"""
@@ -70,7 +78,9 @@ internal fun buildBackgroundTaskTool(taskManager: BackgroundTaskManager): Tool =
                         runId = runId,
                         workflowName = workflow,
                         conversationId = conversationId,
+                        pollIntervalMs = pollInterval,
                         autoAnalyzeOnFailure = autoAnalyze,
+                        notifyOnSuccess = settings.taskNotifyOnSuccess,
                         githubToken = token,
                     )
                     buildJsonObject {
@@ -114,7 +124,7 @@ internal fun buildBackgroundTaskTool(taskManager: BackgroundTaskManager): Tool =
                         append("""{"tasks": [""")
                         tasks.forEachIndexed { index, task ->
                             if (index > 0) append(",")
-                            append("""{"id":"${task.id}","type":"${task.type}","status":"${task.status}","created_at":${task.createdAt}}""")
+                            append("""{"id":"${task.id}","type":"${task.type}","status":"${task.status}","created_at":${task.createdAt},"poll_count":${task.pollCount}}""")
                         }
                         append("]}")
                     }

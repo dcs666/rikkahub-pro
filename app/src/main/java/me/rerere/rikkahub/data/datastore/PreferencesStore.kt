@@ -138,6 +138,12 @@ class SettingsStore(
         val WEB_SERVER_ACCESS_PASSWORD = stringPreferencesKey("web_server_access_password")
         val WEB_SERVER_LOCALHOST_ONLY = booleanPreferencesKey("web_server_localhost_only")
 
+        // Background Tasks
+        val TASK_GITHUB_TOKEN = stringPreferencesKey("task_github_token")
+        val TASK_AUTO_ANALYZE = booleanPreferencesKey("task_auto_analyze")
+        val TASK_NOTIFY_ON_SUCCESS = booleanPreferencesKey("task_notify_on_success")
+        val TASK_POLL_INTERVAL_SEC = intPreferencesKey("task_poll_interval_sec")
+
         // 提示词注入
         val MODE_INJECTIONS = stringPreferencesKey("mode_injections")
         val LOREBOOKS = stringPreferencesKey("lorebooks")
@@ -239,6 +245,10 @@ class SettingsStore(
                 webServerJwtEnabled = preferences[WEB_SERVER_JWT_ENABLED] == true,
                 webServerAccessPassword = preferences[WEB_SERVER_ACCESS_PASSWORD] ?: "",
                 webServerLocalhostOnly = preferences[WEB_SERVER_LOCALHOST_ONLY] == true,
+                taskGithubToken = preferences[TASK_GITHUB_TOKEN] ?: "",
+                taskAutoAnalyze = preferences[TASK_AUTO_ANALYZE] ?: true,
+                taskNotifyOnSuccess = preferences[TASK_NOTIFY_ON_SUCCESS] ?: true,
+                taskPollIntervalSec = preferences[TASK_POLL_INTERVAL_SEC] ?: 30,
                 backupReminderConfig = preferences[BACKUP_REMINDER_CONFIG]?.let {
                     JsonInstant.decodeFromString(it)
                 } ?: BackupReminderConfig(),
@@ -409,6 +419,10 @@ class SettingsStore(
             preferences[WEB_SERVER_JWT_ENABLED] = settings.webServerJwtEnabled
             preferences[WEB_SERVER_ACCESS_PASSWORD] = settings.webServerAccessPassword
             preferences[WEB_SERVER_LOCALHOST_ONLY] = settings.webServerLocalhostOnly
+            preferences[TASK_GITHUB_TOKEN] = settings.taskGithubToken
+            preferences[TASK_AUTO_ANALYZE] = settings.taskAutoAnalyze
+            preferences[TASK_NOTIFY_ON_SUCCESS] = settings.taskNotifyOnSuccess
+            preferences[TASK_POLL_INTERVAL_SEC] = settings.taskPollIntervalSec
             preferences[BACKUP_REMINDER_CONFIG] = JsonInstant.encodeToString(settings.backupReminderConfig)
             preferences[LAUNCH_COUNT] = settings.launchCount
             preferences[SPONSOR_ALERT_DISMISSED_AT] = settings.sponsorAlertDismissedAt
@@ -553,6 +567,10 @@ data class Settings(
     val webServerJwtEnabled: Boolean = false,
     val webServerAccessPassword: String = "",
     val webServerLocalhostOnly: Boolean = false,
+    val taskGithubToken: String = "",
+    val taskAutoAnalyze: Boolean = true,
+    val taskNotifyOnSuccess: Boolean = true,
+    val taskPollIntervalSec: Int = 30,
     val backupReminderConfig: BackupReminderConfig = BackupReminderConfig(),
     val launchCount: Int = 0,
     val sponsorAlertDismissedAt: Int = 0,

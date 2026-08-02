@@ -6,11 +6,13 @@ import android.content.Intent
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.RouteActivity
 import me.rerere.rikkahub.TASK_NOTIFICATION_CHANNEL_ID
+import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.event.AppEvent
 import me.rerere.rikkahub.data.event.AppEventBus
 import me.rerere.rikkahub.utils.sendNotification
@@ -21,7 +23,7 @@ private const val TASK_NOTIFICATION_BASE_ID = 90000
 
 /**
  * 消费 [AppEvent.BackgroundTaskCompleted] 事件：
- * 1. 发送 Android 通知
+ * 1. 发送 Android 通知（尊重 notifyOnSuccess 设置）
  * 2. 如果任务关联了对话且配置了自动分析，则注入消息并触发 AI 生成
  */
 class TaskNotificationManager(
@@ -29,6 +31,7 @@ class TaskNotificationManager(
     private val appScope: AppScope,
     private val eventBus: AppEventBus,
     private val chatService: ChatService,
+    private val settingsStore: SettingsStore,
 ) {
     private var notificationCounter = 0
 
@@ -45,12 +48,17 @@ class TaskNotificationManager(
     private suspend fun handleTaskCompleted(event: AppEvent.BackgroundTaskCompleted) {
         Log.i(TAG, "Task completed: ${event.taskId} success=${event.success}")
 
-        // 1. 发送通知
-        sendTaskNotification(event)
+        val settings = settingsStore.settingsFlow.first()
+
+        // 1. 发送通知（尊重设置）
+        val shouldNotify = event.success && settings.taskNotifyOnSuccess || !event.success
+        if (shouldNotify) {
+            sendTaskNotification(event)
+        }
 
         // 2. 如果关联了对话，注入消息
         if (event.conversationId.isNotBlank()) {
-            injectIntoConversation(event)
+            injectIntoConversation(event, settings.taskAutoAnalyze)
         }
     }
 
@@ -82,7 +90,6 @@ class TaskNotificationManager(
         ) {
             title = notifTitle
             content = event.resultSummary.take(200)
-            smallIcon = android.R.drawable.ic_popup_reminder
             contentIntent = pendingIntent
             autoCancel = true
             useBigTextStyle = true
@@ -91,11 +98,8 @@ class TaskNotificationManager(
 
     /**
      * 将任务结果注入到关联的对话中，并可选触发 AI 自动分析。
-     *
-     * 注入方式：作为 user 消息发送（带特殊前缀标记），
-     * 这样 AI 可以看到上下文并做出响应。
      */
-    private suspend fun injectIntoConversation(event: AppEvent.BackgroundTaskCompleted) {
+    private suspend fun injectIntoConversation(event: AppEvent.BackgroundTaskCompleted, autoAnalyze: Boolean) {
         try {
             val conversationId = Uuid.parse(event.conversationId)
 
@@ -106,20 +110,20 @@ class TaskNotificationManager(
                 append("Status: ${if (event.success) "SUCCESS" else "FAILED"}\n\n")
                 append(event.resultSummary)
 
-                // 如果 CI 失败，请求 AI 分析
-                if (!event.success && event.taskType == "ci_monitor") {
+                // 如果 CI 失败且开启了自动分析，请求 AI 分析
+                if (!event.success && event.taskType == "ci_monitor" && autoAnalyze) {
                     append("\n\n---\n")
                     append("Please analyze the CI failure above and suggest fixes.")
                 }
             }
 
-            // 通过 ChatService 发送消息（触发 AI 回复）
-            val shouldAutoGenerate = !event.success && event.taskType == "ci_monitor"
+            // CI 失败 + 自动分析 → 触发 AI 回复
+            val shouldAutoGenerate = !event.success && event.taskType == "ci_monitor" && autoAnalyze
 
             chatService.sendMessage(
                 conversationId = conversationId,
                 content = listOf(UIMessagePart.Text(injectedMessage)),
-                answer = shouldAutoGenerate, // CI 失败时自动让 AI 分析
+                answer = shouldAutoGenerate,
             )
 
             Log.i(TAG, "Injected task result into conversation $conversationId, autoGenerate=$shouldAutoGenerate")

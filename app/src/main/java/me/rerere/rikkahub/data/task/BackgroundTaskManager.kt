@@ -180,6 +180,74 @@ class BackgroundTaskManager(
      */
     suspend fun getRecentTasks(limit: Int = 20): List<TaskEntity> = taskDao.getRecentTasks(limit)
 
+    /**
+     * 通过 Webhook 完成 CI 监控任务。
+     * 查找匹配的活跃任务（按 repo + branch），立即完成。
+     * 返回是否找到并完成了任务。
+     */
+    suspend fun completeCIMonitorByWebhook(
+        repo: String,
+        branch: String,
+        runId: Long,
+        runNumber: Int,
+        workflowName: String,
+        conclusion: String,
+        htmlUrl: String,
+        commitMessage: String,
+    ): Boolean {
+        val activeTasks = taskDao.getActiveTasks()
+        val matchingTask = activeTasks.firstOrNull { task ->
+            if (task.type != TaskType.CI_MONITOR) return@firstOrNull false
+            try {
+                val config = json.decodeFromString(TaskConfig.serializer(), task.config) as? TaskConfig.CIMonitor
+                    ?: return@firstOrNull false
+                // 匹配 repo（必须）和 branch（如果任务指定了 branch）
+                val repoMatch = config.repo.equals(repo, ignoreCase = true)
+                val branchMatch = config.branch.isBlank() || config.branch.equals(branch, ignoreCase = true)
+                // 如果任务指定了 runId，也要匹配
+                val runIdMatch = config.runId == 0L || config.runId == runId
+                repoMatch && branchMatch && runIdMatch
+            } catch (_: Exception) {
+                false
+            }
+        } ?: return false
+
+        val success = conclusion == "success"
+        val result = CITaskResult(
+            runId = runId,
+            runNumber = runNumber,
+            status = "completed",
+            conclusion = conclusion,
+            workflowName = workflowName,
+            branch = branch,
+            commitMessage = commitMessage,
+            htmlUrl = htmlUrl,
+        )
+
+        // 获取失败日志
+        val failedJobs = if (!success) {
+            try {
+                val config = json.decodeFromString(TaskConfig.serializer(), matchingTask.config) as TaskConfig.CIMonitor
+                gitHubClient.getFailedJobLogs(repo, runId, config.githubToken)
+            } catch (_: Exception) {
+                emptyList()
+            }
+        } else emptyList()
+
+        val finalResult = result.copy(failedJobs = failedJobs)
+        val config = try {
+            json.decodeFromString(TaskConfig.serializer(), matchingTask.config) as? TaskConfig.CIMonitor
+        } catch (_: Exception) { null }
+
+        completeTask(
+            matchingTask,
+            success = success,
+            resultJson = json.encodeToString(CITaskResult.serializer(), finalResult),
+            config = config,
+        )
+        return true
+    }
+
     // ---- 内部轮询逻辑 ----
 
     private suspend fun pollActiveTasks() {
@@ -214,9 +282,10 @@ class BackgroundTaskManager(
             return
         }
 
-        // 检查是否到了下次轮询时间
+        // 检查是否到了下次轮询时间（带指数退避）
         val elapsed = System.currentTimeMillis() - task.updatedAt
-        if (task.status == TaskStatus.RUNNING && elapsed < config.pollIntervalMs) {
+        val requiredDelay = nextPollDelay(task.pollCount, config.pollIntervalMs)
+        if (task.status == TaskStatus.RUNNING && elapsed < requiredDelay) {
             return // 还没到时间
         }
 
@@ -298,6 +367,19 @@ class BackgroundTaskManager(
             updatedAt = System.currentTimeMillis(),
             status = TaskStatus.RUNNING,
         ))
+    }
+
+    /**
+     * 计算带指数退避的下次轮询间隔。
+     * 前 5 次用配置的 pollIntervalMs，之后逐步增加（最大 5 分钟）。
+     */
+    private fun nextPollDelay(pollCount: Int, baseIntervalMs: Long): Long {
+        return when {
+            pollCount < 5 -> baseIntervalMs
+            pollCount < 10 -> baseIntervalMs * 2
+            pollCount < 20 -> baseIntervalMs * 3
+            else -> minOf(baseIntervalMs * 5, 300_000L) // 最大 5 分钟
+        }
     }
 
     private suspend fun completeTask(

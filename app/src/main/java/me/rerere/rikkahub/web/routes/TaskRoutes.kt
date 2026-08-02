@@ -9,6 +9,7 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import me.rerere.rikkahub.data.task.BackgroundTaskManager
 import me.rerere.rikkahub.data.task.TaskStatus
@@ -17,10 +18,10 @@ import me.rerere.rikkahub.data.task.TaskStatus
  * 后台任务 REST API + GitHub Webhook 接收端点。
  *
  * 端点：
- * - GET  /api/tasks          -> 列出最近任务
- * - POST /api/tasks/ci       -> 手动创建 CI 监控
- * - POST /api/tasks/webhook  -> GitHub Actions webhook 接收
- * - POST /api/tasks/{id}/cancel -> 取消任务
+ * - GET  /api/tasks              -> 列出最近任务
+ * - POST /api/tasks/ci           -> 手动创建 CI 监控
+ * - POST /api/tasks/webhook      -> GitHub Actions webhook 接收
+ * - POST /api/tasks/{id}/cancel  -> 取消任务
  */
 fun Route.taskRoutes(taskManager: BackgroundTaskManager) {
     route("/tasks") {
@@ -46,19 +47,29 @@ fun Route.taskRoutes(taskManager: BackgroundTaskManager) {
             call.respond(HttpStatusCode.Created, mapOf("taskId" to taskId))
         }
 
+        // 创建定时任务
+        post("/timer") {
+            val request = call.receive<CreateTimerRequest>()
+            val taskId = taskManager.createTimerTask(
+                delayMs = request.delayMs ?: (request.delaySeconds?.times(1000)) ?: 0,
+                message = request.message ?: "Timer",
+                conversationId = request.conversationId ?: "",
+            )
+            call.respond(HttpStatusCode.Created, mapOf("taskId" to taskId))
+        }
+
         // GitHub Actions Webhook 接收
-        // 配置：在 GitHub repo Settings -> Webhooks 添加
-        // URL: http://<device-ip>:8080/api/tasks/webhook
+        // 配置：GitHub repo Settings -> Webhooks -> http://<device-ip>:8080/api/tasks/webhook
         // Content type: application/json
-        // Events: Workflow jobs (or Actions)
+        // Events: Actions (workflow_run)
         post("/webhook") {
             val eventType = call.request.headers["X-GitHub-Event"] ?: ""
-            val body = call.receive<JsonObject>()
 
             when (eventType) {
-                "workflow_job", "workflow_run" -> {
-                    handleWorkflowEvent(taskManager, body)
-                    call.respond(HttpStatusCode.OK, mapOf("status" to "received"))
+                "workflow_run" -> {
+                    val body = call.receive<JsonObject>()
+                    val handled = handleWorkflowRunEvent(taskManager, body)
+                    call.respond(HttpStatusCode.OK, mapOf("status" to "received", "handled" to handled))
                 }
                 "ping" -> {
                     call.respond(HttpStatusCode.OK, mapOf("message" to "pong"))
@@ -81,41 +92,41 @@ fun Route.taskRoutes(taskManager: BackgroundTaskManager) {
     }
 }
 
-private suspend fun handleWorkflowEvent(taskManager: BackgroundTaskManager, body: JsonObject) {
-    // workflow_run 事件包含完整信息
-    val action = body["action"]?.jsonPrimitive?.content ?: ""
-    val workflowRun = body["workflow_run"] as? JsonObject ?: return
+/**
+ * 处理 workflow_run webhook 事件。
+ *
+ * 逻辑：
+ * 1. 只处理 action=completed 的事件
+ * 2. 查找匹配的活跃 CI 监控任务（按 repo + branch 匹配）
+ * 3. 如果找到 → 立即完成该任务（不需要等轮询）
+ * 4. 如果没找到 → 忽略（可能是其他工具触发的）
+ */
+private suspend fun handleWorkflowRunEvent(taskManager: BackgroundTaskManager, body: JsonObject): Boolean {
+    val action = body["action"]?.jsonPrimitive?.content ?: return false
+    if (action != "completed") return false
 
-    val conclusion = workflowRun["conclusion"]?.jsonPrimitive?.content ?: ""
-    val status = workflowRun["status"]?.jsonPrimitive?.content ?: ""
-
-    // 只处理完成事件
-    if (status != "completed") return
-
-    // Webhook 收到完成事件后，可以立即通知（不需要轮询）
-    // 这里通过 eventBus 发出事件，让 TaskNotificationManager 处理
-    val repo = (workflowRun["repository"] as? JsonObject)
-        ?.let { it["full_name"]?.jsonPrimitive?.content } ?: ""
-    val runNumber = workflowRun["run_number"]?.jsonPrimitive?.content ?: ""
+    val workflowRun = body["workflow_run"]?.jsonObject ?: return false
+    val repo = workflowRun["repository"]?.jsonObject
+        ?.get("full_name")?.jsonPrimitive?.content ?: return false
     val branch = workflowRun["head_branch"]?.jsonPrimitive?.content ?: ""
-    val htmlUrl = workflowRun["html_url"]?.jsonPrimitive?.content ?: ""
+    val conclusion = workflowRun["conclusion"]?.jsonPrimitive?.content ?: ""
+    val runId = workflowRun["id"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0
+    val runNumber = workflowRun["run_number"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
     val name = workflowRun["name"]?.jsonPrimitive?.content ?: ""
+    val htmlUrl = workflowRun["html_url"]?.jsonPrimitive?.content ?: ""
+    val commitMsg = workflowRun["head_commit"]?.jsonObject
+        ?.get("message")?.jsonPrimitive?.content?.lines()?.firstOrNull() ?: ""
 
-    // 创建一个已完成的任务记录（用于历史查看）
-    val success = conclusion == "success"
-    val summary = buildString {
-        if (success) append("✅") else append("❌")
-        append(" CI $conclusion: $name #$runNumber ($branch)")
-        if (htmlUrl.isNotBlank()) append("\n$htmlUrl")
-    }
-
-    // 直接通过 taskManager 的 eventBus 发事件
-    // 这里简化处理：创建一个即时完成的任务
-    taskManager.createCIMonitorTask(
+    // 通过 taskManager 完成匹配的任务
+    return taskManager.completeCIMonitorByWebhook(
         repo = repo,
         branch = branch,
+        runId = runId,
+        runNumber = runNumber,
         workflowName = name,
-        notifyOnSuccess = true,
+        conclusion = conclusion,
+        htmlUrl = htmlUrl,
+        commitMessage = commitMsg,
     )
 }
 
@@ -132,6 +143,14 @@ data class CreateCIMonitorRequest(
 )
 
 @Serializable
+data class CreateTimerRequest(
+    val delayMs: Long? = null,
+    val delaySeconds: Long? = null,
+    val message: String? = null,
+    val conversationId: String? = null,
+)
+
+@Serializable
 data class TaskDto(
     val id: String,
     val type: String,
@@ -140,6 +159,7 @@ data class TaskDto(
     val updatedAt: Long,
     val completedAt: Long,
     val errorMessage: String,
+    val pollCount: Int,
 ) {
     companion object {
         fun from(entity: me.rerere.rikkahub.data.task.TaskEntity) = TaskDto(
@@ -150,6 +170,7 @@ data class TaskDto(
             updatedAt = entity.updatedAt,
             completedAt = entity.completedAt,
             errorMessage = entity.errorMessage,
+            pollCount = entity.pollCount,
         )
     }
 }

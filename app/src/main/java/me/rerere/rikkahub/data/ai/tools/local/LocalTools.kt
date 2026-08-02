@@ -30,7 +30,7 @@ class LocalTools(
 
     val calendarCreateTool by lazy { buildCalendarCreateTool(context) }
 
-    val backgroundTaskTool by lazy { taskManager?.let { buildBackgroundTaskTool(it) } }
+    val backgroundTaskTool by lazy { taskManager?.let { buildBackgroundTaskTool(it, settingsStore) } }
 
     fun getTools(options: List<LocalToolOption>): List<Tool> {
         val tools = mutableListOf<Tool>()
