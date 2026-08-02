@@ -196,17 +196,21 @@ class BackgroundTaskManager(
         commitMessage: String,
     ): Boolean {
         val activeTasks = taskDao.getActiveTasks()
+
+        // 找到匹配的活跃 CI 任务，同时解码 config 避免重复
+        var matchedConfig: TaskConfig.CIMonitor? = null
         val matchingTask = activeTasks.firstOrNull { task ->
             if (task.type != TaskType.CI_MONITOR) return@firstOrNull false
             try {
                 val config = json.decodeFromString(TaskConfig.serializer(), task.config) as? TaskConfig.CIMonitor
                     ?: return@firstOrNull false
-                // 匹配 repo（必须）和 branch（如果任务指定了 branch）
                 val repoMatch = config.repo.equals(repo, ignoreCase = true)
                 val branchMatch = config.branch.isBlank() || config.branch.equals(branch, ignoreCase = true)
-                // 如果任务指定了 runId，也要匹配
                 val runIdMatch = config.runId == 0L || config.runId == runId
-                repoMatch && branchMatch && runIdMatch
+                if (repoMatch && branchMatch && runIdMatch) {
+                    matchedConfig = config
+                    true
+                } else false
             } catch (_: Exception) {
                 false
             }
@@ -227,23 +231,19 @@ class BackgroundTaskManager(
         // 获取失败日志
         val failedJobs = if (!success) {
             try {
-                val config = json.decodeFromString(TaskConfig.serializer(), matchingTask.config) as TaskConfig.CIMonitor
-                gitHubClient.getFailedJobLogs(repo, runId, config.githubToken)
+                gitHubClient.getFailedJobLogs(repo, runId, matchedConfig?.githubToken ?: "")
             } catch (_: Exception) {
                 emptyList()
             }
         } else emptyList()
 
         val finalResult = result.copy(failedJobs = failedJobs)
-        val config = try {
-            json.decodeFromString(TaskConfig.serializer(), matchingTask.config) as? TaskConfig.CIMonitor
-        } catch (_: Exception) { null }
 
         completeTask(
             matchingTask,
             success = success,
             resultJson = json.encodeToString(CITaskResult.serializer(), finalResult),
-            config = config,
+            config = matchedConfig,
         )
         return true
     }
@@ -255,10 +255,14 @@ class BackgroundTaskManager(
         _activeTaskCount.value = activeTasks.size
 
         for (task in activeTasks) {
-            when (task.type) {
-                TaskType.CI_MONITOR -> pollCITask(task)
-                TaskType.TIMER -> pollTimerTask(task)
-                else -> { /* webhook/custom 暂不轮询 */ }
+            try {
+                when (task.type) {
+                    TaskType.CI_MONITOR -> pollCITask(task)
+                    TaskType.TIMER -> pollTimerTask(task)
+                    else -> { /* webhook/custom 暂不轮询 */ }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error polling task ${task.id}", e)
             }
         }
     }
@@ -389,8 +393,16 @@ class BackgroundTaskManager(
         error: String = "",
         config: TaskConfig.CIMonitor? = null,
     ) {
+        // 防重入：如果任务已经被完成/取消（例如 webhook 先到达），不再重复处理
+        val current = taskDao.getById(task.id)
+        if (current == null || current.status == TaskStatus.COMPLETED ||
+            current.status == TaskStatus.FAILED || current.status == TaskStatus.CANCELLED
+        ) {
+            return
+        }
+
         val now = System.currentTimeMillis()
-        taskDao.update(task.copy(
+        taskDao.update(current.copy(
             status = if (success) TaskStatus.COMPLETED else TaskStatus.FAILED,
             result = resultJson,
             errorMessage = error,
@@ -455,8 +467,8 @@ class BackgroundTaskManager(
             }
             TaskType.TIMER -> {
                 try {
-                    val timerConfig = JsonInstant.decodeFromString<TaskConfig.Timer>(task.config)
-                    "⏰ Timer: ${timerConfig.message}"
+                    val timerConfig = JsonInstant.decodeFromString(TaskConfig.serializer(), task.config) as? TaskConfig.Timer
+                    "⏰ Timer: ${timerConfig?.message ?: "completed"}"
                 } catch (_: Exception) {
                     "⏰ Timer completed"
                 }

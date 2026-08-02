@@ -10,7 +10,14 @@ import kotlinx.serialization.Serializable
  * 后台任务实体，持久化到 Room。
  * 支持 CI 监控、Webhook、定时器等任务类型。
  */
-@Entity(tableName = "background_tasks")
+@Entity(
+    tableName = "background_tasks",
+    indices = [
+        androidx.room.Index(value = ["status"]),
+        androidx.room.Index(value = ["created_at"]),
+        androidx.room.Index(value = ["conversation_id"]),
+    ]
+)
 data class TaskEntity(
     @PrimaryKey
     val id: String,

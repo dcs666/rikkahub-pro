@@ -16,9 +16,18 @@ class GitHubActionsClient(
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
+        .callTimeout(60, TimeUnit.SECONDS)
         .build(),
 ) {
     private val json = Json { ignoreUnknownKeys = true }
+
+    private fun Request.Builder.withGitHubHeaders(token: String): Request.Builder {
+        header("Accept", "application/vnd.github+json")
+        header("X-GitHub-Api-Version", "2022-11-28")
+        header("User-Agent", "RikkaHub-Turbo/1.0")
+        if (token.isNotBlank()) header("Authorization", "Bearer $token")
+        return this
+    }
 
     /**
      * 获取指定 repo 最新的 workflow runs。
@@ -107,16 +116,15 @@ class GitHubActionsClient(
         val url = "https://api.github.com/repos/$repo/actions/jobs/$jobId/logs"
         val request = Request.Builder()
             .url(url)
-            .apply {
-                header("Accept", "application/vnd.github+json")
-                header("X-GitHub-Api-Version", "2022-11-28")
-                if (token.isNotBlank()) header("Authorization", "Bearer $token")
-            }
+            .withGitHubHeaders(token)
             .build()
 
         httpClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) return ""
-            val logText = response.body?.string() ?: return ""
+            // 限制读取大小，防止超大日志 OOM（最多读 512KB）
+            val source = response.body?.source() ?: return ""
+            source.request(512 * 1024)
+            val logText = source.buffer.snapshot().readUtf8()
             // 提取错误行（包含 Error、FAILED、error: 的行），取最后 30 行
             val errorLines = logText.lines()
                 .filter { line ->
@@ -133,11 +141,7 @@ class GitHubActionsClient(
     private fun httpGet(url: String, token: String): String {
         val request = Request.Builder()
             .url(url)
-            .header("Accept", "application/vnd.github+json")
-            .header("X-GitHub-Api-Version", "2022-11-28")
-            .apply {
-                if (token.isNotBlank()) header("Authorization", "Bearer $token")
-            }
+            .withGitHubHeaders(token)
             .build()
 
         httpClient.newCall(request).execute().use { response ->

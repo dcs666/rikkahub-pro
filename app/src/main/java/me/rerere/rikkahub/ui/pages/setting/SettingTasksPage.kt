@@ -49,7 +49,7 @@ import me.rerere.hugeicons.stroke.Settings03
 import me.rerere.hugeicons.stroke.TimeQuarter02
 import me.rerere.hugeicons.stroke.View
 import me.rerere.hugeicons.stroke.ViewOff
-import me.rerere.hugeicons.stroke.XCircle
+import me.rerere.hugeicons.stroke.AlertCircle
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.task.BackgroundTaskManager
 import me.rerere.rikkahub.data.task.CITaskResult
@@ -296,7 +296,7 @@ private fun TaskCard(
                     Icon(
                         when (task.status) {
                             TaskStatus.COMPLETED -> HugeIcons.CheckmarkCircle02
-                            TaskStatus.FAILED -> HugeIcons.XCircle
+                            TaskStatus.FAILED -> HugeIcons.AlertCircle
                             TaskStatus.CANCELLED -> HugeIcons.Cancel01
                             else -> HugeIcons.Loading03
                         },
@@ -384,7 +384,8 @@ private fun buildTaskDescription(task: TaskEntity): String {
     return try {
         when (task.type) {
             TaskType.CI_MONITOR -> {
-                val config = JsonInstant.decodeFromString<me.rerere.rikkahub.data.task.TaskConfig.CIMonitor>(task.config)
+                val config = JsonInstant.decodeFromString(me.rerere.rikkahub.data.task.TaskConfig.serializer(), task.config)
+                    as? me.rerere.rikkahub.data.task.TaskConfig.CIMonitor ?: return ""
                 buildString {
                     append(config.repo)
                     if (config.branch.isNotBlank()) append(" @ ${config.branch}")
@@ -392,18 +393,14 @@ private fun buildTaskDescription(task: TaskEntity): String {
                 }
             }
             TaskType.TIMER -> {
-                val config = JsonInstant.decodeFromString<me.rerere.rikkahub.data.task.TaskConfig.Timer>(task.config)
+                val config = JsonInstant.decodeFromString(me.rerere.rikkahub.data.task.TaskConfig.serializer(), task.config)
+                    as? me.rerere.rikkahub.data.task.TaskConfig.Timer ?: return ""
                 config.message.ifBlank { "Timer (${config.delayMs / 1000}s)" }
             }
             else -> ""
         }
     } catch (_: Exception) {
-        // Fallback: try to extract repo from config JSON
-        try {
-            val configStr = task.config
-            val repoMatch = Regex("\"repo\"\\s*:\\s*\"([^\"]+)\"").find(configStr)
-            repoMatch?.groupValues?.get(1) ?: ""
-        } catch (_: Exception) { "" }
+        ""
     }
 }
 

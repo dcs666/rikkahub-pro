@@ -67,7 +67,12 @@ fun Route.taskRoutes(taskManager: BackgroundTaskManager) {
 
             when (eventType) {
                 "workflow_run" -> {
-                    val body = call.receive<JsonObject>()
+                    val body = try {
+                        call.receive<JsonObject>()
+                    } catch (e: Exception) {
+                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid JSON body"))
+                        return@post
+                    }
                     val handled = handleWorkflowRunEvent(taskManager, body)
                     call.respond(HttpStatusCode.OK, mapOf("status" to "received", "handled" to handled))
                 }
