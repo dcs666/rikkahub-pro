@@ -60,6 +60,7 @@ import me.rerere.rikkahub.ui.components.ui.CardGroup
 import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.ui.theme.CustomColors
 import me.rerere.rikkahub.utils.JsonInstant
+import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.utils.plus
 import org.koin.compose.koinInject
 import java.text.SimpleDateFormat
@@ -73,6 +74,7 @@ fun SettingTasksPage() {
     val settings = LocalSettings.current
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val scope = rememberCoroutineScope()
+    val toaster = LocalToaster.current
 
     val activeTaskCount by taskManager.activeTaskCount.collectAsStateWithLifecycle()
     val recentTasks by taskManager.recentTasks.collectAsStateWithLifecycle()
@@ -139,6 +141,7 @@ fun SettingTasksPage() {
                                 onClick = {
                                     scope.launch {
                                         settingsStore.update(settings.copy(taskGithubToken = tokenInput.trim()))
+                                        toaster.show("Token saved")
                                     }
                                 },
                                 modifier = Modifier.align(Alignment.End),
