@@ -109,6 +109,23 @@ class BackgroundTaskManager(
         notifyOnSuccess: Boolean = true,
         githubToken: String = "",
     ): String {
+        // 去重：如果已有相同 repo+branch+runId 的活跃任务，直接返回其 ID
+        val existingTasks = taskDao.getActiveTasks()
+        val duplicate = existingTasks.firstOrNull { task ->
+            if (task.type != TaskType.CI_MONITOR) return@firstOrNull false
+            try {
+                val cfg = json.decodeFromString(TaskConfig.serializer(), task.config) as? TaskConfig.CIMonitor
+                    ?: return@firstOrNull false
+                cfg.repo.equals(repo, ignoreCase = true) &&
+                    cfg.branch.equals(branch, ignoreCase = true) &&
+                    cfg.runId == runId
+            } catch (_: Exception) { false }
+        }
+        if (duplicate != null) {
+            Log.i(TAG, "CI monitor already exists for $repo@$branch, returning ${duplicate.id}")
+            return duplicate.id
+        }
+
         val config = TaskConfig.CIMonitor(
             repo = repo,
             branch = branch,
@@ -366,7 +383,7 @@ class BackgroundTaskManager(
         val elapsed = System.currentTimeMillis() - task.createdAt
         if (elapsed >= config.delayMs) {
             completeTask(task, success = true, resultJson = kotlinx.serialization.json.buildJsonObject {
-                put("message", config.message)
+                put("message", kotlinx.serialization.json.JsonPrimitive(config.message))
             }.toString())
         } else if (task.status == TaskStatus.PENDING) {
             taskDao.markRunningIfPending(task.id)

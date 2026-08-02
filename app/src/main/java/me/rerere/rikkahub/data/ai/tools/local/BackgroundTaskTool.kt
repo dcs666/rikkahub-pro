@@ -145,8 +145,8 @@ internal fun buildBackgroundTaskTool(
 
             "create_timer" -> {
                 val delayMs = obj["delay_ms"]?.jsonPrimitive?.content?.toLongOrNull()
-                    ?: obj["delay_seconds"]?.jsonPrimitive?.content?.toLongOrNull()?.let { it * 1000 }
-                    ?: obj["delay_minutes"]?.jsonPrimitive?.content?.toLongOrNull()?.let { it * 60_000 }
+                    ?: obj["delay_seconds"]?.jsonPrimitive?.content?.toDoubleOrNull()?.let { (it * 1000).toLong() }
+                    ?: obj["delay_minutes"]?.jsonPrimitive?.content?.toDoubleOrNull()?.let { (it * 60_000).toLong() }
                     ?: 0L
                 val message = obj["message"]?.jsonPrimitive?.content ?: "Timer"
                 val conversationId = obj["conversation_id"]?.jsonPrimitive?.content ?: defaultConversationId
