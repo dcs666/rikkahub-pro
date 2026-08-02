@@ -138,7 +138,7 @@ internal fun buildBackgroundTaskTool(
                     buildJsonObject {
                         put("status", "created")
                         put("task_id", taskId)
-                        put("message", "CI monitor created for $repo. I'll notify you when it completes.")
+                        put("message", "CI monitor active for $repo. I'll notify you when it completes.")
                     }.toString()
                 }
             }
