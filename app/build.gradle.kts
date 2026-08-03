@@ -126,7 +126,7 @@ android {
         create("profileable") {
             initWith(getByName("release"))   // 继承 release 的 buildConfigField 等
             signingConfig = signingConfigs.getByName("debug")  // 用 debug 签名(CI 无 release keystore)
-            applicationIdSuffix = ".debug"   // 包名仍 dev.nebula.turbo.debug→与现 nightly 同包名同签名,覆盖安装免卸载
+            applicationIdSuffix = ".dev"   // 包名 dev.nebula.turbo.dev，与现 nightly(.debug)并存不覆盖
             isMinifyEnabled = false          // 项目从未在 CI 验证过 R8/proguard,贸然 minify 可能 crash;baseline 打包不依赖 minify
             isShrinkResources = false
             isProfileable = true             // 让 AGP 把 baseline.prof 打包进 assets/dexopt/ + 允许性能分析
