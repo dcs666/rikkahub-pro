@@ -306,13 +306,19 @@ class BackgroundTaskManager(
     /**
      * 取消任务。
      */
-    suspend fun cancelTask(taskId: String) {
-        taskDao.updateStatus(taskId, TaskStatus.CANCELLED)
+    /**
+     * 取消任务。返回是否成功取消（任务存在且处于活跃状态）。
+     * [FIX] 不再覆盖终态：取消已完成/已失败的任务返回 false 且不动其状态。
+     */
+    suspend fun cancelTask(taskId: String): Boolean {
+        val updated = taskDao.cancelIfActive(taskId)
+        if (updated == 0) return false
         consecutiveFailures.remove(taskId)
         consecutiveNotFound.remove(taskId)
         rateLimitedUntil.remove(taskId)
         refreshState()
         pollerWake.trySend(Unit)
+        return true
     }
 
     /**

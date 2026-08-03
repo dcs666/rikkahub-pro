@@ -146,14 +146,32 @@ fun Route.taskRoutes(
             }
         }
 
+        // 单任务详情（供外部客户端查询结果）
+        get("/{id}") {
+            val id = call.parameters["id"] ?: run {
+                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "id required"))
+                return@get
+            }
+            val task = taskManager.getTask(id)
+            if (task == null) {
+                call.respond(HttpStatusCode.NotFound, mapOf("error" to "Task not found"))
+            } else {
+                call.respond(TaskDto.from(task))
+            }
+        }
+
         // 取消任务
         post("/{id}/cancel") {
             val id = call.parameters["id"] ?: run {
                 call.respond(HttpStatusCode.BadRequest, mapOf("error" to "id required"))
                 return@post
             }
-            taskManager.cancelTask(id)
-            call.respond(mapOf("status" to "cancelled"))
+            val cancelled = taskManager.cancelTask(id)
+            if (cancelled) {
+                call.respond(mapOf("status" to "cancelled"))
+            } else {
+                call.respond(HttpStatusCode.NotFound, mapOf("error" to "Task not found or already finished"))
+            }
         }
         // 删除任务记录（历史清理）
         delete("/{id}") {

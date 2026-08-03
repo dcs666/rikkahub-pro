@@ -37,8 +37,13 @@ interface TaskDao {
     @Query("SELECT * FROM background_tasks WHERE conversation_id = :conversationId ORDER BY created_at DESC")
     suspend fun getTasksOfConversation(conversationId: String): List<TaskEntity>
 
-    @Query("UPDATE background_tasks SET status = :status, updated_at = :updatedAt WHERE id = :id")
-    suspend fun updateStatus(id: String, status: String, updatedAt: Long = System.currentTimeMillis())
+    /**
+     * 条件取消单个任务：仅当仍处于活跃状态（pending/running）时生效。
+     * [FIX] 无条件 UPDATE 会把已完成任务的 COMPLETED 状态覆盖成 CANCELLED。
+     * 返回受影响行数（0 = 任务不存在或已是终态）。
+     */
+    @Query("UPDATE background_tasks SET status = 'cancelled', updated_at = :updatedAt WHERE id = :id AND status IN ('pending', 'running')")
+    suspend fun cancelIfActive(id: String, updatedAt: Long = System.currentTimeMillis()): Int
 
     @Query("UPDATE background_tasks SET status = 'running', updated_at = :updatedAt WHERE id = :id AND status = 'pending'")
     suspend fun markRunningIfPending(id: String, updatedAt: Long = System.currentTimeMillis()): Int

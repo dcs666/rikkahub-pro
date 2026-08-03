@@ -1,5 +1,6 @@
 package me.rerere.rikkahub.ui.pages.setting
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -44,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import me.rerere.hugeicons.HugeIcons
+import me.rerere.hugeicons.stroke.Add01
 import me.rerere.hugeicons.stroke.ArrowDown01
 import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.Clock01
@@ -76,6 +79,8 @@ import java.util.Locale
 // 轮询间隔档位（与工具端 10s 下限对齐，避免未认证配额被耗）
 private val POLL_INTERVAL_OPTIONS = listOf(10, 30, 60, 120, 300)
 
+private enum class CreateTaskType { CI_MONITOR, TIMER }
+
 @Composable
 fun SettingTasksPage() {
     val taskManager: BackgroundTaskManager = koinInject()
@@ -91,11 +96,43 @@ fun SettingTasksPage() {
     var showToken by remember { mutableStateOf(false) }
     var tokenInput by remember(settings.taskGithubToken) { mutableStateOf(settings.taskGithubToken) }
 
+    // ---- 新建任务对话框状态 ----
+    var showCreateMenu by remember { mutableStateOf(false) }
+    var createType by remember { mutableStateOf<CreateTaskType?>(null) }
+    var repoInput by remember { mutableStateOf("") }
+    var branchInput by remember { mutableStateOf("") }
+    var workflowInput by remember { mutableStateOf("") }
+    var timerMinutesInput by remember { mutableStateOf("") }
+    var timerMessageInput by remember { mutableStateOf("") }
+
     Scaffold(
         topBar = {
             LargeFlexibleTopAppBar(
                 title = { Text("Background Tasks") },
                 navigationIcon = { BackButton() },
+                actions = {
+                    Box {
+                        IconButton(onClick = { showCreateMenu = true }) {
+                            Icon(HugeIcons.Add01, "New task")
+                        }
+                        DropdownMenu(expanded = showCreateMenu, onDismissRequest = { showCreateMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Monitor CI build") },
+                                onClick = {
+                                    showCreateMenu = false
+                                    createType = CreateTaskType.CI_MONITOR
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Create timer") },
+                                onClick = {
+                                    showCreateMenu = false
+                                    createType = CreateTaskType.TIMER
+                                },
+                            )
+                        }
+                    }
+                },
                 scrollBehavior = scrollBehavior,
                 colors = CustomColors.topBarColors,
             )
@@ -309,6 +346,108 @@ fun SettingTasksPage() {
             }
         }
     }
+
+    // ---- 创建 CI 监控对话框 ----
+    if (createType == CreateTaskType.CI_MONITOR) {
+        AlertDialog(
+            onDismissRequest = { createType = null },
+            title = { Text("Monitor CI build") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextField(
+                        value = repoInput,
+                        onValueChange = { repoInput = it },
+                        label = { Text("Repository") },
+                        placeholder = { Text("owner/repo") },
+                        singleLine = true,
+                    )
+                    TextField(
+                        value = branchInput,
+                        onValueChange = { branchInput = it },
+                        label = { Text("Branch") },
+                        placeholder = { Text("empty = latest") },
+                        singleLine = true,
+                    )
+                    TextField(
+                        value = workflowInput,
+                        onValueChange = { workflowInput = it },
+                        label = { Text("Workflow") },
+                        placeholder = { Text("e.g. Build APK (optional)") },
+                        singleLine = true,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = repoInput.isNotBlank(),
+                    onClick = {
+                        val repo = repoInput.trim()
+                        scope.launch {
+                            taskManager.createCIMonitorTask(
+                                repo = repo,
+                                branch = branchInput.trim(),
+                                workflowName = workflowInput.trim(),
+                                pollIntervalMs = settings.taskPollIntervalSec.toLong() * 1000,
+                            )
+                            toaster.show("CI monitor created: $repo")
+                        }
+                        createType = null
+                        repoInput = ""
+                        branchInput = ""
+                        workflowInput = ""
+                    },
+                ) { Text("Create") }
+            },
+            dismissButton = {
+                TextButton(onClick = { createType = null }) { Text("Cancel") }
+            },
+        )
+    }
+
+    // ---- 创建定时器对话框 ----
+    if (createType == CreateTaskType.TIMER) {
+        AlertDialog(
+            onDismissRequest = { createType = null },
+            title = { Text("Create timer") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextField(
+                        value = timerMinutesInput,
+                        onValueChange = { timerMinutesInput = it },
+                        label = { Text("Delay (minutes)") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    )
+                    TextField(
+                        value = timerMessageInput,
+                        onValueChange = { timerMessageInput = it },
+                        label = { Text("Message") },
+                        placeholder = { Text("What should I remind you about?") },
+                    )
+                }
+            },
+            confirmButton = {
+                val minutes = timerMinutesInput.toLongOrNull()
+                TextButton(
+                    enabled = minutes != null && minutes > 0,
+                    onClick = {
+                        val delayMs = minutes!! * 60_000
+                        val message = timerMessageInput.trim().ifBlank { "Timer" }
+                        scope.launch {
+                            taskManager.createTimerTask(delayMs = delayMs, message = message)
+                            toaster.show("Timer set for ${minutes}m")
+                        }
+                        createType = null
+                        timerMinutesInput = ""
+                        timerMessageInput = ""
+                    },
+                ) { Text("Create") }
+            },
+            dismissButton = {
+                TextButton(onClick = { createType = null }) { Text("Cancel") }
+            },
+        )
+    }
 }
 
 @Composable
@@ -318,9 +457,15 @@ private fun TaskCard(
     onDelete: (() -> Unit)? = null,
 ) {
     val isActive = task.status == TaskStatus.PENDING || task.status == TaskStatus.RUNNING
+    // 已完成任务：点击卡片展开/收起结果详情
+    var expanded by remember { mutableStateOf(false) }
+    val resultText = remember(task) { buildTaskResultText(task) }
 
     Card(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 2.dp)
+            .clickable(enabled = resultText != null) { expanded = !expanded },
         colors = CardDefaults.cardColors(
             containerColor = when (task.status) {
                 TaskStatus.COMPLETED -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
@@ -399,6 +544,25 @@ private fun TaskCard(
                 )
             }
 
+            // 结果详情（点击卡片展开）
+            if (resultText != null) {
+                if (expanded) {
+                    Text(
+                        text = resultText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                } else {
+                    Text(
+                        text = "Tap to view result",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+            }
+
             // Timestamp
             Row(
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
@@ -455,6 +619,35 @@ private fun buildTaskDescription(task: TaskEntity): String {
         }
     } catch (_: Exception) {
         ""
+    }
+}
+
+/**
+ * 把任务的 result JSON 解析为可读文本（UI 展开详情用）。
+ * CI 任务 → 结论/工作流/run 号/分支/commit/失败 job 摘要/链接；
+ * 其他任务（如 timer 的 {"message": "..."}）→ 解析失败时原文截断展示。
+ */
+private fun buildTaskResultText(task: TaskEntity): String? {
+    if (task.result.isBlank()) return null
+    return try {
+        val result = JsonInstant.decodeFromString(CITaskResult.serializer(), task.result)
+        buildString {
+            append("Conclusion: ").append(result.conclusion.ifBlank { "n/a" })
+            append("\nWorkflow: ").append(result.workflowName.ifBlank { "n/a" })
+            append(" #").append(result.runNumber)
+            append("\nBranch: ").append(result.branch.ifBlank { "n/a" })
+            if (result.commitMessage.isNotBlank()) append("\nCommit: ").append(result.commitMessage)
+            result.failedJobs.forEach { job ->
+                append("\n\nFailed job: ").append(job.name)
+                if (job.errorSummary.isNotBlank()) {
+                    append("\n").append(job.errorSummary.take(400))
+                }
+            }
+            if (result.htmlUrl.isNotBlank()) append("\n\n").append(result.htmlUrl)
+        }
+    } catch (_: Exception) {
+        // 非 CITaskResult 格式（timer 等）：直接展示原文
+        task.result.take(300)
     }
 }
 

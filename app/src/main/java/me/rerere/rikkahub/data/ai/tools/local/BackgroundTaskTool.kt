@@ -261,8 +261,12 @@ internal fun buildBackgroundTaskTool(
                 if (taskId.isBlank()) {
                     """{"error": "task_id is required"}"""
                 } else {
-                    taskManager.cancelTask(taskId)
-                    """{"status": "cancelled", "task_id": "$taskId"}"""
+                    val cancelled = taskManager.cancelTask(taskId)
+                    if (cancelled) {
+                        """{"status": "cancelled", "task_id": "$taskId"}"""
+                    } else {
+                        """{"error": "Task not found or already finished: $taskId (use list_tasks to see current tasks)"}"""
+                    }
                 }
             }
 
