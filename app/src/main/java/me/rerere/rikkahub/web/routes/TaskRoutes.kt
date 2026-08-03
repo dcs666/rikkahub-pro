@@ -67,7 +67,10 @@ fun Route.taskRoutes(
                 conversationId = request.conversationId ?: "",
                 autoAnalyzeOnFailure = request.autoAnalyze ?: true,
                 notifyOnSuccess = request.notifyOnSuccess ?: true,
-                githubToken = request.githubToken ?: "",
+                // [FIX] 未显式传 token 时回退到设置里的全局 token（与 AI 工具一致），
+                // 否则私有仓库监控会在 GitHub API 层 404
+                githubToken = request.githubToken?.takeIf { it.isNotBlank() }
+                    ?: settingsStore.settingsFlow.value.taskGithubToken,
                 // [FIX] 与 AI 工具一致：最小轮询间隔钳制 10s，防未认证配额被秒耗
                 pollIntervalMs = (request.pollIntervalSec?.coerceAtLeast(10L) ?: 30L) * 1000,
             )
@@ -127,7 +130,11 @@ fun Route.taskRoutes(
 
             when (eventType) {
                 "workflow_run" -> {
-                    val handled = handleWorkflowRunEvent(taskManager, body)
+                    val handled = handleWorkflowRunEvent(
+                        taskManager = taskManager,
+                        body = body,
+                        fallbackGithubToken = settingsStore.settingsFlow.value.taskGithubToken,
+                    )
                     call.respond(HttpStatusCode.OK, mapOf("status" to "received", "handled" to handled))
                 }
                 "ping" -> {
@@ -180,8 +187,14 @@ private fun hmacSha256Hex(secret: String, body: String): String {
  * 2. 查找匹配的活跃 CI 监控任务（按 repo + branch 匹配）
  * 3. 如果找到 → 立即完成该任务（不需要等轮询）
  * 4. 如果没找到 → 忽略（可能是其他工具触发的）
+ *
+ * @param fallbackGithubToken 设置里的全局 GitHub token；任务的 config 未存 token 时用于抓失败日志
  */
-private suspend fun handleWorkflowRunEvent(taskManager: BackgroundTaskManager, body: JsonObject): Boolean {
+private suspend fun handleWorkflowRunEvent(
+    taskManager: BackgroundTaskManager,
+    body: JsonObject,
+    fallbackGithubToken: String = "",
+): Boolean {
     val action = body["action"]?.jsonPrimitive?.content ?: return false
     if (action != "completed") return false
 
@@ -197,7 +210,7 @@ private suspend fun handleWorkflowRunEvent(taskManager: BackgroundTaskManager, b
     val commitMsg = workflowRun["head_commit"]?.jsonObject
         ?.get("message")?.jsonPrimitive?.content?.lines()?.firstOrNull() ?: ""
 
-    // 通过 taskManager 完成匹配的任务
+    // 通过 taskManager 完成匹配的任务（失败日志抓取时用设置里的全局 token 兜底）
     return taskManager.completeCIMonitorByWebhook(
         repo = repo,
         branch = branch,
@@ -207,6 +220,7 @@ private suspend fun handleWorkflowRunEvent(taskManager: BackgroundTaskManager, b
         conclusion = conclusion,
         htmlUrl = htmlUrl,
         commitMessage = commitMsg,
+        fallbackGithubToken = fallbackGithubToken,
     )
 }
 

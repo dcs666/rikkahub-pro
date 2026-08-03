@@ -358,6 +358,7 @@ class BackgroundTaskManager(
         conclusion: String,
         htmlUrl: String,
         commitMessage: String,
+        fallbackGithubToken: String = "",
     ): Boolean {
         val activeTasks = taskDao.getActiveTasks()
 
@@ -396,10 +397,12 @@ class BackgroundTaskManager(
             htmlUrl = htmlUrl,
         )
 
-        // 获取失败日志
+        // 获取失败日志（config 无 token 时回退到设置里的全局 token）
         val failedJobs = if (!success) {
+            val effectiveToken = matchedConfig?.githubToken?.takeIf { it.isNotBlank() }
+                ?: fallbackGithubToken
             try {
-                gitHubClient.getFailedJobLogs(repo, runId, matchedConfig?.githubToken ?: "")
+                gitHubClient.getFailedJobLogs(repo, runId, effectiveToken)
             } catch (_: Exception) {
                 emptyList()
             }
@@ -657,7 +660,9 @@ class BackgroundTaskManager(
                             append(" #").append(result.runNumber)
                             append(" (").append(result.branch).append(")")
                         } else {
-                            append("❌ CI failed: ")
+                            // conclusion 可能是 failure/cancelled/timed_out/action_required 等，
+                            // 文案显示具体结论而不是笼统的 failed
+                            append("❌ CI ").append(result.conclusion.ifBlank { "failed" }).append(": ")
                             append(result.workflowName)
                             append(" #").append(result.runNumber)
                             append(" (").append(result.branch).append(")")
