@@ -30,7 +30,9 @@ import kotlin.uuid.Uuid
 
 private const val TAG = "BackgroundTaskManager"
 private const val CLEANUP_INTERVAL_MS = 3600_000L // 1h
-private const val MAX_TASK_AGE_MS = 7 * 24 * 3600_000L // 7 days
+private const val MAX_TASK_AGE_MS = 7 * 24 * 3600_000L // 终态任务保留 7 天
+// [FIX] 活跃任务不能按 7 天清理：长定时器/长 CI 监控会被静默删除。活跃任务保留 30 天。
+private const val MAX_ACTIVE_TASK_AGE_MS = 30 * 24 * 3600_000L
 
 // [OPT] 动态唤醒间隔的边界与空闲间隔
 private const val MIN_POLL_INTERVAL_MS = 2_000L        // PENDING 任务等待下限
@@ -132,7 +134,11 @@ class BackgroundTaskManager(
             cleanupJob = scope.launch {
                 while (isActive) {
                     delay(CLEANUP_INTERVAL_MS)
-                    taskDao.cleanupOld(System.currentTimeMillis() - MAX_TASK_AGE_MS)
+                    val now = System.currentTimeMillis()
+                    taskDao.cleanupOld(
+                        terminalBefore = now - MAX_TASK_AGE_MS,
+                        activeBefore = now - MAX_ACTIVE_TASK_AGE_MS,
+                    )
                 }
             }
         }
@@ -297,6 +303,9 @@ class BackgroundTaskManager(
      */
     suspend fun cancelTask(taskId: String) {
         taskDao.updateStatus(taskId, TaskStatus.CANCELLED)
+        consecutiveFailures.remove(taskId)
+        consecutiveNotFound.remove(taskId)
+        rateLimitedUntil.remove(taskId)
         refreshState()
         pollerWake.trySend(Unit)
     }
@@ -584,14 +593,8 @@ class BackgroundTaskManager(
      * 计算带指数退避的下次轮询间隔。
      * 前 5 次用配置的 pollIntervalMs，之后逐步增加（最大 5 分钟）。
      */
-    private fun nextPollDelay(pollCount: Int, baseIntervalMs: Long): Long {
-        return when {
-            pollCount < 5 -> baseIntervalMs
-            pollCount < 10 -> baseIntervalMs * 2
-            pollCount < 20 -> baseIntervalMs * 3
-            else -> minOf(baseIntervalMs * 5, 300_000L) // 最大 5 分钟
-        }
-    }
+    private fun nextPollDelay(pollCount: Int, baseIntervalMs: Long): Long =
+        computeNextPollDelay(pollCount, baseIntervalMs)
 
     private suspend fun completeTask(
         task: TaskEntity,
@@ -691,5 +694,18 @@ class BackgroundTaskManager(
     private suspend fun refreshState() {
         _activeTaskCount.value = taskDao.countActive()
         _recentTasks.value = taskDao.getRecentTasks(20)
+    }
+}
+
+/**
+ * 计算带指数退避的下次轮询间隔（顶层函数便于单元测试）。
+ * 前 5 次用配置的 pollIntervalMs，之后逐步增加（最大 5 分钟）。
+ */
+internal fun computeNextPollDelay(pollCount: Int, baseIntervalMs: Long): Long {
+    return when {
+        pollCount < 5 -> baseIntervalMs
+        pollCount < 10 -> baseIntervalMs * 2
+        pollCount < 20 -> baseIntervalMs * 3
+        else -> minOf(baseIntervalMs * 5, 300_000L) // 最大 5 分钟
     }
 }

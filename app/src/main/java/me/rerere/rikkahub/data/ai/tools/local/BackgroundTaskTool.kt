@@ -24,7 +24,7 @@ import me.rerere.rikkahub.data.task.BackgroundTaskManager
  */
 
 // owner/name 格式（GitHub 用户名/组织名 + 仓库名，各 1-100 个 [A-Za-z0-9_.-]）
-private val REPO_PATTERN = Regex("^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$")
+private val REPO_PATTERN = me.rerere.rikkahub.data.task.REPO_PATTERN
 
 /** 任务描述（与 REST TaskDto 一致的轻量解析，解析失败返回 null）。 */
 private fun taskDescription(task: me.rerere.rikkahub.data.task.TaskEntity): String? {

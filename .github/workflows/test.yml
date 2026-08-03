@@ -36,3 +36,10 @@ jobs:
 
       - name: Run ai module unit tests
         run: ./gradlew :ai:testDebugUnitTest --stacktrace
+
+      # app 模块的 JVM 测试（新增 task 相关测试等）。
+      # continue-on-error：现有测试可能依赖本地环境（Compose/Android 桩），
+      # 先观察结果，逐步收敛后再移除容错。
+      - name: Run app module unit tests (non-blocking)
+        continue-on-error: true
+        run: ./gradlew :app:testDebugUnitTest --stacktrace

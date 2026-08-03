@@ -20,7 +20,7 @@ import me.rerere.rikkahub.utils.JsonInstant
 import java.security.MessageDigest
 
 /** GitHub repo 全名格式（owner/name）。 */
-private val REPO_PATTERN = Regex("^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$")
+private val REPO_PATTERN = me.rerere.rikkahub.data.task.REPO_PATTERN
 
 /**
  * 后台任务 REST API + GitHub Webhook 接收端点。
@@ -242,6 +242,7 @@ data class TaskDto(
     val completedAt: Long,
     val errorMessage: String,
     val pollCount: Int,
+    val result: String = "",
 ) {
     companion object {
         fun from(entity: me.rerere.rikkahub.data.task.TaskEntity) = TaskDto(
@@ -254,6 +255,7 @@ data class TaskDto(
             completedAt = entity.completedAt,
             errorMessage = entity.errorMessage,
             pollCount = entity.pollCount,
+            result = entity.result,
         )
 
         private fun buildDescription(entity: me.rerere.rikkahub.data.task.TaskEntity): String {

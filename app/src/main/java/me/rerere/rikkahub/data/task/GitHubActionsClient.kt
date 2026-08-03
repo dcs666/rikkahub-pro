@@ -55,13 +55,16 @@ class GitHubActionsClient(
     }
 
     /**
-     * 是否为 GitHub rate limit 错误（403/429）。
+     * 是否为 GitHub rate limit 错误（403 配额耗尽 / 429 太频繁）。
      * BackgroundTaskManager 据此触发强制退避而不是累加失败计数。
      */
     fun isRateLimitError(e: Throwable): Boolean = when (e) {
         is GitHubRateLimitException -> true
-        is IOException -> e.message?.contains("GitHub API error: 40") == true ||
-            e.message?.contains("GitHub API error: 429") == true
+        is IOException -> {
+            val message = e.message.orEmpty()
+            // 精确匹配 403/429（旧版消息格式 "GitHub API error: <code>"）
+            message.contains("GitHub API error: 403") || message.contains("GitHub API error: 429")
+        }
         else -> false
     }
 
