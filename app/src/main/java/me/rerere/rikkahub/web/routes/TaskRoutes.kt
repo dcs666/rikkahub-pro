@@ -155,12 +155,11 @@ fun Route.taskRoutes(
             taskManager.cancelTask(id)
             call.respond(mapOf("status" to "cancelled"))
         }
-
         // 删除任务记录（历史清理）
         delete("/{id}") {
             val id = call.parameters["id"] ?: run {
                 call.respond(HttpStatusCode.BadRequest, mapOf("error" to "id required"))
-                return@post
+                return@delete
             }
             val deleted = taskManager.deleteTask(id)
             if (deleted) {

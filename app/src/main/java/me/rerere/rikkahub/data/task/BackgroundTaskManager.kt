@@ -186,8 +186,8 @@ class BackgroundTaskManager(
 
     private fun ciDueAt(task: TaskEntity): Long {
         // rate limit 退避窗口内：睡到窗口结束再 poll，避免每 2s 空转唤醒
-        val backoffUntil = rateLimitedUntil[task.id]
-        if (backoffUntil != null) return backoffUntil
+        // （平台类型不能 smart cast，用 ?.let 拿非空值）
+        rateLimitedUntil[task.id]?.let { return it }
         if (task.status == TaskStatus.PENDING) return 0L // 立即 poll
         val pollIntervalMs = runCatching {
             (json.decodeFromString(TaskConfig.serializer(), task.config) as? TaskConfig.CIMonitor)
