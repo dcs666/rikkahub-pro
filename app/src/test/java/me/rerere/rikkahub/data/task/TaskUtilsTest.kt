@@ -34,10 +34,13 @@ class TaskUtilsTest {
     @Test
     fun `backoff caps at 5 minutes from 20 polls`() {
         val base = 30_000L
-        assertEquals(300_000L, computeNextPollDelay(20, base))
-        assertEquals(300_000L, computeNextPollDelay(1000, base))
-        // 大基数时 5x 超过上限也要被钳制
+        // 5x 退避（30s * 5 = 150s，未达 300s 上限）
+        assertEquals(150_000L, computeNextPollDelay(20, base))
+        assertEquals(150_000L, computeNextPollDelay(1000, base))
+        // 大基数时 5x 超过 5 分钟上限 → 钳制到 300s
         assertEquals(300_000L, computeNextPollDelay(20, 120_000L))
+        // 恰好在边界：60s * 5 = 300s（等于上限，不越界）
+        assertEquals(300_000L, computeNextPollDelay(20, 60_000L))
     }
 
     @Test
