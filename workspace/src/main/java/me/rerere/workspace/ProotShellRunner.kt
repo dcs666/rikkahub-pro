@@ -17,8 +17,31 @@ class ProotShellRunner(
     private val nativeLibraryDir: File,
     private val patcher: RootfsPatcher = RootfsPatcher(),
 ) : WorkspaceShellRunner {
-    // [TURBO] 常驻 proot+bash 会话，shell 性能质变核心。与一次性路径共享 patcher（patch 幂等）。
-    private val persistentSession = PersistentShellSession(patcher)
+    // [A1 会话池] 按 workspace（linuxDir）缓存常驻 proot+bash 会话（LRU，上限 MAX_SESSIONS）。
+    // 之前是全局单例：切换 workspace 时 boundLinuxDir 变化 → destroy + 冷启动（~1s）；
+    // 且全局一把锁导致不同 workspace 的命令互相阻塞。
+    // 现在每个 workspace 独立会话 + 独立锁：
+    // - 切换 workspace 零冷启动（会话复用）
+    // - 不同 workspace 的命令可并行（link2symlink DB 是每 proot 进程独立的，跨进程无共享状态）
+    // - 淘汰最久未用的会话并销毁，池大小有界
+    private val sessions = object : LinkedHashMap<File, SessionEntry>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<File, SessionEntry>?): Boolean {
+            if (size <= MAX_SESSIONS) return false
+            eldest?.value?.session?.destroy()
+            return true
+        }
+    }
+
+    private class SessionEntry(
+        val session: PersistentShellSession,
+        val lock: ReentrantLock,
+    )
+
+    @Synchronized
+    private fun sessionFor(linuxDir: File): SessionEntry =
+        sessions.getOrPut(linuxDir) {
+            SessionEntry(PersistentShellSession(patcher), ReentrantLock(true))
+        }
 
     override fun execute(context: WorkspaceShellContext): WorkspaceCommandResult {
         if (!context.linuxDir.hasUsableRootfs()) {
@@ -46,10 +69,13 @@ class ProotShellRunner(
             )
         }
 
-        // [PERF-FIX] proot --link2symlink 使用共享数据库，不支持并发。
-        // 并行 tool call 会导致多个 proot 进程死锁。加公平锁串行化执行。
+        // [A1] 每 workspace 一把锁（原来全局一把）：
+        // - 同一 workspace 的持久会话与一次性路径串行（同 rootfs 的 patch/访问不并发，
+        //   link2symlink 同进程内不支持并发 fork）
+        // - 不同 workspace 的命令互不阻塞
+        val entry = sessionFor(context.linuxDir)
         val waitMs = context.timeoutMillis + 5_000L
-        val acquired = prootLock.tryLock(waitMs, TimeUnit.MILLISECONDS)
+        val acquired = entry.lock.tryLock(waitMs, TimeUnit.MILLISECONDS)
         if (!acquired) {
             return WorkspaceCommandResult(
                 exitCode = -1,
@@ -70,17 +96,18 @@ class ProotShellRunner(
             // [FIX] InterruptedException 必须单独捕获并重新抛出：用户点终止键时
             // runInterruptible 中断线程 → readThread.join() 抛 InterruptedException，
             // 若被通用 catch 吞掉会 fallback 到 executeOneShot 重新执行命令，导致终止键失效。
+            val session = entry.session
             return try {
-                persistentSession.execute(context, proot, loader)
+                session.execute(context, proot, loader)
             } catch (e: InterruptedException) {
-                persistentSession.destroy()
+                session.destroy()
                 throw e // 传播中断，让 runInterruptible 转为 CancellationException
             } catch (e: Exception) {
-                persistentSession.destroy()
+                session.destroy()
                 executeOneShot(context, proot, loader)
             }
         } finally {
-            prootLock.unlock()
+            entry.lock.unlock()
         }
     }
 
@@ -175,8 +202,9 @@ class ProotShellRunner(
         private const val PROOT_EXEC = "libproot_exec.so"
         private const val PROOT_LOADER = "libproot_loader.so"
         private val WORKSPACE_DIR = WorkspaceManager.ROOTFS_WORKSPACE_DIR
-        // [PERF-FIX] 公平锁：保证并行 tool call 排队执行，不会死锁
-        private val prootLock = ReentrantLock(true)
+        // [A1] 常驻会话池上限：LRU 淘汰最久未用的会话（每个会话 = 一个 proot+bash 进程，
+        // 进程数有界，防止多 workspace 堆积）
+        private const val MAX_SESSIONS = 3
     }
 }
 
