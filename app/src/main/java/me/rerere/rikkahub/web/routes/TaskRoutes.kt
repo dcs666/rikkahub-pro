@@ -34,6 +34,10 @@ fun Route.taskRoutes(taskManager: BackgroundTaskManager) {
         // 手动创建 CI 监控
         post("/ci") {
             val request = call.receive<CreateCIMonitorRequest>()
+            if (request.repo.isBlank()) {
+                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "repo is required"))
+                return@post
+            }
             val taskId = taskManager.createCIMonitorTask(
                 repo = request.repo,
                 branch = request.branch ?: "",

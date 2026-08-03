@@ -46,7 +46,7 @@ interface TaskDao {
     @Query("UPDATE background_tasks SET status = 'cancelled', updated_at = :updatedAt WHERE status IN ('pending', 'running')")
     suspend fun cancelAllActive(updatedAt: Long = System.currentTimeMillis())
 
-    @Query("DELETE FROM background_tasks WHERE status IN ('completed', 'failed', 'cancelled') AND updated_at < :before")
+    @Query("DELETE FROM background_tasks WHERE (status IN ('completed', 'failed', 'cancelled') AND updated_at < :before) OR (status IN ('pending', 'running') AND created_at < :before)")
     suspend fun cleanupOld(before: Long)
 
     @Query("SELECT COUNT(*) FROM background_tasks WHERE status IN ('pending', 'running')")
