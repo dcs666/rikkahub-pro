@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -657,7 +658,9 @@ private fun MessagePartsBlock(
 }
 
 // [TURBO R2] 长消息折叠：阈值（文本超过此长度则默认折叠）与折叠态预览截取长度。
-private const val MESSAGE_COLLAPSE_THRESHOLD = 1500
+// [TURBO R2.1] 阈值 1500 → 5000：AI 长回复（代码分析/长文）普遍超 1500 字，
+// 太敏感会打断阅读；只有真正超长（>5000）才需要折叠保护滚历史性能。
+private const val MESSAGE_COLLAPSE_THRESHOLD = 5000
 private const val MESSAGE_COLLAPSE_PREVIEW_LENGTH = 300
 
 /**
@@ -680,8 +683,12 @@ private fun CollapsedMessagePreview(
             .joinToString("\n") { it.text }
             .take(MESSAGE_COLLAPSE_PREVIEW_LENGTH)
     }
+    // [TURBO R2.1] 整个预览区域可点击展开（不再需要精确点按钮），
+    // 保留按钮文本作视觉提示。
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onExpand),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text(
