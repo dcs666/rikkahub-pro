@@ -420,6 +420,12 @@ class BackgroundTaskManager(
             ?: return false
 
         val success = conclusion == "success"
+
+        // [B flaky 自动重试] timed_out 自动 rerun 一次（成功则任务保持活跃，不完成）。
+        if (maybeAutoRetryCITask(matchingTask, matchedConfig, conclusion, fallbackGithubToken)) {
+            return true
+        }
+
         val result = CITaskResult(
             runId = runId,
             runNumber = runNumber,
@@ -452,6 +458,47 @@ class BackgroundTaskManager(
         )
         pollerWake.trySend(Unit) // 完成活跃任务后立即让 poller 重算睡眠（少一个任务）
         return true
+    }
+
+    /**
+     * [B flaky 自动重试] CI 因超时（GitHub conclusion=timed_out，网络抖动类失败）
+     * 自动 rerun 一次：任务保持活跃继续监控同一 run，不通知不注入。
+     * 已重试过 / 无 token / rerun 失败 → 返回 false，走正常完成流程（AI 分析兜底）。
+     */
+    private suspend fun maybeAutoRetryCITask(
+        task: TaskEntity,
+        config: TaskConfig.CIMonitor,
+        conclusion: String,
+        fallbackToken: String = "",
+    ): Boolean {
+        if (!shouldAutoRetryCI(conclusion, config.autoRetried)) return false
+        // 任务级 token 优先，webhook 路径可回退到全局 token；都没有则无法 rerun
+        val token = config.githubToken.takeIf { it.isNotBlank() }
+            ?: fallbackToken.takeIf { it.isNotBlank() }
+            ?: return false
+
+        val result = withContext(Dispatchers.IO) {
+            gitHubClient.rerunWorkflow(config.repo, config.runId, token)
+        }
+        return result.fold(
+            onSuccess = {
+                // 重试成功：标记已重试 + 重置轮询计数，任务保持 RUNNING 继续监控同一 run
+                taskDao.update(task.copy(
+                    config = json.encodeToString(TaskConfig.serializer(), config.copy(autoRetried = true)),
+                    pollCount = 0,
+                    updatedAt = System.currentTimeMillis(),
+                ))
+                consecutiveFailures.remove(task.id)
+                consecutiveNotFound.remove(task.id)
+                pollerWake.trySend(Unit)
+                Log.i(TAG, "CI timed out — auto-rerun #${config.runId} for task ${task.id}")
+                true
+            },
+            onFailure = { e ->
+                Log.w(TAG, "Auto-rerun failed for task ${task.id}: ${e.message}")
+                false
+            },
+        )
     }
 
     /**
@@ -656,29 +703,34 @@ class BackgroundTaskManager(
                     "completed" -> {
                         consecutiveFailures.remove(task.id)
                         consecutiveNotFound.remove(task.id)
-                        // 获取失败日志
-                        // [FIX] 抓日志失败（token 失效/网络）不能阻止任务完成：
-                        // 异常冒泡会让 completeTask 永远不执行，任务死循环到 maxPollCount。
-                        // 失败时降级为无日志，任务照常完成（result 里 failedJobs 为空）。
-                        val failedJobs = if (ciResult.conclusion == "failure") {
-                            try {
-                                withContext(Dispatchers.IO) {
-                                    gitHubClient.getFailedJobLogs(config.repo, ciResult.runId, config.githubToken)
+                        // [B flaky 自动重试] timed_out 自动 rerun 一次，
+                        // 成功则跳过 completeTask（任务保持活跃继续监控）
+                        val autoRetried = maybeAutoRetryCITask(task, config, ciResult.conclusion)
+                        if (!autoRetried) {
+                            // 获取失败日志
+                            // [FIX] 抓日志失败（token 失效/网络）不能阻止任务完成：
+                            // 异常冒泡会让 completeTask 永远不执行，任务死循环到 maxPollCount。
+                            // 失败时降级为无日志，任务照常完成（result 里 failedJobs 为空）。
+                            val failedJobs = if (ciResult.conclusion == "failure") {
+                                try {
+                                    withContext(Dispatchers.IO) {
+                                        gitHubClient.getFailedJobLogs(config.repo, ciResult.runId, config.githubToken)
+                                    }
+                                } catch (e: Exception) {
+                                    Log.w(TAG, "Failed to fetch job logs for task ${task.id}: ${e.message}")
+                                    emptyList()
                                 }
-                            } catch (e: Exception) {
-                                Log.w(TAG, "Failed to fetch job logs for task ${task.id}: ${e.message}")
-                                emptyList()
-                            }
-                        } else emptyList()
+                            } else emptyList()
 
-                        val finalResult = ciResult.copy(failedJobs = failedJobs)
-                        val success = ciResult.conclusion == "success"
-                        completeTask(
-                            task,
-                            success = success,
-                            resultJson = json.encodeToString(CITaskResult.serializer(), finalResult),
-                            config = config,
-                        )
+                            val finalResult = ciResult.copy(failedJobs = failedJobs)
+                            val success = ciResult.conclusion == "success"
+                            completeTask(
+                                task,
+                                success = success,
+                                resultJson = json.encodeToString(CITaskResult.serializer(), finalResult),
+                                config = config,
+                            )
+                        }
                     }
                     "not_found" -> {
                         // 还没找到 run，继续等；但连续找不到说明 repo/branch/workflow 可能写错，

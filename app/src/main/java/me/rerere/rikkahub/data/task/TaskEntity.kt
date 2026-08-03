@@ -69,6 +69,8 @@ sealed class TaskConfig {
         val autoAnalyzeOnFailure: Boolean = true,
         val notifyOnSuccess: Boolean = true,
         val githubToken: String = "", // optional, for private repos
+        // [B flaky 自动重试] time_out 结论已自动 rerun 过一次（防死循环）
+        val autoRetried: Boolean = false,
     ) : TaskConfig()
 
     @Serializable
