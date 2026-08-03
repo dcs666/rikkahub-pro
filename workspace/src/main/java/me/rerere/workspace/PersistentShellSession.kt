@@ -73,12 +73,20 @@ class PersistentShellSession(
         // 修复后：cd 是 builtin 不 fork；外部命令（ls/grep/curl）fork+exec 全新进程，
         // 与一次性路径等价，不死锁。状态隔离降级：cwd 会残留，但每条命令开头都会 cd 到
         // 目标目录覆盖；export 变量残留概率低，可接受。
+        // [FIX] 命令文本与 sentinel 隔离：sentinel 放在独立行，且命令用 eval + 单引号包裹。
+        // 原实现 `cd && COMMAND ; __rikka_s=$? ; printf ...` 全部在同一行：
+        // 命令以 `#` 结尾时，注释会吞掉后面的 sentinel（永不输出 → 30s 超时降级）；
+        // 尾随反斜杠/未闭合引号同理会破坏整行脚本。
+        // eval 'COMMAND' 中，命令内的 #/引号/反斜杠只在 eval 内生效，解析失败也只会
+        // 返回非零退出码，不再影响外层 sentinel 逻辑；行为与直接内联等价
+        // （命令文本原样交给 bash 解析一次）。
         val script = buildString {
             append("cd -- ")
             append(context.prootCwd().shellQuote())
-            append(" && ")
-            append(context.command)
-            append(" ; __rikka_s=${'$'}? ; printf '\\000__RIKKA_DONE_%d__\\000' \"${'$'}__rikka_s\"\n")
+            append(" && eval -- ")
+            append(context.command.shellQuote())
+            append("\n__rikka_s=${'$'}?\n")
+            append("printf '\\000__RIKKA_DONE_%d__\\000' \"${'$'}__rikka_s\"\n")
         }
         runCatching {
             w.write(script)
