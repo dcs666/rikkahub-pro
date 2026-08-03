@@ -10,6 +10,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -964,6 +965,21 @@ class ChatService(
      */
     fun isGenerating(conversationId: Uuid): Boolean {
         return sessions[conversationId]?.isGenerating == true
+    }
+
+    /**
+     * 等待会话的当前生成结束（最长 [timeoutMs]）。
+     * 任务结果注入前调用：sendMessage 会无条件 cancel 当前生成任务，
+     * 若 AI 正在写代码/执行工具时注入，会直接掐断回复（代码不完整、工具中断）。
+     * 返回 true = 已空闲可安全注入；false = 超时仍在生成（调用方应跳过注入）。
+     */
+    suspend fun awaitGenerationIdle(conversationId: Uuid, timeoutMs: Long = 120_000): Boolean {
+        if (!isGenerating(conversationId)) return true
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (isGenerating(conversationId) && System.currentTimeMillis() < deadline) {
+            delay(500)
+        }
+        return !isGenerating(conversationId)
     }
 
     /**

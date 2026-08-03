@@ -127,13 +127,19 @@ class TaskNotificationManager(
                 }
             }
 
+            // [FIX] 关键：sendMessage 会无条件 cancel 会话当前的生成任务。
+            // 若 AI 正在写代码/执行工具（生成中），直接注入会掐断回复——
+            // 正在写的代码不完整、工具调用中断、CI 结果也没人分析。
+            // 正确语义：等当前生成自然结束（最长 2 分钟）再注入；
+            // 注入后若失败+autoAnalyze 则触发分析——AI 先完成手头工作，紧接着处理 CI 结果。
+            val idle = chatService.awaitGenerationIdle(conversationId)
+            if (!idle) {
+                Log.w(TAG, "Conversation ${event.conversationId} still generating after timeout, skip injection")
+                return
+            }
+
             // CI 失败 + 自动分析 → 触发 AI 回复
-            // [FIX] 会话正在生成时不抢占（sendMessage 会 cancel 当前生成，
-            // 打断用户正在看的回答）；只注入消息，下一轮对话 AI 自然看到。
-            val shouldAutoGenerate = !event.success &&
-                event.taskType == "ci_monitor" &&
-                autoAnalyze &&
-                !chatService.isGenerating(conversationId)
+            val shouldAutoGenerate = !event.success && event.taskType == "ci_monitor" && autoAnalyze
 
             chatService.sendMessage(
                 conversationId = conversationId,
