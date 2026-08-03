@@ -19,7 +19,9 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 冷启动（cache miss）+ 网络高峰时 Gradle 依赖下载可能超 30 分钟，
+    # 之前构建被 kill 过；cache 命中后实际只需 7-10 分钟
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v4
@@ -47,6 +49,15 @@ jobs:
       - name: Install web-ui dependencies
         working-directory: web-ui
         run: pnpm install --frozen-lockfile
+
+      # [OPT] web-ui node_modules 缓存（按 lock 文件 hash）：
+      # pnpm store 缓存只省下载，install 仍要跑；缓存 node_modules 可跳过
+      # 整个 install + vite 依赖解析
+      - name: Cache web-ui node_modules
+        uses: actions/cache@v4
+        with:
+          path: web-ui/node_modules
+          key: ${{ runner.os }}-webui-${{ hashFiles('web-ui/pnpm-lock.yaml') }}
 
       - name: Gradle cache
         uses: actions/cache@v4
