@@ -67,8 +67,14 @@ class ProotShellRunner(
             }
             // [TURBO] 优先走常驻 proot+bash 会话（首次秒级、后续几十 ms）。任何失败
             // （启动失败/进程死/读超时/sentinel 缺失）都销毁会话并退回一次性 proot，绝不丢功能。
+            // [FIX] InterruptedException 必须单独捕获并重新抛出：用户点终止键时
+            // runInterruptible 中断线程 → readThread.join() 抛 InterruptedException，
+            // 若被通用 catch 吞掉会 fallback 到 executeOneShot 重新执行命令，导致终止键失效。
             return try {
                 persistentSession.execute(context, proot, loader)
+            } catch (e: InterruptedException) {
+                persistentSession.destroy()
+                throw e // 传播中断，让 runInterruptible 转为 CancellationException
             } catch (e: Exception) {
                 persistentSession.destroy()
                 executeOneShot(context, proot, loader)
