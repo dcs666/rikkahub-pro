@@ -37,9 +37,11 @@ interface TaskDao {
     @Query("SELECT * FROM background_tasks WHERE conversation_id = :conversationId ORDER BY created_at DESC")
     suspend fun getTasksOfConversation(conversationId: String): List<TaskEntity>
 
-    /** [③ CI 历史] 最近完成的 CI 监控任务（内存过滤 repo/branch，用于成功率统计）。 */
-    @Query("SELECT * FROM background_tasks WHERE type = 'ci_monitor' AND status = 'completed' ORDER BY created_at DESC LIMIT :limit")
-    suspend fun getCompletedCITasks(limit: Int = 30): List<TaskEntity>
+    /** [③ CI 历史] 最近结束（成功或失败）的 CI 监控任务（内存过滤 repo/branch，用于成功率统计）。
+     *  [FIX] 必须包含 status='failed'：否则失败的 CI 任务不会进入历史，
+     *  ci_history 的 success_rate 会恒为 100%（只有成功任务参与统计）。 */
+    @Query("SELECT * FROM background_tasks WHERE type = 'ci_monitor' AND status IN ('completed', 'failed') ORDER BY created_at DESC LIMIT :limit")
+    suspend fun getFinishedCITasks(limit: Int = 30): List<TaskEntity>
 
     /**
      * 条件取消单个任务：仅当仍处于活跃状态（pending/running）时生效。

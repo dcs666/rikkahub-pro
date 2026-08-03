@@ -482,9 +482,18 @@ class BackgroundTaskManager(
         }
         return result.fold(
             onSuccess = {
-                // 重试成功：标记已重试 + 重置轮询计数，任务保持 RUNNING 继续监控同一 run
+                // [FIX] GitHub rerun 会生成新 run（新 run_id，run_number 不变），旧 run 保持原
+                // timed_out 结论不变。若继续监控旧 runId，下一轮会读到过期结论、误报失败。
+                // 重置 runId=0 + status=PENDING 让下一轮按分支重新解析最新 run（rerun 的新 run），
+                // 并把旧 runId 记入 skipRunId：新 run 注册前的窗口期内 latest 仍是旧 run，
+                // isStaleRun 会精确跳过它而不是错误完成。
                 taskDao.update(task.copy(
-                    config = json.encodeToString(TaskConfig.serializer(), config.copy(autoRetried = true)),
+                    status = TaskStatus.PENDING,
+                    config = json.encodeToString(TaskConfig.serializer(), config.copy(
+                        autoRetried = true,
+                        runId = 0L,
+                        skipRunId = config.runId,
+                    )),
                     pollCount = 0,
                     updatedAt = System.currentTimeMillis(),
                 ))
@@ -610,7 +619,7 @@ class BackgroundTaskManager(
      * 用于 AI 判断"该分支最近是否稳定"。
      */
     suspend fun getCIHistory(repo: String, branch: String = "", limit: Int = 20): List<CITaskResult> {
-        return taskDao.getCompletedCITasks(limit).mapNotNull { task ->
+        return taskDao.getFinishedCITasks(limit).mapNotNull { task ->
             runCatching {
                 val config = json.decodeFromString(TaskConfig.serializer(), task.config) as? TaskConfig.CIMonitor
                     ?: return@mapNotNull null
@@ -699,6 +708,25 @@ class BackgroundTaskManager(
 
         result.fold(
             onSuccess = { ciResult ->
+                // [FIX] runId=0（监控 latest）时防绑定过期 run：auto-rerun 后的旧 run、
+                // 以及任务创建前就已完成的上一次 push 残留。过期 run 不能采信，
+                // 按 not_found 继续等待真正的目标 run。
+                if (isStaleRun(config, task.createdAt, ciResult)) {
+                    val streak = (consecutiveNotFound.merge(task.id, 1, Int::plus) ?: 1)
+                    if (streak >= CONSECUTIVE_NOT_FOUND_LIMIT) {
+                        consecutiveNotFound.remove(task.id)
+                        completeTask(
+                            task,
+                            success = false,
+                            error = "No new workflow run found for ${config.repo}@" +
+                                "${config.branch.ifBlank { "any" }}" +
+                                " (workflow: ${config.workflowName.ifBlank { "any" }}) after $streak checks"
+                        )
+                    } else {
+                        incrementPollCount(task)
+                    }
+                    return@fold
+                }
                 when (ciResult.status) {
                     "completed" -> {
                         consecutiveFailures.remove(task.id)

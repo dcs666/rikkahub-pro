@@ -89,11 +89,11 @@ internal fun buildBackgroundTaskTool(
                 })
                 put("repo", buildJsonObject {
                     put("type", "string")
-                    put("description", "GitHub repo full name, e.g. 'owner/repo'. Required for create_ci_monitor.")
+                    put("description", "GitHub repo full name, e.g. 'owner/repo'. Required for create_ci_monitor and ci_history.")
                 })
                 put("branch", buildJsonObject {
                     put("type", "string")
-                    put("description", "Git branch to monitor. Optional, defaults to all branches.")
+                    put("description", "Git branch to monitor or filter by. Optional, defaults to all branches.")
                 })
                 put("workflow", buildJsonObject {
                     put("type", "string")
@@ -130,14 +130,6 @@ internal fun buildBackgroundTaskTool(
                 put("task_id", buildJsonObject {
                     put("type", "string")
                     put("description", "Task ID for get_task, cancel_task, or rerun_ci.")
-                })
-                put("repo", buildJsonObject {
-                    put("type", "string")
-                    put("description", "Repository owner/name for ci_history, e.g. 'dcs666/rikkahub-turbo'.")
-                })
-                put("branch", buildJsonObject {
-                    put("type", "string")
-                    put("description", "Optional branch filter for ci_history.")
                 })
                 put("poll_interval_sec", buildJsonObject {
                     put("type", "number")

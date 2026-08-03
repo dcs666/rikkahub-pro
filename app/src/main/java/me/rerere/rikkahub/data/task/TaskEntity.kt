@@ -71,6 +71,10 @@ sealed class TaskConfig {
         val githubToken: String = "", // optional, for private repos
         // [B flaky 自动重试] time_out 结论已自动 rerun 过一次（防死循环）
         val autoRetried: Boolean = false,
+        // [FIX] auto-rerun 后旧 run 的 id：GitHub rerun 会生成新 run（新 id，run_number 不变），
+        // 旧 run 保持原 timed_out 结论。runId 重置为 0 重新解析最新 run 后，
+        // 在新 run 注册的窗口期内 latest 仍可能是旧 run，用 skipRunId 精确跳过它。
+        val skipRunId: Long = 0,
     ) : TaskConfig()
 
     @Serializable
