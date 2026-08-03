@@ -230,15 +230,19 @@ class BackgroundTaskManager(
         githubToken: String = "",
     ): String {
         // 去重：如果已有相同 repo+branch+runId 的活跃任务，直接返回其 ID
+        // （workflowName 双方都指定且不同时不算重复——监控不同 workflow 不互相复用）
         val existingTasks = taskDao.getActiveTasks()
         val duplicate = existingTasks.firstOrNull { task ->
             if (task.type != TaskType.CI_MONITOR) return@firstOrNull false
             try {
                 val cfg = json.decodeFromString(TaskConfig.serializer(), task.config) as? TaskConfig.CIMonitor
                     ?: return@firstOrNull false
+                val workflowMatches = cfg.workflowName.isBlank() || workflowName.isBlank() ||
+                    cfg.workflowName.equals(workflowName, ignoreCase = true)
                 cfg.repo.equals(repo, ignoreCase = true) &&
                     cfg.branch.equals(branch, ignoreCase = true) &&
-                    cfg.runId == runId
+                    cfg.runId == runId &&
+                    workflowMatches
             } catch (_: Exception) { false }
         }
         if (duplicate != null) {
