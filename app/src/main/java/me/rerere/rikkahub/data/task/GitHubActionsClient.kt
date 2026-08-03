@@ -41,6 +41,8 @@ class GitHubActionsClient(
                 getLatestRunByBranch(config.repo, config.branch, config.workflowName, config.githubToken)
             }
             Result.success(result)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e // 协程取消必须传播，不能吞掉
         } catch (e: Exception) {
             Result.failure(e)
         }

@@ -68,6 +68,8 @@ class BackgroundTaskManager(
             while (isActive) {
                 try {
                     pollActiveTasks()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e // 协程取消必须传播
                 } catch (e: Exception) {
                     Log.e(TAG, "Poll cycle error", e)
                 }
