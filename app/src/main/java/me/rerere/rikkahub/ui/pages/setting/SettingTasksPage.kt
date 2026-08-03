@@ -383,9 +383,21 @@ fun SettingTasksPage() {
                     TaskCard(
                         task = task,
                         onCancel = null,
+                        // [④] 失败任务可一键重跑 CI（重置任务并重新监控）
                         onDelete = {
                             scope.launch { taskManager.deleteTask(task.id) }
                         },
+                        onRerun = if (task.status == TaskStatus.FAILED) {
+                            {
+                                scope.launch {
+                                    val result = taskManager.rerunTask(task.id, settings.taskGithubToken)
+                                    result.fold(
+                                        onSuccess = { toaster.show("Rerun triggered") },
+                                        onFailure = { toaster.show("Rerun failed: ${it.message}") },
+                                    )
+                                }
+                            }
+                        } else null,
                     )
                 }
             }
@@ -513,6 +525,7 @@ private fun TaskCard(
     task: TaskEntity,
     onCancel: (() -> Unit)?,
     onDelete: (() -> Unit)? = null,
+    onRerun: (() -> Unit)? = null,
 ) {
     val isActive = task.status == TaskStatus.PENDING || task.status == TaskStatus.RUNNING
     // 已完成任务：点击卡片展开/收起结果详情
@@ -572,10 +585,22 @@ private fun TaskCard(
                     IconButton(onClick = onCancel) {
                         Icon(HugeIcons.Cancel01, "Cancel", tint = MaterialTheme.colorScheme.error)
                     }
-                } else if (!isActive && onDelete != null) {
+                } else if (!isActive && onDelete != null && onRerun == null) {
                     // 历史任务：删除记录（数据清理）
                     IconButton(onClick = onDelete) {
                         Icon(HugeIcons.Delete01, "Delete", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                } else if (!isActive && onRerun != null) {
+                    // 失败任务：一键重跑 CI（④）；删除仍可通过…（保留删除在重跑旁）
+                    Row {
+                        if (onDelete != null) {
+                            IconButton(onClick = onDelete) {
+                                Icon(HugeIcons.Delete01, "Delete", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        IconButton(onClick = onRerun) {
+                            Icon(HugeIcons.Refresh01, "Rerun CI", tint = MaterialTheme.colorScheme.primary)
+                        }
                     }
                 }
             }

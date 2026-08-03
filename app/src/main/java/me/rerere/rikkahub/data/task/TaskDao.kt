@@ -37,6 +37,10 @@ interface TaskDao {
     @Query("SELECT * FROM background_tasks WHERE conversation_id = :conversationId ORDER BY created_at DESC")
     suspend fun getTasksOfConversation(conversationId: String): List<TaskEntity>
 
+    /** [③ CI 历史] 最近完成的 CI 监控任务（内存过滤 repo/branch，用于成功率统计）。 */
+    @Query("SELECT * FROM background_tasks WHERE type = 'ci_monitor' AND status = 'completed' ORDER BY created_at DESC LIMIT :limit")
+    suspend fun getCompletedCITasks(limit: Int = 30): List<TaskEntity>
+
     /**
      * 条件取消单个任务：仅当仍处于活跃状态（pending/running）时生效。
      * [FIX] 无条件 UPDATE 会把已完成任务的 COMPLETED 状态覆盖成 CANCELLED。

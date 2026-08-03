@@ -55,6 +55,30 @@ class GitHubActionsClient(
     }
 
     /**
+     * 重新触发一个已完成/失败的 workflow run。
+     * 需要 token 具备 actions:write 权限；403 会以失败 Result 返回。
+     */
+    fun rerunWorkflow(repo: String, runId: Long, token: String): Result<Unit> {
+        return try {
+            val request = Request.Builder()
+                .url("https://api.github.com/repos/$repo/actions/runs/$runId/rerun")
+                .post(okhttp3.RequestBody.create(null, ByteArray(0)))
+                .withGitHubHeaders(token)
+                .build()
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    throw IOException("GitHub API error: ${response.code} ${response.message}")
+                }
+            }
+            Result.success(Unit)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e // 协程取消必须传播，不能吞掉
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
      * 是否为 GitHub rate limit 错误（403 配额耗尽 / 429 太频繁）。
      * BackgroundTaskManager 据此触发强制退避而不是累加失败计数。
      */

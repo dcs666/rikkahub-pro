@@ -503,6 +503,67 @@ class BackgroundTaskManager(
         return true
     }
 
+    /**
+     * [④ Rerun CI] 重新触发失败/已完成的 CI run，并把任务重置为新一轮监控。
+     * - 需要任务 config 里有 runId（webhook 启动感知或轮询已绑定）
+     * - token 需要 actions:write 权限（任务级 token 优先，缺省回退 fallbackToken）
+     * - 成功后任务重置为 PENDING + pollCount=0 + 清空结果/错误，poller 立即唤醒
+     * 返回成功消息或失败原因。
+     */
+    suspend fun rerunTask(taskId: String, fallbackToken: String = ""): Result<String> {
+        val task = taskDao.getById(taskId)
+            ?: return Result.failure(IOException("Task not found: $taskId"))
+        if (task.type != TaskType.CI_MONITOR) {
+            return Result.failure(IOException("Task $taskId is not a CI monitor"))
+        }
+        val config = try {
+            json.decodeFromString(TaskConfig.serializer(), task.config) as? TaskConfig.CIMonitor
+        } catch (e: Exception) {
+            return Result.failure(IOException("Invalid CI config", e))
+        } ?: return Result.failure(IOException("Invalid CI config"))
+        if (config.runId <= 0) {
+            return Result.failure(IOException("No run id yet — the CI run has not been observed (webhook/auto-watch will bind it)"))
+        }
+        val token = config.githubToken.takeIf { it.isNotBlank() } ?: fallbackToken
+
+        val rerunResult = withContext(Dispatchers.IO) {
+            gitHubClient.rerunWorkflow(config.repo, config.runId, token)
+        }
+        rerunResult.onSuccess {
+            // 重置任务：新一轮轮询（PENDING → 下一轮立即 poll；run 重置后状态 queued）
+            taskDao.update(task.copy(
+                status = TaskStatus.PENDING,
+                pollCount = 0,
+                result = "",
+                errorMessage = "",
+                updatedAt = System.currentTimeMillis(),
+            ))
+            consecutiveFailures.remove(taskId)
+            consecutiveNotFound.remove(taskId)
+            rateLimitedUntil.remove(taskId)
+            refreshState()
+            pollerWake.trySend(Unit)
+            Log.i(TAG, "Rerun triggered for task $taskId (${config.repo} run ${config.runId})")
+        }
+        return rerunResult.map { "Rerun triggered: ${config.repo} run ${config.runId}" }
+    }
+
+    /**
+     * [③ CI 历史] 查询指定 repo（可选 branch）最近的 CI 完成记录（结论/结论时间）。
+     * 用于 AI 判断"该分支最近是否稳定"。
+     */
+    suspend fun getCIHistory(repo: String, branch: String = "", limit: Int = 20): List<CITaskResult> {
+        return taskDao.getCompletedCITasks(limit).mapNotNull { task ->
+            runCatching {
+                val config = json.decodeFromString(TaskConfig.serializer(), task.config) as? TaskConfig.CIMonitor
+                    ?: return@mapNotNull null
+                if (!config.repo.equals(repo, ignoreCase = true)) return@mapNotNull null
+                if (branch.isNotBlank() && !config.branch.equals(branch, ignoreCase = true)) return@mapNotNull null
+                JsonInstant.decodeFromString(CITaskResult.serializer(), task.result)
+            }.getOrNull()
+        }
+    }
+
     // ---- 内部轮询逻辑 ----
 
     /**

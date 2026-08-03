@@ -68,19 +68,23 @@ internal fun buildBackgroundTaskTool(
         - "list_tasks": List active and recent background tasks.
         - "get_task": Get the status and result of a specific task by ID.
         - "cancel_task": Cancel an active task by ID.
+        - "rerun_ci": Rerun a failed/completed CI run and resume monitoring it.
+        - "ci_history": Query recent CI completion history (success rate) for a repo.
     """.trimIndent().replace("\n", " "),
     parameters = {
         InputSchema.Obj(
             properties = buildJsonObject {
                 put("action", buildJsonObject {
                     put("type", "string")
-                    put("description", "The action to perform: create_ci_monitor, create_timer, list_tasks, get_task, or cancel_task")
+                    put("description", "The action to perform: create_ci_monitor, create_timer, list_tasks, get_task, cancel_task, rerun_ci, or ci_history")
                     put("enum", buildJsonArray {
                         add(JsonPrimitive("create_ci_monitor"))
                         add(JsonPrimitive("create_timer"))
                         add(JsonPrimitive("list_tasks"))
                         add(JsonPrimitive("get_task"))
                         add(JsonPrimitive("cancel_task"))
+                        add(JsonPrimitive("rerun_ci"))
+                        add(JsonPrimitive("ci_history"))
                     })
                 })
                 put("repo", buildJsonObject {
@@ -113,7 +117,15 @@ internal fun buildBackgroundTaskTool(
                 })
                 put("task_id", buildJsonObject {
                     put("type", "string")
-                    put("description", "Task ID for get_task or cancel_task.")
+                    put("description", "Task ID for get_task, cancel_task, or rerun_ci.")
+                })
+                put("repo", buildJsonObject {
+                    put("type", "string")
+                    put("description", "Repository owner/name for ci_history, e.g. 'dcs666/rikkahub-turbo'.")
+                })
+                put("branch", buildJsonObject {
+                    put("type", "string")
+                    put("description", "Optional branch filter for ci_history.")
                 })
                 put("poll_interval_sec", buildJsonObject {
                     put("type", "number")
@@ -272,6 +284,64 @@ internal fun buildBackgroundTaskTool(
                     } else {
                         """{"error": "Task not found or already finished: $taskId (use list_tasks to see current tasks)"}"""
                     }
+                }
+            }
+
+            "rerun_ci" -> {
+                val taskId = obj["task_id"]?.jsonPrimitive?.content ?: ""
+                if (taskId.isBlank()) {
+                    """{"error": "task_id is required"}"""
+                } else {
+                    val result = taskManager.rerunTask(taskId, settings.taskGithubToken)
+                    result.fold(
+                        onSuccess = { message ->
+                            buildJsonObject {
+                                put("status", "rerun_triggered")
+                                put("task_id", taskId)
+                                put("message", message)
+                            }.toString()
+                        },
+                        onFailure = { e ->
+                            buildJsonObject {
+                                put("status", "error")
+                                put("task_id", taskId)
+                                put("error", e.message ?: "Unknown rerun error")
+                                put("hint", "Check that the GitHub token has actions:write permission")
+                            }.toString()
+                        },
+                    )
+                }
+            }
+
+            "ci_history" -> {
+                val repo = obj["repo"]?.jsonPrimitive?.content ?: ""
+                if (repo.isBlank()) {
+                    """{"error": "repo is required, e.g. 'dcs666/rikkahub-turbo'"}"""
+                } else {
+                    val branch = obj["branch"]?.jsonPrimitive?.content ?: ""
+                    val history = taskManager.getCIHistory(repo, branch, limit = 20)
+                    buildJsonObject {
+                        put("repo", repo)
+                        if (branch.isNotBlank()) put("branch", branch)
+                        putJsonArray("history") {
+                            history.forEach { r ->
+                                add(buildJsonObject {
+                                    put("conclusion", r.conclusion)
+                                    put("workflow", r.workflowName)
+                                    put("run_number", r.runNumber)
+                                    put("branch", r.branch)
+                                    put("completed_at", r.completedAt)
+                                    if (r.htmlUrl.isNotBlank()) put("html_url", r.htmlUrl)
+                                })
+                            }
+                        }
+                        val successCount = history.count { it.conclusion == "success" }
+                        put("total", history.size)
+                        if (history.isNotEmpty()) {
+                            put("success_count", successCount)
+                            put("success_rate", (successCount * 100 / history.size))
+                        }
+                    }.toString()
                 }
             }
 

@@ -213,6 +213,48 @@ fun Route.taskRoutes(
             }
         }
 
+        // [③] CI 历史（成功率统计）
+        get("/ci-history") {
+            val repo = call.request.queryParameters["repo"] ?: run {
+                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "repo required"))
+                return@get
+            }
+            val branch = call.request.queryParameters["branch"] ?: ""
+            val history = taskManager.getCIHistory(repo, branch, limit = 20)
+            call.respond(mapOf(
+                "repo" to repo,
+                "branch" to branch,
+                "total" to history.size,
+                "success_count" to history.count { it.conclusion == "success" },
+                "history" to history.map { r ->
+                    mapOf(
+                        "conclusion" to r.conclusion,
+                        "workflow" to r.workflowName,
+                        "run_number" to r.runNumber,
+                        "branch" to r.branch,
+                        "completed_at" to r.completedAt,
+                    )
+                },
+            ))
+        }
+
+        // [④] 重新触发 CI run 并恢复监控
+        post("/{id}/rerun") {
+            val id = call.parameters["id"] ?: run {
+                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "id required"))
+                return@post
+            }
+            val result = taskManager.rerunTask(id, settingsStore.settingsFlow.value.taskGithubToken)
+            result.fold(
+                onSuccess = { message ->
+                    call.respond(mapOf("status" to "rerun_triggered", "message" to message))
+                },
+                onFailure = { e ->
+                    call.respond(HttpStatusCode.BadGateway, mapOf("error" to (e.message ?: "Rerun failed")))
+                },
+            )
+        }
+
         // 取消任务
         post("/{id}/cancel") {
             val id = call.parameters["id"] ?: run {
