@@ -15,6 +15,7 @@ import me.rerere.rikkahub.TASK_NOTIFICATION_CHANNEL_ID
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.event.AppEvent
 import me.rerere.rikkahub.data.event.AppEventBus
+import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.utils.sendNotification
 import kotlin.uuid.Uuid
 
@@ -32,6 +33,7 @@ class TaskNotificationManager(
     private val eventBus: AppEventBus,
     private val chatService: ChatService,
     private val settingsStore: SettingsStore,
+    private val conversationRepo: ConversationRepository,
 ) {
     private var notificationCounter = 0
 
@@ -103,6 +105,13 @@ class TaskNotificationManager(
     private suspend fun injectIntoConversation(event: AppEvent.BackgroundTaskCompleted, autoAnalyze: Boolean) {
         try {
             val conversationId = Uuid.parse(event.conversationId)
+            // [FIX] 会话可能已被用户删除：直接 sendMessage 会把"仅含注入消息"的新会话
+            // 重新插库（saveConversation 的空会话保护只认 title blank + nodes empty），
+            // 导致被删除的会话"复活"。先确认会话存在，不存在则只保留通知。
+            if (!conversationRepo.existsConversationById(conversationId)) {
+                Log.w(TAG, "Conversation ${event.conversationId} no longer exists, skip injection")
+                return
+            }
 
             // 构建注入消息
             val injectedMessage = buildString {

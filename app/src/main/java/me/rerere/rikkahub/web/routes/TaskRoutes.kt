@@ -2,8 +2,10 @@ package me.rerere.rikkahub.web.routes
 
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.request.receive
+import io.ktor.server.request.receiveText
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
+import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
@@ -11,23 +13,35 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.task.BackgroundTaskManager
 import me.rerere.rikkahub.data.task.TaskStatus
+import me.rerere.rikkahub.utils.JsonInstant
+import java.security.MessageDigest
+
+/** GitHub repo 全名格式（owner/name）。 */
+private val REPO_PATTERN = Regex("^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$")
 
 /**
  * 后台任务 REST API + GitHub Webhook 接收端点。
  *
  * 端点：
- * - GET  /api/tasks              -> 列出最近任务
- * - POST /api/tasks/ci           -> 手动创建 CI 监控
- * - POST /api/tasks/webhook      -> GitHub Actions webhook 接收
- * - POST /api/tasks/{id}/cancel  -> 取消任务
+ * - GET    /api/tasks              -> 列出最近任务（?limit=1..50，默认 20）
+ * - POST   /api/tasks/ci           -> 手动创建 CI 监控
+ * - POST   /api/tasks/timer        -> 创建定时任务
+ * - POST   /api/tasks/webhook      -> GitHub Actions webhook 接收（配置了 GitHub Token 时校验 HMAC 签名）
+ * - POST   /api/tasks/{id}/cancel  -> 取消任务
+ * - DELETE /api/tasks/{id}         -> 删除任务记录（历史清理）
  */
-fun Route.taskRoutes(taskManager: BackgroundTaskManager) {
+fun Route.taskRoutes(
+    taskManager: BackgroundTaskManager,
+    settingsStore: SettingsStore,
+) {
     route("/tasks") {
         // 列出最近任务
         get {
-            val tasks = taskManager.getRecentTasks(20)
+            val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 20
+            val tasks = taskManager.getRecentTasks(limit)
             call.respond(tasks.map { TaskDto.from(it) })
         }
 
@@ -36,6 +50,13 @@ fun Route.taskRoutes(taskManager: BackgroundTaskManager) {
             val request = call.receive<CreateCIMonitorRequest>()
             if (request.repo.isBlank()) {
                 call.respond(HttpStatusCode.BadRequest, mapOf("error" to "repo is required"))
+                return@post
+            }
+            if (!REPO_PATTERN.matches(request.repo)) {
+                call.respond(
+                    HttpStatusCode.BadRequest,
+                    mapOf("error" to "repo must be in 'owner/name' format, e.g. 'dcs666/rikkahub-turbo'")
+                )
                 return@post
             }
             val taskId = taskManager.createCIMonitorTask(
@@ -47,6 +68,8 @@ fun Route.taskRoutes(taskManager: BackgroundTaskManager) {
                 autoAnalyzeOnFailure = request.autoAnalyze ?: true,
                 notifyOnSuccess = request.notifyOnSuccess ?: true,
                 githubToken = request.githubToken ?: "",
+                // [FIX] 与 AI 工具一致：最小轮询间隔钳制 10s，防未认证配额被秒耗
+                pollIntervalMs = (request.pollIntervalSec?.coerceAtLeast(10L) ?: 30L) * 1000,
             )
             call.respond(HttpStatusCode.Created, mapOf("taskId" to taskId))
         }
@@ -71,17 +94,39 @@ fun Route.taskRoutes(taskManager: BackgroundTaskManager) {
         // 配置：GitHub repo Settings -> Webhooks -> http://<device-ip>:8080/api/tasks/webhook
         // Content type: application/json
         // Events: Actions (workflow_run)
+        // Secret（可选）：设置页配置的 GitHub Token；配置后所有请求必须带合法的
+        // X-Hub-Signature-256 签名，防止伪造 webhook 事件。
         post("/webhook") {
             val eventType = call.request.headers["X-GitHub-Event"] ?: ""
+            val secret = settingsStore.settingsFlow.value.taskGithubToken
+
+            // 读原始 body 一次：需要 HMAC 校验时用文本，否则直接 JSON 解析
+            val bodyText = call.receiveText()
+            val signature = call.request.headers["X-Hub-Signature-256"]
+
+            if (secret.isNotBlank()) {
+                val expected = "sha256=" + hmacSha256Hex(secret, bodyText)
+                val provided = signature?.lowercase()?.removePrefix("sha256=")
+                val valid = provided != null &&
+                    MessageDigest.isEqual(
+                        expected.toByteArray(Charsets.UTF_8),
+                        provided.toByteArray(Charsets.UTF_8)
+                    )
+                if (!valid) {
+                    call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Invalid webhook signature"))
+                    return@post
+                }
+            }
+
+            val body = runCatching {
+                JsonInstant.parseToJsonElement(bodyText).jsonObject
+            }.getOrElse {
+                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid JSON body"))
+                return@post
+            }
 
             when (eventType) {
                 "workflow_run" -> {
-                    val body = try {
-                        call.receive<JsonObject>()
-                    } catch (e: Exception) {
-                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid JSON body"))
-                        return@post
-                    }
                     val handled = handleWorkflowRunEvent(taskManager, body)
                     call.respond(HttpStatusCode.OK, mapOf("status" to "received", "handled" to handled))
                 }
@@ -103,7 +148,28 @@ fun Route.taskRoutes(taskManager: BackgroundTaskManager) {
             taskManager.cancelTask(id)
             call.respond(mapOf("status" to "cancelled"))
         }
+
+        // 删除任务记录（历史清理）
+        delete("/{id}") {
+            val id = call.parameters["id"] ?: run {
+                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "id required"))
+                return@post
+            }
+            val deleted = taskManager.deleteTask(id)
+            if (deleted) {
+                call.respond(HttpStatusCode.OK, mapOf("status" to "deleted"))
+            } else {
+                call.respond(HttpStatusCode.NotFound, mapOf("error" to "Task not found"))
+            }
+        }
     }
+}
+
+/** GitHub webhook HMAC-SHA256 签名（X-Hub-Signature-256 的 sha256= 部分）。 */
+private fun hmacSha256Hex(secret: String, body: String): String {
+    val mac = javax.crypto.Mac.getInstance("HmacSHA256")
+    mac.init(javax.crypto.spec.SecretKeySpec(secret.toByteArray(Charsets.UTF_8), "HmacSHA256"))
+    return mac.doFinal(body.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
 }
 
 /**
@@ -154,6 +220,7 @@ data class CreateCIMonitorRequest(
     val autoAnalyze: Boolean? = null,
     val notifyOnSuccess: Boolean? = null,
     val githubToken: String? = null,
+    val pollIntervalSec: Long? = null,
 )
 
 @Serializable

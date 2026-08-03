@@ -177,7 +177,7 @@ fun Application.configureWebApi(
                     settingsRoutes(settingsStore)
                     filesRoutes(filesManager, context)
                     assetsRoutes(context)
-                    taskManager?.let { taskRoutes(it) }
+                    taskManager?.let { taskRoutes(it, settingsStore) }
                 }
             } else {
                 conversationRoutes(chatService, conversationRepo, folderRepo, settingsStore)
@@ -186,7 +186,7 @@ fun Application.configureWebApi(
                 settingsRoutes(settingsStore)
                 filesRoutes(filesManager, context)
                 assetsRoutes(context)
-                taskManager?.let { taskRoutes(it) }
+                taskManager?.let { taskRoutes(it, settingsStore) }
             }
         }
     }

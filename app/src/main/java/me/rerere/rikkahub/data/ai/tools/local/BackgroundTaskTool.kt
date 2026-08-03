@@ -1,11 +1,13 @@
 package me.rerere.rikkahub.data.ai.tools.local
 
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import me.rerere.ai.core.InputSchema
 import me.rerere.ai.core.Tool
 import me.rerere.ai.ui.UIMessagePart
@@ -20,6 +22,9 @@ import me.rerere.rikkahub.data.task.BackgroundTaskManager
  * - 用户说"CI 跑完了告诉我"，AI 创建监控
  * - 用户说"5分钟后提醒我"，AI 创建定时器
  */
+
+// owner/name 格式（GitHub 用户名/组织名 + 仓库名，各 1-100 个 [A-Za-z0-9_.-]）
+private val REPO_PATTERN = Regex("^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$")
 internal fun buildBackgroundTaskTool(
     taskManager: BackgroundTaskManager,
     settingsStore: SettingsStore,
@@ -35,6 +40,7 @@ internal fun buildBackgroundTaskTool(
         - "create_ci_monitor": Monitor a GitHub Actions workflow run. You'll be notified when it completes.
         - "create_timer": Set a timer that fires after a delay.
         - "list_tasks": List active and recent background tasks.
+        - "get_task": Get the status and result of a specific task by ID.
         - "cancel_task": Cancel an active task by ID.
     """.trimIndent().replace("\n", " "),
     parameters = {
@@ -42,11 +48,12 @@ internal fun buildBackgroundTaskTool(
             properties = buildJsonObject {
                 put("action", buildJsonObject {
                     put("type", "string")
-                    put("description", "The action to perform: create_ci_monitor, create_timer, list_tasks, or cancel_task")
+                    put("description", "The action to perform: create_ci_monitor, create_timer, list_tasks, get_task, or cancel_task")
                     put("enum", buildJsonArray {
                         add(JsonPrimitive("create_ci_monitor"))
                         add(JsonPrimitive("create_timer"))
                         add(JsonPrimitive("list_tasks"))
+                        add(JsonPrimitive("get_task"))
                         add(JsonPrimitive("cancel_task"))
                     })
                 })
@@ -80,7 +87,7 @@ internal fun buildBackgroundTaskTool(
                 })
                 put("task_id", buildJsonObject {
                     put("type", "string")
-                    put("description", "Task ID for cancel_task.")
+                    put("description", "Task ID for get_task or cancel_task.")
                 })
                 put("poll_interval_sec", buildJsonObject {
                     put("type", "number")
@@ -124,6 +131,8 @@ internal fun buildBackgroundTaskTool(
 
                 if (repo.isBlank()) {
                     """{"error": "repo is required, e.g. 'dcs666/rikkahub-turbo'"}"""
+                } else if (!REPO_PATTERN.matches(repo)) {
+                    """{"error": "repo must be in 'owner/name' format, e.g. 'dcs666/rikkahub-turbo' (got: $repo)"}"""
                 } else {
                     val taskId = taskManager.createCIMonitorTask(
                         repo = repo,
@@ -170,16 +179,48 @@ internal fun buildBackgroundTaskTool(
 
             "list_tasks" -> {
                 val tasks = taskManager.getRecentTasks(10)
-                if (tasks.isEmpty()) {
-                    """{"tasks": [], "message": "No tasks found"}"""
-                } else {
-                    buildString {
-                        append("""{"tasks": [""")
-                        tasks.forEachIndexed { index, task ->
-                            if (index > 0) append(",")
-                            append("""{"id":"${task.id}","type":"${task.type}","status":"${task.status}","created_at":${task.createdAt},"poll_count":${task.pollCount}}""")
+                buildJsonObject {
+                    putJsonArray("tasks") {
+                        tasks.forEach { task ->
+                            add(buildJsonObject {
+                                put("id", task.id)
+                                put("type", task.type)
+                                put("status", task.status)
+                                put("created_at", task.createdAt)
+                                put("updated_at", task.updatedAt)
+                                put("poll_count", task.pollCount)
+                                if (task.errorMessage.isNotBlank()) put("error", task.errorMessage)
+                            })
                         }
-                        append("]}")
+                    }
+                    if (tasks.isEmpty()) put("message", "No tasks found")
+                }.toString()
+            }
+
+            "get_task" -> {
+                val taskId = obj["task_id"]?.jsonPrimitive?.content ?: ""
+                if (taskId.isBlank()) {
+                    """{"error": "task_id is required"}"""
+                } else {
+                    val task = taskManager.getTask(taskId)
+                    if (task == null) {
+                        """{"error": "Task not found: $taskId"}"""
+                    } else {
+                        buildJsonObject {
+                            put("id", task.id)
+                            put("type", task.type)
+                            put("status", task.status)
+                            put("created_at", task.createdAt)
+                            put("updated_at", task.updatedAt)
+                            put("completed_at", task.completedAt)
+                            put("poll_count", task.pollCount)
+                            put("conversation_id", task.conversationId)
+                            if (task.errorMessage.isNotBlank()) put("error_message", task.errorMessage)
+                            if (task.result.isNotBlank()) {
+                                // 结果 JSON 原文透传（CITaskResult 等），AI 可直接读取结论与失败日志摘要
+                                put("result", task.result)
+                            }
+                        }.toString()
                     }
                 }
             }
@@ -194,7 +235,7 @@ internal fun buildBackgroundTaskTool(
                 }
             }
 
-            else -> """{"error": "Unknown action: $action. Use create_ci_monitor, create_timer, list_tasks, or cancel_task"}"""
+            else -> """{"error": "Unknown action: $action. Use create_ci_monitor, create_timer, list_tasks, get_task, or cancel_task"}"""
         }
 
         listOf(UIMessagePart.Text(result))

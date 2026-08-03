@@ -9,6 +9,12 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /**
+ * GitHub API rate limit 命中（403 配额耗尽 / 429 太频繁）。
+ * 与普通网络错误区分：调用方应退避而不是重试。
+ */
+class GitHubRateLimitException(message: String) : IOException(message)
+
+/**
  * GitHub Actions API 客户端。
  * 轮询 workflow run 状态，获取失败 job 日志摘要。
  */
@@ -46,6 +52,17 @@ class GitHubActionsClient(
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    /**
+     * 是否为 GitHub rate limit 错误（403/429）。
+     * BackgroundTaskManager 据此触发强制退避而不是累加失败计数。
+     */
+    fun isRateLimitError(e: Throwable): Boolean = when (e) {
+        is GitHubRateLimitException -> true
+        is IOException -> e.message?.contains("GitHub API error: 40") == true ||
+            e.message?.contains("GitHub API error: 429") == true
+        else -> false
     }
 
     /**
@@ -88,8 +105,9 @@ class GitHubActionsClient(
         token: String
     ): CITaskResult {
         val params = buildList {
-            // 如果指定了 workflowName，多取一些结果用于客户端过滤
-            add(if (workflowName.isNotBlank()) "per_page=20" else "per_page=5")
+            // 未指定 workflow 时 5 条足够取到最新 run；指定时取更多用于客户端过滤，
+            // 避免目标 workflow 的最新 run 被其他 workflow 的 run 挤出列表
+            add(if (workflowName.isNotBlank()) "per_page=30" else "per_page=5")
             if (branch.isNotBlank()) add("branch=$branch")
         }.joinToString("&")
 
@@ -150,6 +168,16 @@ class GitHubActionsClient(
 
         httpClient.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
+                // rate limit 命中（403 且配额耗尽，或 429 太频繁）→ 抛专用异常
+                if (response.code == 403 || response.code == 429) {
+                    val remaining = response.header("X-RateLimit-Remaining")
+                    val reset = response.header("X-RateLimit-Reset")?.toLongOrNull()
+                    if (remaining == "0" || response.code == 429) {
+                        throw GitHubRateLimitException(
+                            "GitHub API rate limit (${response.code}), reset=${reset ?: "unknown"}"
+                        )
+                    }
+                }
                 throw IOException("GitHub API error: ${response.code} ${response.message}")
             }
             return response.body?.string() ?: throw IOException("Empty response body")

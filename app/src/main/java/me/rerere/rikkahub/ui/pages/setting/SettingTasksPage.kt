@@ -1,17 +1,21 @@
 package me.rerere.rikkahub.ui.pages.setting
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeFlexibleTopAppBar
@@ -40,8 +44,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import me.rerere.hugeicons.HugeIcons
+import me.rerere.hugeicons.stroke.ArrowDown01
 import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.Clock01
+import me.rerere.hugeicons.stroke.Delete01
 import me.rerere.hugeicons.stroke.Github
 import me.rerere.hugeicons.stroke.Refresh01
 import me.rerere.hugeicons.stroke.Settings03
@@ -66,6 +72,9 @@ import org.koin.compose.koinInject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+// 轮询间隔档位（与工具端 10s 下限对齐，避免未认证配额被耗）
+private val POLL_INTERVAL_OPTIONS = listOf(10, 30, 60, 120, 300)
 
 @Composable
 fun SettingTasksPage() {
@@ -189,7 +198,33 @@ fun SettingTasksPage() {
                     item(
                         leadingContent = { Icon(HugeIcons.Clock01, null) },
                         headlineContent = { Text("Poll interval") },
-                        supportingContent = { Text("${settings.taskPollIntervalSec}s between status checks") },
+                        supportingContent = { Text("Time between GitHub status checks") },
+                        trailingContent = {
+                            // [OPT] 档位选择替代静态文本：直接约束在合理区间，
+                            // 与工具端 10s 下限保持一致
+                            var expanded by remember { mutableStateOf(false) }
+                            Box {
+                                TextButton(onClick = { expanded = true }) {
+                                    Text("${settings.taskPollIntervalSec}s")
+                                    Icon(HugeIcons.ArrowDown01, null, modifier = Modifier.size(16.dp))
+                                }
+                                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                                    POLL_INTERVAL_OPTIONS.forEach { seconds ->
+                                        DropdownMenuItem(
+                                            text = { Text("$seconds seconds") },
+                                            onClick = {
+                                                expanded = false
+                                                scope.launch {
+                                                    settingsStore.update(
+                                                        settings.copy(taskPollIntervalSec = seconds)
+                                                    )
+                                                }
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                        },
                     )
                 }
             }
@@ -212,6 +247,7 @@ fun SettingTasksPage() {
                         onCancel = {
                             scope.launch { taskManager.cancelTask(task.id) }
                         },
+                        onDelete = null,
                     )
                 }
             }
@@ -249,7 +285,13 @@ fun SettingTasksPage() {
                     items = completedTasks,
                     key = { "recent_${it.id}" },
                 ) { task ->
-                    TaskCard(task = task, onCancel = null)
+                    TaskCard(
+                        task = task,
+                        onCancel = null,
+                        onDelete = {
+                            scope.launch { taskManager.deleteTask(task.id) }
+                        },
+                    )
                 }
             }
 
@@ -273,6 +315,7 @@ fun SettingTasksPage() {
 private fun TaskCard(
     task: TaskEntity,
     onCancel: (() -> Unit)?,
+    onDelete: (() -> Unit)? = null,
 ) {
     val isActive = task.status == TaskStatus.PENDING || task.status == TaskStatus.RUNNING
 
@@ -326,6 +369,11 @@ private fun TaskCard(
                     IconButton(onClick = onCancel) {
                         Icon(HugeIcons.Cancel01, "Cancel", tint = MaterialTheme.colorScheme.error)
                     }
+                } else if (!isActive && onDelete != null) {
+                    // 历史任务：删除记录（数据清理）
+                    IconButton(onClick = onDelete) {
+                        Icon(HugeIcons.Delete01, "Delete", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
 
@@ -357,7 +405,11 @@ private fun TaskCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(
-                    text = formatTime(task.createdAt),
+                    text = if (task.completedAt > 0) {
+                        "done ${formatTime(task.completedAt)}"
+                    } else {
+                        formatTime(task.createdAt)
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
