@@ -358,6 +358,39 @@ class BackgroundTaskManager(
     suspend fun getRecentTasks(limit: Int = 20): List<TaskEntity> = taskDao.getRecentTasks(limit)
 
     /**
+     * 查找匹配的活跃 CI 监控任务（repo + branch + runId + workflowName 四维匹配）。
+     * 返回任务与解码后的 config；无匹配返回 null。
+     */
+    private suspend fun findMatchingActiveCIMonitor(
+        repo: String,
+        branch: String,
+        runId: Long,
+        workflowName: String,
+    ): Pair<TaskEntity, TaskConfig.CIMonitor>? {
+        val activeTasks = taskDao.getActiveTasks()
+        for (task in activeTasks) {
+            if (task.type != TaskType.CI_MONITOR) continue
+            try {
+                val config = json.decodeFromString(TaskConfig.serializer(), task.config) as? TaskConfig.CIMonitor
+                    ?: continue
+                val repoMatch = config.repo.equals(repo, ignoreCase = true)
+                val branchMatch = config.branch.isBlank() || config.branch.equals(branch, ignoreCase = true)
+                val runIdMatch = config.runId == 0L || config.runId == runId
+                // [FIX] workflowName 非空时必须匹配：否则监控 "Build APK" 时 "Unit Tests" 先完成，
+                // webhook 会错误完成该任务并注入错误 workflow 的结果
+                val workflowMatch = config.workflowName.isBlank() ||
+                    config.workflowName.equals(workflowName, ignoreCase = true)
+                if (repoMatch && branchMatch && runIdMatch && workflowMatch) {
+                    return task to config
+                }
+            } catch (_: Exception) {
+                // 解析失败的任务跳过
+            }
+        }
+        return null
+    }
+
+    /**
      * 通过 Webhook 完成 CI 监控任务。
      * 查找匹配的活跃任务（按 repo + branch），立即完成。
      * 返回是否找到并完成了任务。
@@ -373,30 +406,8 @@ class BackgroundTaskManager(
         commitMessage: String,
         fallbackGithubToken: String = "",
     ): Boolean {
-        val activeTasks = taskDao.getActiveTasks()
-
-        // 找到匹配的活跃 CI 任务，同时解码 config 避免重复
-        var matchedConfig: TaskConfig.CIMonitor? = null
-        val matchingTask = activeTasks.firstOrNull { task ->
-            if (task.type != TaskType.CI_MONITOR) return@firstOrNull false
-            try {
-                val config = json.decodeFromString(TaskConfig.serializer(), task.config) as? TaskConfig.CIMonitor
-                    ?: return@firstOrNull false
-                val repoMatch = config.repo.equals(repo, ignoreCase = true)
-                val branchMatch = config.branch.isBlank() || config.branch.equals(branch, ignoreCase = true)
-                val runIdMatch = config.runId == 0L || config.runId == runId
-                // [FIX] workflowName 非空时必须匹配：否则监控 "Build APK" 时 "Unit Tests" 先完成，
-                // webhook 会错误完成该任务并注入错误 workflow 的结果
-                val workflowMatch = config.workflowName.isBlank() ||
-                    config.workflowName.equals(workflowName, ignoreCase = true)
-                if (repoMatch && branchMatch && runIdMatch && workflowMatch) {
-                    matchedConfig = config
-                    true
-                } else false
-            } catch (_: Exception) {
-                false
-            }
-        } ?: return false
+        val (matchingTask, matchedConfig) = findMatchingActiveCIMonitor(repo, branch, runId, workflowName)
+            ?: return false
 
         val success = conclusion == "success"
         val result = CITaskResult(
@@ -430,6 +441,65 @@ class BackgroundTaskManager(
             config = matchedConfig,
         )
         pollerWake.trySend(Unit) // 完成活跃任务后立即让 poller 重算睡眠（少一个任务）
+        return true
+    }
+
+    /**
+     * [① CI 启动感知] webhook 收到 workflow_run 的 requested/queued/in_progress 事件时调用。
+     * 匹配的活跃任务立即绑定实际 runId（此前 runId=0 只能轮询 not_found 盲等），
+     * 状态置 RUNNING，清除 not_found 计数——后续轮询直接查该 run，UI/AI 也能看到 runId。
+     * 返回是否找到并更新了任务。
+     */
+    suspend fun markCIRunningByWebhook(
+        repo: String,
+        branch: String,
+        runId: Long,
+        workflowName: String,
+    ): Boolean {
+        val (task, config) = findMatchingActiveCIMonitor(repo, branch, runId, workflowName)
+            ?: return false
+        if (runId <= 0) return false
+
+        // 把 runId 写回 config：轮询从 not_found 盲等变成精确查 run
+        val newConfig = if (config.runId == 0L) config.copy(runId = runId) else config
+        taskDao.update(task.copy(
+            status = TaskStatus.RUNNING,
+            config = json.encodeToString(TaskConfig.serializer(), newConfig),
+            updatedAt = System.currentTimeMillis(),
+        ))
+        consecutiveNotFound.remove(task.id)
+        consecutiveFailures.remove(task.id)
+        refreshState()
+        return true
+    }
+
+    /**
+     * [⑦ 全自动监控] webhook 收到新 workflow_run 且无匹配任务时，按白名单自动创建监控。
+     * 去重由 createCIMonitorTask 内部保证（repo+branch+runId+workflow 四维匹配），
+     * 同一 run 的多次事件（requested/queued/in_progress）只会创建一个任务。
+     * 返回是否创建了任务。
+     */
+    suspend fun autoCreateCIMonitorByWebhook(
+        repo: String,
+        branch: String,
+        runId: Long,
+        workflowName: String,
+        githubToken: String = "",
+        pollIntervalMs: Long = 30_000,
+    ): Boolean {
+        if (runId <= 0) return false
+        val taskId = createCIMonitorTask(
+            repo = repo,
+            branch = branch,
+            runId = runId,
+            workflowName = workflowName,
+            conversationId = "", // 自动监控无对话关联：完成时只通知
+            pollIntervalMs = pollIntervalMs,
+            autoAnalyzeOnFailure = true,
+            notifyOnSuccess = true,
+            githubToken = githubToken,
+        )
+        Log.i(TAG, "Auto-created CI monitor for $repo@$branch run=$runId (task=$taskId)")
         return true
     }
 

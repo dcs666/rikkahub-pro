@@ -77,12 +77,56 @@ fun Route.taskWebhookRoute(
 
             when (eventType) {
                 "workflow_run" -> {
-                    val handled = handleWorkflowRunEvent(
-                        taskManager = taskManager,
-                        body = body,
-                        fallbackGithubToken = settingsStore.settingsFlow.value.taskGithubToken,
-                    )
-                    call.respond(HttpStatusCode.OK, mapOf("status" to "received", "handled" to handled))
+                    val action = body["action"]?.jsonPrimitive?.content ?: ""
+                    val info = parseWorkflowRun(body)
+                    if (info == null) {
+                        call.respond(HttpStatusCode.OK, mapOf("status" to "ignored", "reason" to "missing workflow_run"))
+                        return@post
+                    }
+                    when (action) {
+                        // 完成：匹配任务 → 立即完成
+                        "completed" -> {
+                            val handled = handleWorkflowRunEvent(
+                                taskManager = taskManager,
+                                body = body,
+                                fallbackGithubToken = settingsStore.settingsFlow.value.taskGithubToken,
+                            )
+                            call.respond(HttpStatusCode.OK, mapOf("status" to "received", "handled" to handled))
+                        }
+                        // [① CI 启动感知] requested/queued/in_progress：把 runId 绑定到匹配任务，
+                        // 消除"任务创建了但 CI 没跑起来"的盲区；无匹配任务且 repo 在白名单 → [⑦] 自动创建监控
+                        "requested", "queued", "in_progress" -> {
+                            val settings = settingsStore.settingsFlow.value
+                            val updated = taskManager.markCIRunningByWebhook(
+                                repo = info.repo,
+                                branch = info.branch,
+                                runId = info.runId,
+                                workflowName = info.workflowName,
+                            )
+                            var autoCreated = false
+                            if (!updated && settings.taskAutoWatchRepos.isNotBlank()) {
+                                val whitelist = settings.taskAutoWatchRepos.split(',')
+                                    .map { it.trim() }.filter { it.isNotBlank() }
+                                if (whitelist.any { it.equals(info.repo, ignoreCase = true) }) {
+                                    autoCreated = taskManager.autoCreateCIMonitorByWebhook(
+                                        repo = info.repo,
+                                        branch = info.branch,
+                                        runId = info.runId,
+                                        workflowName = info.workflowName,
+                                        githubToken = settings.taskGithubToken,
+                                        pollIntervalMs = settings.taskPollIntervalSec.toLong() * 1000,
+                                    )
+                                }
+                            }
+                            call.respond(
+                                HttpStatusCode.OK,
+                                mapOf("status" to "received", "updated" to updated, "autoCreated" to autoCreated)
+                            )
+                        }
+                        else -> {
+                            call.respond(HttpStatusCode.OK, mapOf("status" to "ignored", "action" to action))
+                        }
+                    }
                 }
                 "ping" -> {
                     call.respond(HttpStatusCode.OK, mapOf("message" to "pong"))
@@ -208,8 +252,45 @@ private fun hmacSha256Hex(secret: String, body: String): String {
         .joinToString("") { "%02x".format(it.toInt() and 0xFF) }
 }
 
+/** workflow_run webhook 事件的公共字段。 */
+private data class WorkflowRunInfo(
+    val repo: String,
+    val branch: String,
+    val runId: Long,
+    val runNumber: Int,
+    val workflowName: String,
+    val conclusion: String,
+    val htmlUrl: String,
+    val commitMessage: String,
+)
+
+/** 从 workflow_run webhook body 解析公共字段；缺少关键字段返回 null。 */
+private fun parseWorkflowRun(body: JsonObject): WorkflowRunInfo? {
+    val workflowRun = body["workflow_run"]?.jsonObject ?: return null
+    val repo = workflowRun["repository"]?.jsonObject
+        ?.get("full_name")?.jsonPrimitive?.content ?: return null
+    val branch = workflowRun["head_branch"]?.jsonPrimitive?.content ?: ""
+    val conclusion = workflowRun["conclusion"]?.jsonPrimitive?.content ?: ""
+    val runId = workflowRun["id"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0
+    val runNumber = workflowRun["run_number"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
+    val name = workflowRun["name"]?.jsonPrimitive?.content ?: ""
+    val htmlUrl = workflowRun["html_url"]?.jsonPrimitive?.content ?: ""
+    val commitMsg = workflowRun["head_commit"]?.jsonObject
+        ?.get("message")?.jsonPrimitive?.content?.lines()?.firstOrNull() ?: ""
+    return WorkflowRunInfo(
+        repo = repo,
+        branch = branch,
+        runId = runId,
+        runNumber = runNumber,
+        workflowName = name,
+        conclusion = conclusion,
+        htmlUrl = htmlUrl,
+        commitMessage = commitMsg,
+    )
+}
+
 /**
- * 处理 workflow_run webhook 事件。
+ * 处理 workflow_run 的 completed 事件。
  *
  * 逻辑：
  * 1. 只处理 action=completed 的事件
@@ -224,31 +305,18 @@ private suspend fun handleWorkflowRunEvent(
     body: JsonObject,
     fallbackGithubToken: String = "",
 ): Boolean {
-    val action = body["action"]?.jsonPrimitive?.content ?: return false
-    if (action != "completed") return false
-
-    val workflowRun = body["workflow_run"]?.jsonObject ?: return false
-    val repo = workflowRun["repository"]?.jsonObject
-        ?.get("full_name")?.jsonPrimitive?.content ?: return false
-    val branch = workflowRun["head_branch"]?.jsonPrimitive?.content ?: ""
-    val conclusion = workflowRun["conclusion"]?.jsonPrimitive?.content ?: ""
-    val runId = workflowRun["id"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0
-    val runNumber = workflowRun["run_number"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
-    val name = workflowRun["name"]?.jsonPrimitive?.content ?: ""
-    val htmlUrl = workflowRun["html_url"]?.jsonPrimitive?.content ?: ""
-    val commitMsg = workflowRun["head_commit"]?.jsonObject
-        ?.get("message")?.jsonPrimitive?.content?.lines()?.firstOrNull() ?: ""
+    val info = parseWorkflowRun(body) ?: return false
 
     // 通过 taskManager 完成匹配的任务（失败日志抓取时用设置里的全局 token 兜底）
     return taskManager.completeCIMonitorByWebhook(
-        repo = repo,
-        branch = branch,
-        runId = runId,
-        runNumber = runNumber,
-        workflowName = name,
-        conclusion = conclusion,
-        htmlUrl = htmlUrl,
-        commitMessage = commitMsg,
+        repo = info.repo,
+        branch = info.branch,
+        runId = info.runId,
+        runNumber = info.runNumber,
+        workflowName = info.workflowName,
+        conclusion = info.conclusion,
+        htmlUrl = info.htmlUrl,
+        commitMessage = info.commitMessage,
         fallbackGithubToken = fallbackGithubToken,
     )
 }

@@ -197,6 +197,64 @@ fun SettingTasksPage() {
                         }
                     }
 
+                    // Auto Watch Repos（⑦ 全自动监控白名单）
+                    item(
+                        leadingContent = { Icon(HugeIcons.Github, null) },
+                        headlineContent = { Text("Auto-watch repos") },
+                        supportingContent = { Text("Comma-separated owner/name list. New workflow runs get monitored automatically via webhook") },
+                    ) {
+                        var watchInput by remember(settings.taskAutoWatchRepos) {
+                            mutableStateOf(settings.taskAutoWatchRepos)
+                        }
+                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                            TextField(
+                                value = watchInput,
+                                onValueChange = { watchInput = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                placeholder = { Text("dcs666/rikkahub-turbo, octocat/hello-world") },
+                                singleLine = true,
+                            )
+                            TextButton(
+                                onClick = {
+                                    scope.launch {
+                                        settingsStore.update(settings.copy(taskAutoWatchRepos = watchInput.trim()))
+                                        toaster.show("Auto-watch list saved")
+                                    }
+                                },
+                                modifier = Modifier.align(Alignment.End),
+                            ) { Text("Save") }
+                        }
+                    }
+
+                    // Completion webhook URL（⑧ 外部回调）
+                    item(
+                        leadingContent = { Icon(HugeIcons.Clock01, null) },
+                        headlineContent = { Text("Completion webhook URL") },
+                        supportingContent = { Text("POST task result JSON to this URL when a task finishes (e.g. Server酱/Bark)") },
+                    ) {
+                        var webhookUrlInput by remember(settings.taskWebhookUrl) {
+                            mutableStateOf(settings.taskWebhookUrl)
+                        }
+                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                            TextField(
+                                value = webhookUrlInput,
+                                onValueChange = { webhookUrlInput = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                placeholder = { Text("https://sctapi.ftqq.com/...") },
+                                singleLine = true,
+                            )
+                            TextButton(
+                                onClick = {
+                                    scope.launch {
+                                        settingsStore.update(settings.copy(taskWebhookUrl = webhookUrlInput.trim()))
+                                        toaster.show("Webhook URL saved")
+                                    }
+                                },
+                                modifier = Modifier.align(Alignment.End),
+                            ) { Text("Save") }
+                        }
+                    }
+
                     // Auto Analyze
                     item(
                         leadingContent = { Icon(HugeIcons.Settings03, null) },

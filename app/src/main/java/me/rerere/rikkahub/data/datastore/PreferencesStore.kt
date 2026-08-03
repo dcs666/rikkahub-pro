@@ -571,6 +571,11 @@ data class Settings(
     val taskAutoAnalyze: Boolean = true,
     val taskNotifyOnSuccess: Boolean = true,
     val taskPollIntervalSec: Int = 30,
+    // [⑦] 自动监控白名单：逗号分隔的 repo 全名（owner/name）。
+    // webhook 收到这些 repo 的新 workflow run 且无匹配任务时自动创建监控。
+    val taskAutoWatchRepos: String = "",
+    // [⑧] 任务完成回调 URL：任务完成时 POST JSON 到该地址（Server酱/Bark/自建服务等）。
+    val taskWebhookUrl: String = "",
     val backupReminderConfig: BackupReminderConfig = BackupReminderConfig(),
     val launchCount: Int = 0,
     val sponsorAlertDismissedAt: Int = 0,
