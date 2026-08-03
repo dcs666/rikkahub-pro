@@ -43,7 +43,24 @@ class PersistentShellSession(
     fun destroy() {
         runCatching { writer?.close() }
         runCatching { reader?.close() }
-        process?.let { runCatching { it.destroyForcibly() } }
+        process?.let { p ->
+            if (p.isAlive) {
+                // [FIX] 先 SIGTERM（process.destroy()）：proot 收到后可执行
+                // --kill-on-exit 的清理逻辑（杀掉 tracee 进程树），避免子孙进程残留；
+                // 等待 1s 后仍存活再 SIGKILL 兜底。直接 destroyForcibly() 是 SIGKILL，
+                // proot 无法做任何清理，残留的 bash/命令子进程会变成孤儿。
+                runCatching { p.destroy() }
+                try {
+                    if (!p.waitFor(1, java.util.concurrent.TimeUnit.SECONDS)) {
+                        p.destroyForcibly()
+                    }
+                } catch (_: InterruptedException) {
+                    // 被中断也不能留活进程：SIGKILL 兜底后恢复中断状态
+                    p.destroyForcibly()
+                    Thread.currentThread().interrupt()
+                }
+            }
+        }
         process = null
         writer = null
         reader = null
@@ -73,17 +90,20 @@ class PersistentShellSession(
         // 修复后：cd 是 builtin 不 fork；外部命令（ls/grep/curl）fork+exec 全新进程，
         // 与一次性路径等价，不死锁。状态隔离降级：cwd 会残留，但每条命令开头都会 cd 到
         // 目标目录覆盖；export 变量残留概率低，可接受。
-        // [FIX] 命令文本与 sentinel 隔离：sentinel 放在独立行，且命令用 eval + 单引号包裹。
-        // 原实现 `cd && COMMAND ; __rikka_s=$? ; printf ...` 全部在同一行：
-        // 命令以 `#` 结尾时，注释会吞掉后面的 sentinel（永不输出 → 30s 超时降级）；
-        // 尾随反斜杠/未闭合引号同理会破坏整行脚本。
-        // eval 'COMMAND' 中，命令内的 #/引号/反斜杠只在 eval 内生效，解析失败也只会
-        // 返回非零退出码，不再影响外层 sentinel 逻辑；行为与直接内联等价
-        // （命令文本原样交给 bash 解析一次）。
+        // [FIX] 命令交给内层 `bash -c` 执行（fork+exec 全新进程）：
+        // 1) `exit`/`exec`/`kill -9 $$` 等只影响内层 bash，会话主 bash 存活
+        // 2) 命令内的变量/export/trap 随内层 bash 退出即消失，天然隔离
+        // 3) fork+exec 是与一次性 proot 路径等价的"安全模式"（不死锁）；
+        //    之前因 fork 子 shell（无 exec）与 proot --link2symlink 共享 DB 死锁
+        //    才改为直接内联，现在用 exec 的子进程重新获得隔离，且规避死锁
+        // 4) 命令文本经 shellQuote 保护外层解析，bash -c 内部再解析一次；
+        //    `#` 行尾/尾随反斜杠/未闭合引号只影响内层（返回非零退出码），
+        //    sentinel 在独立行，永不被打断
+        // 代价：每条命令多一次 fork+exec（毫秒级），相对 proot 秒级启动可忽略
         val script = buildString {
             append("cd -- ")
             append(context.prootCwd().shellQuote())
-            append(" && eval -- ")
+            append(" && bash -c ")
             append(context.command.shellQuote())
             append("\n__rikka_s=${'$'}?\n")
             append("printf '\\000__RIKKA_DONE_%d__\\000' \"${'$'}__rikka_s\"\n")

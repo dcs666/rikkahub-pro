@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.PathMatcher
 import kotlin.io.path.name
 
 class WorkspaceFileSystem(
@@ -106,7 +107,7 @@ class WorkspaceFileSystem(
         require(pattern.isNotBlank()) { "Glob pattern is required" }
         val start = resolvePath(root, path)
         require(start.exists()) { "Path does not exist: $path" }
-        val matcher = FileSystems.getDefault().getPathMatcher("glob:$pattern")
+        val matcher = globMatcher(pattern)
         return walk(start) { paths ->
             paths
                 .filter { Files.isRegularFile(it) || Files.isDirectory(it) }
@@ -133,35 +134,42 @@ class WorkspaceFileSystem(
         val matcher = if (regex) Regex(query, options) else Regex(Regex.escape(query), options)
         val includeMatcher = includeGlob
             ?.takeIf { it.isNotBlank() }
-            ?.let { FileSystems.getDefault().getPathMatcher("glob:$it") }
+            ?.let { globMatcher(it) }
 
         val results = mutableListOf<WorkspaceSearchMatch>()
-        walk(start) { paths ->
-            paths
-                .filter { Files.isRegularFile(it) }
-                .filter { !it.toFile().name.startsWith(".l2s.") }
-                .forEach { path ->
-                    if (results.size >= config.maxSearchResults) return@forEach
-                    if (includeMatcher != null &&
-                        !includeMatcher.matches(root.toPath().relativize(path).normalizeForMatch())
-                    ) {
-                        return@forEach
-                    }
-                    val file = path.toFile()
-                    if (file.length() > config.maxReadBytes) return@forEach
-                    file.useLines(StandardCharsets.UTF_8) { lines ->
-                        lines.forEachIndexed { index, line ->
-                            if (results.size >= config.maxSearchResults) return@useLines
-                            if (matcher.containsMatchIn(line)) {
-                                results += WorkspaceSearchMatch(
-                                    path = file.relativePath(root),
-                                    line = index + 1,
-                                    text = line,
-                                )
+        // [FIX] 达到搜索上限后抛 SearchLimitReached 提前终止 Files.walk 遍历：
+        // 原实现只跳过匹配逻辑，walk 仍会扫完整棵目录树（超大目录浪费时间）。
+        try {
+            Files.walk(start.toPath()).use { stream ->
+                val paths = stream.iterator().asSequence()
+                paths
+                    .filter { Files.isRegularFile(it) }
+                    .filter { !it.toFile().name.startsWith(".l2s.") }
+                    .forEach { path ->
+                        if (results.size >= config.maxSearchResults) throw SearchLimitReached()
+                        if (includeMatcher != null &&
+                            !includeMatcher.matches(root.toPath().relativize(path).normalizeForMatch())
+                        ) {
+                            return@forEach
+                        }
+                        val file = path.toFile()
+                        if (file.length() > config.maxReadBytes) return@forEach
+                        file.useLines(StandardCharsets.UTF_8) { lines ->
+                            lines.forEachIndexed { index, line ->
+                                if (results.size >= config.maxSearchResults) throw SearchLimitReached()
+                                if (matcher.containsMatchIn(line)) {
+                                    results += WorkspaceSearchMatch(
+                                        path = file.relativePath(root),
+                                        line = index + 1,
+                                        text = line,
+                                    )
+                                }
                             }
                         }
                     }
-                }
+            }
+        } catch (_: SearchLimitReached) {
+            // 已达上限，正常结束（stream 已随 use{} 关闭）
         }
         return results
     }
@@ -170,6 +178,14 @@ class WorkspaceFileSystem(
         Files.walk(start.toPath()).use { stream ->
             block(stream.iterator().asSequence())
         }
+
+    /** [FIX] glob 模式编译失败时转为带清晰信息的 IllegalArgumentException（调用方按 400 处理）。 */
+    private fun globMatcher(pattern: String): PathMatcher =
+        runCatching { FileSystems.getDefault().getPathMatcher("glob:$pattern") }
+            .getOrElse { throw IllegalArgumentException("Invalid glob pattern: $pattern", it) }
+
+    /** [FIX] grep 达搜索上限时用于提前终止 Files.walk 遍历的内部信号。 */
+    private class SearchLimitReached : RuntimeException()
 
     private fun resolvePath(root: File, path: String): File {
         root.mkdirs()

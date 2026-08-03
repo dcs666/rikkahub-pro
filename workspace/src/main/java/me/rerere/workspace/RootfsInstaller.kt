@@ -108,12 +108,15 @@ class RootfsInstaller(
             var entries = 0
             var pendingName: String? = null
             var pendingLinkName: String? = null
+            // [FIX] PAX 全局头（typeflag 'g'）：记录作用于后续所有条目的全局变量，
+            // 与 per-entry 头（'x'）相比优先级更低（per-entry 覆盖全局）。
+            val globalPax = mutableMapOf<String, String>()
             while (true) {
                 checkInterrupted()
                 val rawHeader = input.readTarHeader() ?: break
                 val header = rawHeader.copy(
-                    name = pendingName ?: rawHeader.name,
-                    linkName = pendingLinkName ?: rawHeader.linkName,
+                    name = pendingName ?: globalPax["path"] ?: rawHeader.name,
+                    linkName = pendingLinkName ?: globalPax["linkpath"] ?: rawHeader.linkName,
                 )
                 pendingName = null
                 pendingLinkName = null
@@ -131,10 +134,14 @@ class RootfsInstaller(
                     input.skipFully(header.size.paddingSize())
                     continue
                 }
-                if (header.type == TarEntryType.PAX) {
+                if (header.type == TarEntryType.PAX || header.type == TarEntryType.GLOBAL_PAX) {
                     val pax = parsePax(input.readExactly(header.size).toString(Charsets.UTF_8))
-                    pendingName = pax["path"]
-                    pendingLinkName = pax["linkpath"]
+                    if (header.type == TarEntryType.GLOBAL_PAX) {
+                        globalPax.putAll(pax)
+                    } else {
+                        pendingName = pax["path"]
+                        pendingLinkName = pax["linkpath"]
+                    }
                     input.skipFully(header.size.paddingSize())
                     continue
                 }
@@ -151,11 +158,12 @@ class RootfsInstaller(
                         target.applyMode(header.mode)
                     }
 
-                    // LONG_NAME/LONG_LINK/PAX 已在上方 continue, 这里只有 OTHER 可达;
+                    // LONG_NAME/LONG_LINK/PAX/GLOBAL_PAX 已在上方 continue, 这里只有 OTHER 可达;
                     // 数据区统一由下方的非 FILE skip 跳过, 这里再 skip 会双重跳过导致后续 header 错位
                     TarEntryType.LONG_NAME,
                     TarEntryType.LONG_LINK,
                     TarEntryType.PAX,
+                    TarEntryType.GLOBAL_PAX,
                     TarEntryType.OTHER -> Unit
                 }
                 if (header.type != TarEntryType.FILE) {
@@ -239,6 +247,7 @@ class RootfsInstaller(
                 'L' -> TarEntryType.LONG_NAME
                 'K' -> TarEntryType.LONG_LINK
                 'x' -> TarEntryType.PAX
+                'g' -> TarEntryType.GLOBAL_PAX
                 else -> TarEntryType.OTHER
             },
             linkName = header.string(157, 100),
@@ -382,6 +391,7 @@ class RootfsInstaller(
         LONG_NAME,
         LONG_LINK,
         PAX,
+        GLOBAL_PAX,
         OTHER,
     }
 
