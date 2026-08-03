@@ -199,21 +199,8 @@ fun Route.taskRoutes(
             call.respond(HttpStatusCode.Created, mapOf("taskId" to taskId))
         }
 
-        // 单任务详情（供外部客户端查询结果）
-        get("/{id}") {
-            val id = call.parameters["id"] ?: run {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "id required"))
-                return@get
-            }
-            val task = taskManager.getTask(id)
-            if (task == null) {
-                call.respond(HttpStatusCode.NotFound, mapOf("error" to "Task not found"))
-            } else {
-                call.respond(TaskDto.from(task))
-            }
-        }
-
-        // [③] CI 历史（成功率统计）
+        // [③] CI 历史（成功率统计）——必须在 get("/{id}") 之前注册，
+        // 否则 "ci-history" 会被当作 {id} 匹配
         get("/ci-history") {
             val repo = call.request.queryParameters["repo"] ?: run {
                 call.respond(HttpStatusCode.BadRequest, mapOf("error" to "repo required"))
@@ -236,6 +223,20 @@ fun Route.taskRoutes(
                     )
                 },
             ))
+        }
+
+        // 单任务详情（供外部客户端查询结果）
+        get("/{id}") {
+            val id = call.parameters["id"] ?: run {
+                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "id required"))
+                return@get
+            }
+            val task = taskManager.getTask(id)
+            if (task == null) {
+                call.respond(HttpStatusCode.NotFound, mapOf("error" to "Task not found"))
+            } else {
+                call.respond(TaskDto.from(task))
+            }
         }
 
         // [④] 重新触发 CI run 并恢复监控

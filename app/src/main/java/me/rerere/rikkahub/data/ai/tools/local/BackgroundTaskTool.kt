@@ -162,6 +162,12 @@ internal fun buildBackgroundTaskTool(
         After creating the monitor, continue your other work freely: the task runs in
         the background (polling or webhook) and never blocks you.
         If CI fails, analyze the error from the injected result and suggest fixes.
+        AUTOFIX LOOP (repeat up to 3 rounds): on a CI failure, analyze the injected
+        result, fix the code with workspace tools, commit + push, then IMMEDIATELY
+        create a new CI monitor for the new push. Iterate until CI passes or 3 rounds
+        are exhausted, then report the final state to the user.
+        Use rerun_ci to retry a flaky run (e.g. network timeouts) instead of code
+        changes. Use ci_history to check whether a branch has been failing recently.
         Use get_task to check a specific task's status and result (e.g. failed job
         error summaries) before answering questions about an ongoing or finished build.
         """.trimIndent()

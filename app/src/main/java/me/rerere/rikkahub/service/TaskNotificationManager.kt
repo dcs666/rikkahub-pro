@@ -22,6 +22,15 @@ import kotlin.uuid.Uuid
 private const val TAG = "TaskNotificationMgr"
 private const val TASK_NOTIFICATION_BASE_ID = 90000
 
+// [⑧] 完成回调 HTTP 客户端（短超时，回调失败不影响主流程）
+private val httpClient: okhttp3.OkHttpClient by lazy {
+    okhttp3.OkHttpClient.Builder()
+        .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+        .callTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+        .build()
+}
+
 /**
  * 消费 [AppEvent.BackgroundTaskCompleted] 事件：
  * 1. 发送 Android 通知（尊重 notifyOnSuccess 设置）
@@ -58,9 +67,46 @@ class TaskNotificationManager(
             sendTaskNotification(event)
         }
 
+        // 1b. [⑧ 外部回调] 配置了完成回调 URL 时 POST 结果 JSON（Server酱/Bark/自建服务）
+        if (settings.taskWebhookUrl.isNotBlank()) {
+            appScope.launch(Dispatchers.IO) {
+                postCompletionWebhook(event, settings.taskWebhookUrl)
+            }
+        }
+
         // 2. 如果关联了对话，注入消息（任务级 autoAnalyze 优先）
         if (event.conversationId.isNotBlank()) {
             injectIntoConversation(event, event.autoAnalyze ?: settings.taskAutoAnalyze)
+        }
+    }
+
+    /**
+     * [⑧ 外部回调] 任务完成时向配置的 URL POST 结果 JSON。
+     * 独立于主流程：失败只记日志，不影响通知/注入。
+     */
+    private fun postCompletionWebhook(event: AppEvent.BackgroundTaskCompleted, url: String) {
+        try {
+            val payload = kotlinx.serialization.json.buildJsonObject {
+                put("task_id", kotlinx.serialization.json.JsonPrimitive(event.taskId))
+                put("task_type", kotlinx.serialization.json.JsonPrimitive(event.taskType))
+                put("success", kotlinx.serialization.json.JsonPrimitive(event.success))
+                put("conversation_id", kotlinx.serialization.json.JsonPrimitive(event.conversationId))
+                put("result_summary", kotlinx.serialization.json.JsonPrimitive(event.resultSummary))
+                put("timestamp", kotlinx.serialization.json.JsonPrimitive(System.currentTimeMillis()))
+            }.toString()
+            val request = okhttp3.Request.Builder()
+                .url(url)
+                .post(okhttp3.RequestBody.create(
+                    okhttp3.MediaType.parse("application/json; charset=utf-8"), payload
+                ))
+                .build()
+            httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.w(TAG, "Completion webhook returned ${response.code} for task ${event.taskId}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Completion webhook failed for task ${event.taskId}: ${e.message}")
         }
     }
 
