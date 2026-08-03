@@ -43,6 +43,15 @@ interface TaskDao {
     @Query("UPDATE background_tasks SET status = 'running', updated_at = :updatedAt WHERE id = :id AND status = 'pending'")
     suspend fun markRunningIfPending(id: String, updatedAt: Long = System.currentTimeMillis()): Int
 
+    /**
+     * 条件递增轮询计数：仅当任务仍处于活跃状态（pending/running）时生效。
+     * [FIX] 轮询请求在途时 webhook 可能已完成任务（status → completed），
+     * 若此时用全量 UPDATE 会把终态覆盖回 running 导致任务"复活"且永不完成。
+     * 返回受影响行数（0 = 任务已不在活跃状态，调用方应放弃本轮）。
+     */
+    @Query("UPDATE background_tasks SET poll_count = poll_count + 1, updated_at = :updatedAt, status = 'running' WHERE id = :id AND status IN ('pending', 'running')")
+    suspend fun incrementPollCountIfActive(id: String, updatedAt: Long = System.currentTimeMillis()): Int
+
     @Query("UPDATE background_tasks SET status = 'cancelled', updated_at = :updatedAt WHERE status IN ('pending', 'running')")
     suspend fun cancelAllActive(updatedAt: Long = System.currentTimeMillis())
 

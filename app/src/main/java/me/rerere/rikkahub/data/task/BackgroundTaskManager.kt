@@ -585,11 +585,8 @@ class BackgroundTaskManager(
     }
 
     private suspend fun incrementPollCount(task: TaskEntity) {
-        taskDao.update(task.copy(
-            pollCount = task.pollCount + 1,
-            updatedAt = System.currentTimeMillis(),
-            status = TaskStatus.RUNNING,
-        ))
+        // 条件更新：任务若已被 webhook 完成/取消则不动（防终态被覆盖回 running）
+        taskDao.incrementPollCountIfActive(task.id, System.currentTimeMillis())
     }
 
     /**
