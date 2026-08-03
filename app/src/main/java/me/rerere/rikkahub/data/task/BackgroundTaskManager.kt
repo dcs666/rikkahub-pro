@@ -229,7 +229,11 @@ class BackgroundTaskManager(
                 val repoMatch = config.repo.equals(repo, ignoreCase = true)
                 val branchMatch = config.branch.isBlank() || config.branch.equals(branch, ignoreCase = true)
                 val runIdMatch = config.runId == 0L || config.runId == runId
-                if (repoMatch && branchMatch && runIdMatch) {
+                // [FIX] workflowName 非空时必须匹配：否则监控 "Build APK" 时 "Unit Tests" 先完成，
+                // webhook 会错误完成该任务并注入错误 workflow 的结果
+                val workflowMatch = config.workflowName.isBlank() ||
+                    config.workflowName.equals(workflowName, ignoreCase = true)
+                if (repoMatch && branchMatch && runIdMatch && workflowMatch) {
                     matchedConfig = config
                     true
                 } else false
