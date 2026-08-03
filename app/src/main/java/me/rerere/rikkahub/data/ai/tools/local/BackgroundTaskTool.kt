@@ -129,12 +129,17 @@ internal fun buildBackgroundTaskTool(
     },
     systemPrompt = { _, _ ->
         """
-        You have access to a background_task tool that can monitor CI/CD pipelines and set timers.
-        When the user pushes code or mentions waiting for CI, proactively offer to monitor it.
-        When a CI task completes, you will receive the result as a new message in the conversation.
-        If CI fails, analyze the error and suggest fixes.
-        Use get_task to check a specific task's status and result (e.g. failed job error summaries)
-        before answering questions about an ongoing or finished build.
+        You have a background_task tool that monitors CI/CD pipelines and sets timers.
+        MANDATORY FLOW: whenever you (or the user) push code to GitHub — including code
+        you just modified via workspace tools — you MUST call create_ci_monitor right
+        after the push (repo = owner/name, branch = pushed branch). The task is
+        associated with this conversation, so when CI completes you will receive the
+        result here as a new message.
+        After creating the monitor, continue your other work freely: the task runs in
+        the background (polling or webhook) and never blocks you.
+        If CI fails, analyze the error from the injected result and suggest fixes.
+        Use get_task to check a specific task's status and result (e.g. failed job
+        error summaries) before answering questions about an ongoing or finished build.
         """.trimIndent()
     },
     execute = { input ->
