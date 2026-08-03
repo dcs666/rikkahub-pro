@@ -114,6 +114,7 @@ val appModule = module {
             settingsStore = get(),
             filesManager = get(),
             taskManager = get(),
+            eventBus = get(),
         )
     }
 }

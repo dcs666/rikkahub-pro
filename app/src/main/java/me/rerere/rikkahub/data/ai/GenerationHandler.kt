@@ -4,16 +4,19 @@ import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.withTimeout
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.ReasoningLevel
@@ -56,6 +59,11 @@ import kotlin.uuid.Uuid
 private const val TAG = "GenerationHandler"
 private const val MAX_TOOL_OUTPUT_CHARS = 32 * 1024
 private const val TOOL_OUTPUT_PREVIEW_CHARS = 4 * 1024
+// [FIX] 工具级超时：任何工具（含未来新增的）都不能无限挂起生成循环。
+private const val TOOL_EXECUTION_TIMEOUT_MS = 60_000L
+// workspace_shell 自带命令超时（默认 30s，最大 600s）；工具级超时 = 命令超时 + 该缓冲，
+// 避免误杀合法的长命令（构建/安装等显式设置了长 timeout 的场景）。
+private const val SHELL_TOOL_TIMEOUT_BUFFER_MS = 15_000L
 
 @Serializable
 sealed interface GenerationChunk {
@@ -277,7 +285,8 @@ class GenerationHandler(
 
                     else -> {
                         // Auto or Approved - execute the tool
-                        runCatching {
+                        var timeoutMs = TOOL_EXECUTION_TIMEOUT_MS
+                        try {
                             val toolDef = toolsInternal.find { toolDef -> toolDef.name == tool.toolName }
                                 ?: error("Tool ${tool.toolName} not found")
                             val args = runCatching {
@@ -286,15 +295,49 @@ class GenerationHandler(
                                 error("Invalid tool arguments JSON for ${tool.toolName}: ${it.message}")
                             }
                             Log.i(TAG, "generateText: executing tool ${toolDef.name} with args: $args")
-                            val result = toolDef.execute(args)
+                            // [FIX] 工具级超时。workspace_shell 按命令自身超时 + 缓冲计算，
+                            // 其余工具统一 60s。TimeoutCancellationException 是
+                            // CancellationException 的子类，必须先于取消分支处理，
+                            // 否则工具超时会被误判为"用户停止生成"向上传播。
+                            timeoutMs = if (toolDef.name == "workspace_shell") {
+                                val explicit = runCatching {
+                                    (args as? JsonObject)
+                                        ?.get("timeout")?.jsonPrimitive?.content?.toLongOrNull()
+                                }.getOrNull()
+                                (explicit ?: 30L).coerceIn(1L, 600L) * 1000L + SHELL_TOOL_TIMEOUT_BUFFER_MS
+                            } else {
+                                TOOL_EXECUTION_TIMEOUT_MS
+                            }
+                            val result = withTimeout(timeoutMs) { toolDef.execute(args) }
                             val hasShellAccess = toolsInternal.any { it.name == "workspace_shell" }
                             executedTools += tool.copy(
                                 output = maybeTruncateToolOutput(tool.toolCallId, result, hasShellAccess)
                             )
-                        }.onFailure {
+                        } catch (e: TimeoutCancellationException) {
+                            // 工具超时：作为工具错误注入结果（不是取消生成），
+                            // 模型读到后可调整策略（缩短命令/分批执行/换工具）
+                            executedTools += tool.copy(
+                                output = listOf(
+                                    UIMessagePart.Text(
+                                        json.encodeToString(
+                                            buildJsonObject {
+                                                put(
+                                                    "error",
+                                                    JsonPrimitive(
+                                                        "Tool ${tool.toolName} timed out after ${timeoutMs / 1000}s. " +
+                                                            "If this is a long-running shell command, increase the 'timeout' parameter."
+                                                    )
+                                                )
+                                            }
+                                        )
+                                    )
+                                )
+                            )
+                        } catch (e: CancellationException) {
                             // 取消必须向上传播，否则停止生成会被误报为工具执行错误
-                            if (it is CancellationException) throw it
-                            it.printStackTrace()
+                            throw e
+                        } catch (e: Exception) {
+                            e.printStackTrace()
                             executedTools += tool.copy(
                                 output = listOf(
                                     UIMessagePart.Text(
@@ -303,8 +346,8 @@ class GenerationHandler(
                                                 put(
                                                     "error",
                                                     JsonPrimitive(buildString {
-                                                        append("[${it.javaClass.name}] ${it.message}")
-                                                        append("\n${it.stackTraceToString()}")
+                                                        append("[${e.javaClass.name}] ${e.message}")
+                                                        append("\n${e.stackTraceToString()}")
                                                     })
                                                 )
                                             }

@@ -377,11 +377,6 @@ private fun String.isOutsideWritableRoots(): Boolean {
 private fun String.rootfsName(): String =
     trimEnd('/').substringAfterLast('/').ifBlank { "/" }
 
-private fun String.shellQuote(): String =
-    "'" + replace("'", "'\"'\"'") + "'"
-
-private fun Boolean.shellFlag(): Int = if (this) 1 else 0
-
 private fun JsonObjectBuilder.putPathProperty(required: Boolean) {
     put("path", buildJsonObject {
         put("type", "string")

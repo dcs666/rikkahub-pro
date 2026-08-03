@@ -68,6 +68,7 @@ fun Application.configureWebApi(
     settingsStore: SettingsStore,
     filesManager: FilesManager,
     taskManager: me.rerere.rikkahub.data.task.BackgroundTaskManager? = null,
+    eventBus: me.rerere.rikkahub.data.event.AppEventBus? = null,
 ) {
     val jwtEnabled = settingsStore.settingsFlow.value.webServerJwtEnabled
 
@@ -178,7 +179,7 @@ fun Application.configureWebApi(
                 authenticate("auth-jwt") {
                     conversationRoutes(chatService, conversationRepo, folderRepo, settingsStore)
                     folderRoutes(chatService, folderRepo, settingsStore)
-                    eventsRoutes(chatService, conversationRepo, folderRepo, settingsStore)
+                    eventBus?.let { eventsRoutes(chatService, conversationRepo, folderRepo, settingsStore, it) }
                     settingsRoutes(settingsStore)
                     filesRoutes(filesManager, context)
                     assetsRoutes(context)
@@ -187,7 +188,7 @@ fun Application.configureWebApi(
             } else {
                 conversationRoutes(chatService, conversationRepo, folderRepo, settingsStore)
                 folderRoutes(chatService, folderRepo, settingsStore)
-                eventsRoutes(chatService, conversationRepo, folderRepo, settingsStore)
+                eventBus?.let { eventsRoutes(chatService, conversationRepo, folderRepo, settingsStore, it) }
                 settingsRoutes(settingsStore)
                 filesRoutes(filesManager, context)
                 assetsRoutes(context)

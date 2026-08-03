@@ -5,10 +5,16 @@ import io.ktor.server.sse.heartbeat
 import io.ktor.server.sse.sse
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import me.rerere.rikkahub.data.datastore.SettingsStore
+import me.rerere.rikkahub.data.event.AppEvent
+import me.rerere.rikkahub.data.event.AppEventBus
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.FolderRepository
 import me.rerere.rikkahub.service.ChatService
@@ -26,6 +32,7 @@ import kotlin.time.Duration.Companion.seconds
  *  - `settings`                     -> full Settings snapshot
  *  - `conversation_list_invalidate` -> the conversation list for an assistant changed
  *  - `folders`                      -> the folder list for an assistant changed
+ *  - `task_completed`               -> a background task (CI monitor / timer) finished
  *
  * Per-conversation streaming (generation updates) keeps its own dedicated connection
  * at `/api/conversations/{id}/stream`.
@@ -35,6 +42,7 @@ fun Route.eventsRoutes(
     conversationRepo: ConversationRepository,
     folderRepo: FolderRepository,
     settingsStore: SettingsStore,
+    eventBus: AppEventBus,
 ) {
     sse("/events") {
         heartbeat {
@@ -103,7 +111,26 @@ fun Route.eventsRoutes(
                 }
             }
 
-        merge(settingsEvents, conversationListEvents, folderEvents).collect { payload ->
+        // [FIX] 后台任务完成事件（CI 监控 / 定时器）桥接到 SSE：web 端无需轮询
+        // /api/tasks 即可实时收到任务结果（AppEventBus 为 SharedFlow，无 replay，
+        // 只投递连接建立后发生的事件，符合"实时通知"语义）。
+        val taskEvents = eventBus.events
+            .filterIsInstance<AppEvent.BackgroundTaskCompleted>()
+            .map { event ->
+                EventPayload(
+                    event = "task_completed",
+                    json = buildJsonObject {
+                        put("taskId", JsonPrimitive(event.taskId))
+                        put("taskType", JsonPrimitive(event.taskType))
+                        put("success", JsonPrimitive(event.success))
+                        put("conversationId", JsonPrimitive(event.conversationId))
+                        put("resultSummary", JsonPrimitive(event.resultSummary))
+                        put("timestamp", JsonPrimitive(System.currentTimeMillis()))
+                    }.toString()
+                )
+            }
+
+        merge(settingsEvents, conversationListEvents, folderEvents, taskEvents).collect { payload ->
             send(data = payload.json, event = payload.event)
         }
     }
