@@ -287,8 +287,17 @@ class BackgroundTaskManager(
         delayMs: Long,
         message: String,
         conversationId: String = "",
+        repeatIntervalMs: Long = 0,
+        repeatCount: Int = 0,
+        autoAi: Boolean = false,
     ): String {
-        val config = TaskConfig.Timer(delayMs = delayMs, message = message)
+        val config = TaskConfig.Timer(
+            delayMs = delayMs,
+            message = message,
+            repeatIntervalMs = repeatIntervalMs,
+            repeatCount = repeatCount,
+            autoAi = autoAi,
+        )
         val task = TaskEntity(
             id = Uuid.random().toString(),
             type = TaskType.TIMER,
@@ -728,9 +737,41 @@ class BackgroundTaskManager(
 
         val elapsed = System.currentTimeMillis() - task.createdAt
         if (elapsed >= config.delayMs) {
-            completeTask(task, success = true, resultJson = kotlinx.serialization.json.buildJsonObject {
-                put("message", kotlinx.serialization.json.JsonPrimitive(config.message))
-            }.toString())
+            // 到期：完成本次触发
+            completeTask(
+                task,
+                success = true,
+                resultJson = kotlinx.serialization.json.buildJsonObject {
+                    put("message", kotlinx.serialization.json.JsonPrimitive(config.message))
+                }.toString(),
+                // [⑨] 定时 AI 动作：event.aiAction 透传，消费端据此触发 AI 生成
+                aiAction = config.autoAi,
+            )
+
+            // [⑥ 重复定时器] 安排下一次触发：
+            // - repeatIntervalMs > 0 且（无限 或 还有剩余次数）
+            // - 新任务的 delayMs = repeatIntervalMs（后续间隔），repeatCount 递减
+            // - 新任务继承 conversationId/message/autoAi/repeatIntervalMs
+            val hasNext = config.repeatIntervalMs > 0 &&
+                (config.repeatCount == 0 || config.repeatCount > 1)
+            if (hasNext) {
+                val nextCount = if (config.repeatCount > 0) config.repeatCount - 1 else 0
+                taskDao.insert(TaskEntity(
+                    id = Uuid.random().toString(),
+                    type = TaskType.TIMER,
+                    status = TaskStatus.PENDING,
+                    config = json.encodeToString(TaskConfig.serializer(), config.copy(
+                        delayMs = config.repeatIntervalMs,
+                        repeatCount = nextCount,
+                    )),
+                    result = "",
+                    conversationId = task.conversationId,
+                    createdAt = System.currentTimeMillis(),
+                    updatedAt = System.currentTimeMillis(),
+                ))
+                pollerWake.trySend(Unit)
+                Log.i(TAG, "Repeating timer scheduled next fire (remaining=$nextCount)")
+            }
         } else if (task.status == TaskStatus.PENDING) {
             taskDao.markRunningIfPending(task.id)
         }
@@ -754,6 +795,7 @@ class BackgroundTaskManager(
         resultJson: String = "",
         error: String = "",
         config: TaskConfig.CIMonitor? = null,
+        aiAction: Boolean = false,
     ) {
         // 防重入：如果任务已经被完成/取消（例如 webhook 先到达），不再重复处理
         val current = taskDao.getById(task.id)
@@ -786,6 +828,7 @@ class BackgroundTaskManager(
             resultSummary = buildResultSummary(task, resultJson, error, config),
             autoAnalyze = config?.autoAnalyzeOnFailure,
             notifyOnSuccess = config?.notifyOnSuccess,
+            aiAction = aiAction,
         )
         eventBus.emit(event)
 

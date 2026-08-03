@@ -46,5 +46,7 @@ sealed class AppEvent {
         // null = 使用全局设置。
         val autoAnalyze: Boolean? = null,
         val notifyOnSuccess: Boolean? = null,
+        // [⑨ 定时 AI 动作] timer 任务到期时触发 AI 生成（message 作为指令）。
+        val aiAction: Boolean = false,
     ) : AppEvent()
 }

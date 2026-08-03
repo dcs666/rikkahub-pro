@@ -104,6 +104,8 @@ fun SettingTasksPage() {
     var workflowInput by remember { mutableStateOf("") }
     var timerMinutesInput by remember { mutableStateOf("") }
     var timerMessageInput by remember { mutableStateOf("") }
+    var timerRepeatMinutesInput by remember { mutableStateOf("") }
+    var timerAutoAi by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -494,6 +496,29 @@ fun SettingTasksPage() {
                         label = { Text("Message") },
                         placeholder = { Text("What should I remind you about?") },
                     )
+                    // [⑥] 重复间隔（0 = 一次性）
+                    TextField(
+                        value = timerRepeatMinutesInput,
+                        onValueChange = { timerRepeatMinutesInput = it },
+                        label = { Text("Repeat every (minutes, 0 = one-shot)") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    )
+                    // [⑨] 到期 AI 执行
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            "AI executes on fire",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Switch(
+                            checked = timerAutoAi,
+                            onCheckedChange = { timerAutoAi = it },
+                        )
+                    }
                 }
             },
             confirmButton = {
@@ -502,14 +527,22 @@ fun SettingTasksPage() {
                     enabled = minutes != null && minutes > 0,
                     onClick = {
                         val delayMs = minutes!! * 60_000
+                        val repeatMs = timerRepeatMinutesInput.toLongOrNull()?.times(60_000) ?: 0L
                         val message = timerMessageInput.trim().ifBlank { "Timer" }
                         scope.launch {
-                            taskManager.createTimerTask(delayMs = delayMs, message = message)
+                            taskManager.createTimerTask(
+                                delayMs = delayMs,
+                                message = message,
+                                repeatIntervalMs = repeatMs,
+                                autoAi = timerAutoAi,
+                            )
                             toaster.show("Timer set for ${minutes}m")
                         }
                         createType = null
                         timerMinutesInput = ""
                         timerMessageInput = ""
+                        timerRepeatMinutesInput = ""
+                        timerAutoAi = false
                     },
                 ) { Text("Create") }
             },

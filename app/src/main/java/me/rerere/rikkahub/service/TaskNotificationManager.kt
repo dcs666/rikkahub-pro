@@ -113,7 +113,7 @@ class TaskNotificationManager(
                 return
             }
 
-            // 构建注入消息
+            // [⑨ 定时 AI 动作] 注入文本对 timer+autoAi 附加执行指令
             val injectedMessage = buildString {
                 append("[Background Task Result]\n")
                 append("Task: ${event.taskType}\n")
@@ -124,6 +124,11 @@ class TaskNotificationManager(
                 if (!event.success && event.taskType == "ci_monitor" && autoAnalyze) {
                     append("\n\n---\n")
                     append("Please analyze the CI failure above and suggest fixes.")
+                }
+                // 定时 AI 动作：message 即指令
+                if (event.taskType == "timer" && event.aiAction) {
+                    append("\n\n---\n")
+                    append("This is a scheduled reminder. Please execute it now.")
                 }
             }
 
@@ -138,8 +143,9 @@ class TaskNotificationManager(
                 return
             }
 
-            // CI 失败 + 自动分析 → 触发 AI 回复
-            val shouldAutoGenerate = !event.success && event.taskType == "ci_monitor" && autoAnalyze
+            // CI 失败 + 自动分析 → 触发 AI 回复；定时 AI 动作 → 触发 AI 执行指令
+            val shouldAutoGenerate = (event.taskType == "ci_monitor" && !event.success && autoAnalyze) ||
+                (event.taskType == "timer" && event.aiAction)
 
             chatService.sendMessage(
                 conversationId = conversationId,

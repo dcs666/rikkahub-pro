@@ -85,6 +85,12 @@ sealed class TaskConfig {
     data class Timer(
         val delayMs: Long,
         val message: String = "",
+        // [⑥ 重复定时器] 0 = 一次性；>0 = 首次 delayMs 后每 repeatIntervalMs 重复
+        val repeatIntervalMs: Long = 0,
+        // 总触发次数上限（0 = 无限，仅 repeatIntervalMs > 0 时有意义）
+        val repeatCount: Int = 0,
+        // [⑨ 定时 AI 动作] 到期时注入对话并触发 AI 把 message 当作指令执行
+        val autoAi: Boolean = false,
     ) : TaskConfig()
 
     @Serializable

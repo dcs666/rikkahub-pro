@@ -115,6 +115,18 @@ internal fun buildBackgroundTaskTool(
                     put("type", "string")
                     put("description", "Message for the timer.")
                 })
+                put("repeat_interval_minutes", buildJsonObject {
+                    put("type", "number")
+                    put("description", "Repeat every N minutes after the first fire. 0 or omitted = one-shot timer.")
+                })
+                put("repeat_count", buildJsonObject {
+                    put("type", "number")
+                    put("description", "Maximum total trigger count for repeating timers. 0 or omitted = infinite (only meaningful with repeat_interval_minutes).")
+                })
+                put("auto_ai", buildJsonObject {
+                    put("type", "boolean")
+                    put("description", "On fire, ask the AI to execute the message as an instruction (e.g. 'summarize today's work'). Requires the timer to be associated with a conversation.")
+                })
                 put("task_id", buildJsonObject {
                     put("type", "string")
                     put("description", "Task ID for get_task, cancel_task, or rerun_ci.")
@@ -205,6 +217,11 @@ internal fun buildBackgroundTaskTool(
                     ?: 0L
                 val message = obj["message"]?.jsonPrimitive?.content ?: "Timer"
                 val conversationId = obj["conversation_id"]?.jsonPrimitive?.content ?: defaultConversationId
+                // [⑥⑨] 重复与 AI 动作参数
+                val repeatIntervalMs = obj["repeat_interval_minutes"]?.jsonPrimitive?.content
+                    ?.toDoubleOrNull()?.let { (it * 60_000).toLong() } ?: 0L
+                val repeatCount = obj["repeat_count"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
+                val autoAi = obj["auto_ai"]?.jsonPrimitive?.content?.toBoolean() ?: false
 
                 if (delayMs <= 0) {
                     """{"error": "Specify delay_ms, delay_seconds, or delay_minutes"}"""
@@ -213,11 +230,22 @@ internal fun buildBackgroundTaskTool(
                         delayMs = delayMs,
                         message = message,
                         conversationId = conversationId,
+                        repeatIntervalMs = repeatIntervalMs,
+                        repeatCount = repeatCount,
+                        autoAi = autoAi,
                     )
                     buildJsonObject {
                         put("status", "created")
                         put("task_id", taskId)
-                        put("message", "Timer set for ${delayMs / 1000}s: $message")
+                        put("message", buildString {
+                            append("Timer set for ${delayMs / 1000}s: $message")
+                            if (repeatIntervalMs > 0) {
+                                append(" (repeats every ${repeatIntervalMs / 60_000}min")
+                                if (repeatCount > 0) append(", max $repeatCount times")
+                                append(")")
+                            }
+                            if (autoAi) append(" [AI executes on fire]")
+                        })
                     }.toString()
                 }
             }
