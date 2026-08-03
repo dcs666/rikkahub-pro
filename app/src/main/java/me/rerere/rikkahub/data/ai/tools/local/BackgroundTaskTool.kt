@@ -25,6 +25,32 @@ import me.rerere.rikkahub.data.task.BackgroundTaskManager
 
 // owner/name 格式（GitHub 用户名/组织名 + 仓库名，各 1-100 个 [A-Za-z0-9_.-]）
 private val REPO_PATTERN = Regex("^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$")
+
+/** 任务描述（与 REST TaskDto 一致的轻量解析，解析失败返回 null）。 */
+private fun taskDescription(task: me.rerere.rikkahub.data.task.TaskEntity): String? {
+    return runCatching {
+        val json = me.rerere.rikkahub.utils.JsonInstant
+        when (task.type) {
+            "ci_monitor" -> {
+                val config = json.decodeFromString(
+                    me.rerere.rikkahub.data.task.TaskConfig.serializer(), task.config
+                ) as? me.rerere.rikkahub.data.task.TaskConfig.CIMonitor ?: return null
+                buildString {
+                    append(config.repo)
+                    if (config.branch.isNotBlank()) append(" @ ").append(config.branch)
+                    if (config.workflowName.isNotBlank()) append(" (").append(config.workflowName).append(")")
+                }
+            }
+            "timer" -> {
+                val config = json.decodeFromString(
+                    me.rerere.rikkahub.data.task.TaskConfig.serializer(), task.config
+                ) as? me.rerere.rikkahub.data.task.TaskConfig.Timer ?: return null
+                config.message.ifBlank { "Timer (${config.delayMs / 1000}s)" }
+            }
+            else -> null
+        }
+    }.getOrNull()
+}
 internal fun buildBackgroundTaskTool(
     taskManager: BackgroundTaskManager,
     settingsStore: SettingsStore,
@@ -189,6 +215,9 @@ internal fun buildBackgroundTaskTool(
                                 put("created_at", task.createdAt)
                                 put("updated_at", task.updatedAt)
                                 put("poll_count", task.pollCount)
+                                // 与 REST TaskDto.description 一致：CI 任务给 repo@branch(+workflow)，
+                                // 定时器给消息文本，让 AI 能区分任务
+                                taskDescription(task)?.let { put("description", it) }
                                 if (task.errorMessage.isNotBlank()) put("error", task.errorMessage)
                             })
                         }

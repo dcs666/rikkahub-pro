@@ -2,6 +2,7 @@ package me.rerere.rikkahub.data.task
 
 import android.app.Application
 import android.util.Log
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -17,6 +18,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.onTimeout
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import me.rerere.rikkahub.data.event.AppEvent
@@ -83,6 +86,10 @@ class BackgroundTaskManager(
     // 轮询并发限流器（基于 Dispatchers.IO 的共享线程池）
     private val pollDispatcher = Dispatchers.IO.limitedParallelism(POLL_CONCURRENCY)
 
+    // [OPT] 唤醒信号：新任务创建/取消/删除后立即唤醒 poller，
+    // 避免空闲态 30s 睡眠导致新任务首轮 poll 被延迟
+    private val pollerWake = Channel<Unit>(Channel.CONFLATED)
+
     // 活跃任务数量（UI 可观察）
     private val _activeTaskCount = MutableStateFlow(0)
     val activeTaskCount: StateFlow<Int> = _activeTaskCount.asStateFlow()
@@ -112,8 +119,12 @@ class BackgroundTaskManager(
                     // [OPT] 动态唤醒：按所有活跃任务的下一次到期时刻计算睡眠时长，
                     // 不再固定 5s/30s 空转。无任务睡 30s，有任务精确睡到最早到期点
                     // （下限 2s 保证 PENDING 任务立即被 poll，上限 60s 防失控）。
+                    // 睡眠可被 pollerWake 信号提前打断（新任务创建/取消时）。
                     val wakeDelay = computeNextWakeDelayMs()
-                    delay(wakeDelay)
+                    select<Unit> {
+                        pollerWake.onReceive { /* 被唤醒：立即进入下一轮 */ }
+                        onTimeout(wakeDelay) { /* 正常到期 */ }
+                    }
                 }
             }
         }
@@ -251,6 +262,7 @@ class BackgroundTaskManager(
         )
         taskDao.insert(task)
         refreshState()
+        pollerWake.trySend(Unit) // 立即唤醒 poller，不等下一个睡眠周期
         Log.i(TAG, "Created CI monitor task: ${task.id} for $repo")
         return task.id
     }
@@ -276,6 +288,7 @@ class BackgroundTaskManager(
         )
         taskDao.insert(task)
         refreshState()
+        pollerWake.trySend(Unit)
         return task.id
     }
 
@@ -285,6 +298,7 @@ class BackgroundTaskManager(
     suspend fun cancelTask(taskId: String) {
         taskDao.updateStatus(taskId, TaskStatus.CANCELLED)
         refreshState()
+        pollerWake.trySend(Unit)
     }
 
     /**
@@ -293,6 +307,7 @@ class BackgroundTaskManager(
     suspend fun cancelAll() {
         taskDao.cancelAllActive()
         refreshState()
+        pollerWake.trySend(Unit)
     }
 
     /**
@@ -306,6 +321,7 @@ class BackgroundTaskManager(
         consecutiveNotFound.remove(taskId)
         rateLimitedUntil.remove(taskId)
         refreshState()
+        pollerWake.trySend(Unit)
         return true
     }
 
@@ -388,6 +404,7 @@ class BackgroundTaskManager(
             resultJson = json.encodeToString(CITaskResult.serializer(), finalResult),
             config = matchedConfig,
         )
+        pollerWake.trySend(Unit) // 完成活跃任务后立即让 poller 重算睡眠（少一个任务）
         return true
     }
 
