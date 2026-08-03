@@ -60,8 +60,10 @@ private const val RATE_LIMIT_BACKOFF_MS = 5 * 60_000L  // 403/429 后强制退�
  *
  * 设计：
  * - 单例，由 Koin 注入
- * - 内部维护一个轮询协程，每 5s 检查一次是否有活跃任务需要 poll
- * - 每个 CI 任务有自己的 pollInterval，通过 pollCount 控制
+ * - 内部维护轮询协程：按所有活跃任务的最早到期时刻动态睡眠（2s-60s），
+ *   空闲睡 30s；可被唤醒信号（新任务创建/取消/webhook 完成）提前打断
+ * - 每个 CI 任务有自己的 pollInterval，通过 pollCount 控制指数退避
+ * - 有限并发（3 路）并行 poll，多任务不互相阻塞
  * - 任务状态持久化到 Room，进程重启后恢复
  */
 class BackgroundTaskManager(
@@ -201,8 +203,8 @@ class BackgroundTaskManager(
             (json.decodeFromString(TaskConfig.serializer(), task.config) as? TaskConfig.Timer)
                 ?.delayMs
         }.getOrDefault(0L)
-        val due = task.createdAt + delayMs
-        return if (task.status == TaskStatus.PENDING) due else due // 到期后每秒检查一次即可
+        // 到期时刻 = 创建时刻 + 延迟；到期后返回过去时间 → 下一轮 poll 立即完成
+        return task.createdAt + delayMs
     }
 
     fun stop() {
@@ -514,9 +516,17 @@ class BackgroundTaskManager(
                         consecutiveFailures.remove(task.id)
                         consecutiveNotFound.remove(task.id)
                         // 获取失败日志
+                        // [FIX] 抓日志失败（token 失效/网络）不能阻止任务完成：
+                        // 异常冒泡会让 completeTask 永远不执行，任务死循环到 maxPollCount。
+                        // 失败时降级为无日志，任务照常完成（result 里 failedJobs 为空）。
                         val failedJobs = if (ciResult.conclusion == "failure") {
-                            withContext(Dispatchers.IO) {
-                                gitHubClient.getFailedJobLogs(config.repo, ciResult.runId, config.githubToken)
+                            try {
+                                withContext(Dispatchers.IO) {
+                                    gitHubClient.getFailedJobLogs(config.repo, ciResult.runId, config.githubToken)
+                                }
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Failed to fetch job logs for task ${task.id}: ${e.message}")
+                                emptyList()
                             }
                         } else emptyList()
 

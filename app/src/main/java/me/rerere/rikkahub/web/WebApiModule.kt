@@ -37,6 +37,7 @@ import me.rerere.rikkahub.web.routes.filesRoutes
 import me.rerere.rikkahub.web.routes.folderRoutes
 import me.rerere.rikkahub.web.routes.settingsRoutes
 import me.rerere.rikkahub.web.routes.taskRoutes
+import me.rerere.rikkahub.web.routes.taskWebhookRoute
 import java.security.MessageDigest
 import java.util.Date
 import java.util.UUID
@@ -168,6 +169,10 @@ fun Application.configureWebApi(
             }
 
             aiIconRoutes(context)
+
+            // [FIX] webhook 必须在 JWT 认证之外注册：GitHub 回调无法携带 JWT，
+            // 其自身认证是 X-Hub-Signature-256 HMAC。否则开启 JWT 时 webhook 401。
+            taskManager?.let { taskWebhookRoute(it, settingsStore) }
 
             if (jwtEnabled) {
                 authenticate("auth-jwt") {

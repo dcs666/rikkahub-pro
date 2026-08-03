@@ -33,6 +33,68 @@ private val REPO_PATTERN = me.rerere.rikkahub.data.task.REPO_PATTERN
  * - POST   /api/tasks/{id}/cancel  -> 取消任务
  * - DELETE /api/tasks/{id}         -> 删除任务记录（历史清理）
  */
+/**
+ * GitHub Actions Webhook 接收端点。
+ *
+ * 单独注册在 JWT 认证之外：[FIX] GitHub webhook 回调无法携带 JWT，
+ * 若随 taskRoutes 一起注册在 authenticate("auth-jwt") 块内，JWT 开启时
+ * webhook 会被 401 拒绝，秒级通知通道失效（只剩轮询兜底）。
+ * webhook 自己的认证 = X-Hub-Signature-256 HMAC 签名（配置 GitHub Token 后强制）。
+ */
+fun Route.taskWebhookRoute(
+    taskManager: BackgroundTaskManager,
+    settingsStore: SettingsStore,
+) {
+    route("/tasks/webhook") {
+        post {
+            val eventType = call.request.headers["X-GitHub-Event"] ?: ""
+            val secret = settingsStore.settingsFlow.value.taskGithubToken
+
+            // 读原始 body 一次：需要 HMAC 校验时用文本，否则直接 JSON 解析
+            val bodyText = call.receiveText()
+            val signature = call.request.headers["X-Hub-Signature-256"]
+
+            if (secret.isNotBlank()) {
+                val expected = "sha256=" + hmacSha256Hex(secret, bodyText)
+                val provided = signature?.lowercase()?.removePrefix("sha256=")
+                val valid = provided != null &&
+                    MessageDigest.isEqual(
+                        expected.toByteArray(Charsets.UTF_8),
+                        provided.toByteArray(Charsets.UTF_8)
+                    )
+                if (!valid) {
+                    call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Invalid webhook signature"))
+                    return@post
+                }
+            }
+
+            val body = runCatching {
+                JsonInstant.parseToJsonElement(bodyText).jsonObject
+            }.getOrElse {
+                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid JSON body"))
+                return@post
+            }
+
+            when (eventType) {
+                "workflow_run" -> {
+                    val handled = handleWorkflowRunEvent(
+                        taskManager = taskManager,
+                        body = body,
+                        fallbackGithubToken = settingsStore.settingsFlow.value.taskGithubToken,
+                    )
+                    call.respond(HttpStatusCode.OK, mapOf("status" to "received", "handled" to handled))
+                }
+                "ping" -> {
+                    call.respond(HttpStatusCode.OK, mapOf("message" to "pong"))
+                }
+                else -> {
+                    call.respond(HttpStatusCode.OK, mapOf("status" to "ignored", "event" to eventType))
+                }
+            }
+        }
+    }
+}
+
 fun Route.taskRoutes(
     taskManager: BackgroundTaskManager,
     settingsStore: SettingsStore,
@@ -91,59 +153,6 @@ fun Route.taskRoutes(
                 conversationId = request.conversationId ?: "",
             )
             call.respond(HttpStatusCode.Created, mapOf("taskId" to taskId))
-        }
-
-        // GitHub Actions Webhook 接收
-        // 配置：GitHub repo Settings -> Webhooks -> http://<device-ip>:8080/api/tasks/webhook
-        // Content type: application/json
-        // Events: Actions (workflow_run)
-        // Secret（可选）：设置页配置的 GitHub Token；配置后所有请求必须带合法的
-        // X-Hub-Signature-256 签名，防止伪造 webhook 事件。
-        post("/webhook") {
-            val eventType = call.request.headers["X-GitHub-Event"] ?: ""
-            val secret = settingsStore.settingsFlow.value.taskGithubToken
-
-            // 读原始 body 一次：需要 HMAC 校验时用文本，否则直接 JSON 解析
-            val bodyText = call.receiveText()
-            val signature = call.request.headers["X-Hub-Signature-256"]
-
-            if (secret.isNotBlank()) {
-                val expected = "sha256=" + hmacSha256Hex(secret, bodyText)
-                val provided = signature?.lowercase()?.removePrefix("sha256=")
-                val valid = provided != null &&
-                    MessageDigest.isEqual(
-                        expected.toByteArray(Charsets.UTF_8),
-                        provided.toByteArray(Charsets.UTF_8)
-                    )
-                if (!valid) {
-                    call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Invalid webhook signature"))
-                    return@post
-                }
-            }
-
-            val body = runCatching {
-                JsonInstant.parseToJsonElement(bodyText).jsonObject
-            }.getOrElse {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid JSON body"))
-                return@post
-            }
-
-            when (eventType) {
-                "workflow_run" -> {
-                    val handled = handleWorkflowRunEvent(
-                        taskManager = taskManager,
-                        body = body,
-                        fallbackGithubToken = settingsStore.settingsFlow.value.taskGithubToken,
-                    )
-                    call.respond(HttpStatusCode.OK, mapOf("status" to "received", "handled" to handled))
-                }
-                "ping" -> {
-                    call.respond(HttpStatusCode.OK, mapOf("message" to "pong"))
-                }
-                else -> {
-                    call.respond(HttpStatusCode.OK, mapOf("status" to "ignored", "event" to eventType))
-                }
-            }
         }
 
         // 单任务详情（供外部客户端查询结果）
