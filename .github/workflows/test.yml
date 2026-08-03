@@ -39,6 +39,20 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      # [FIX] :app:testDebugUnitTest 依赖 :web:buildWebUi（构建 web-ui 静态资源），
+      # 没有 pnpm/Node 会直接失败（曾因 continue-on-error 被掩盖）。
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web-ui/pnpm-lock.yaml
+
       - name: Run ai module unit tests
         run: ./gradlew :ai:testDebugUnitTest --stacktrace
 
