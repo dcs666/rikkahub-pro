@@ -175,7 +175,10 @@ fun Route.taskRoutes(
 private fun hmacSha256Hex(secret: String, body: String): String {
     val mac = javax.crypto.Mac.getInstance("HmacSHA256")
     mac.init(javax.crypto.spec.SecretKeySpec(secret.toByteArray(Charsets.UTF_8), "HmacSHA256"))
-    return mac.doFinal(body.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+    // 注意：不能用 "%02x".format(byte)——负数 Byte 会符号扩展输出 8 位（ffffffff），
+    // 必须 and 0xFF 后按无符号字节格式化
+    return mac.doFinal(body.toByteArray(Charsets.UTF_8))
+        .joinToString("") { "%02x".format(it.toInt() and 0xFF) }
 }
 
 /**
