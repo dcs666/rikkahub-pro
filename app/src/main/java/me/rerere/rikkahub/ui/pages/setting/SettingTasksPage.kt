@@ -44,7 +44,9 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Add01
 import me.rerere.hugeicons.stroke.ArrowDown01
@@ -71,6 +73,8 @@ import me.rerere.rikkahub.ui.theme.CustomColors
 import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.utils.plus
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.koin.compose.koinInject
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -204,13 +208,14 @@ fun SettingTasksPage() {
                         var watchInput by remember(settings.taskAutoWatchRepos) {
                             mutableStateOf(settings.taskAutoWatchRepos)
                         }
+                        val parsedRepos = remember(watchInput) { parseRepoList(watchInput) }
                         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(HugeIcons.Github, null, modifier = Modifier.padding(end = 8.dp))
                                 Text("Auto-watch repos", style = MaterialTheme.typography.bodyLarge)
                             }
                             Text(
-                                "Comma-separated owner/name list. New workflow runs get monitored automatically via webhook",
+                                "Repos whose new workflow runs get monitored automatically (webhook). Comma or newline separated.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(start = 32.dp, bottom = 4.dp),
@@ -219,13 +224,46 @@ fun SettingTasksPage() {
                                 value = watchInput,
                                 onValueChange = { watchInput = it },
                                 modifier = Modifier.fillMaxWidth().padding(start = 24.dp),
-                                placeholder = { Text("dcs666/rikkahub-turbo, octocat/hello-world") },
-                                singleLine = true,
+                                placeholder = { Text("dcs666/rikkahub-turbo\noctocat/hello-world") },
                             )
+                            // 已配置列表（可单个删除）
+                            parsedRepos.forEach { repo ->
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth().padding(start = 24.dp),
+                                ) {
+                                    Text(
+                                        repo,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    IconButton(
+                                        onClick = {
+                                            watchInput = parsedRepos.filter { it != repo }.joinToString(", ")
+                                        },
+                                        modifier = Modifier.size(32.dp),
+                                    ) {
+                                        Icon(
+                                            HugeIcons.Cancel01,
+                                            "Remove $repo",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                    }
+                                }
+                            }
+                            if (parsedRepos.isEmpty()) {
+                                Text(
+                                    "⚠ Not configured — new CI runs will NOT be monitored automatically. Ask AI or create manually.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.padding(start = 24.dp, top = 2.dp),
+                                )
+                            }
                             TextButton(
                                 onClick = {
                                     scope.launch {
-                                        settingsStore.update(settings.copy(taskAutoWatchRepos = watchInput.trim()))
+                                        settingsStore.update(settings.copy(taskAutoWatchRepos = parsedRepos.joinToString(", ")))
                                         toaster.show("Auto-watch list saved")
                                     }
                                 },
@@ -239,6 +277,7 @@ fun SettingTasksPage() {
                         var webhookUrlInput by remember(settings.taskWebhookUrl) {
                             mutableStateOf(settings.taskWebhookUrl)
                         }
+                        var testing by remember { mutableStateOf(false) }
                         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(HugeIcons.Clock01, null, modifier = Modifier.padding(end = 8.dp))
@@ -257,15 +296,29 @@ fun SettingTasksPage() {
                                 placeholder = { Text("https://sctapi.ftqq.com/...") },
                                 singleLine = true,
                             )
-                            TextButton(
-                                onClick = {
-                                    scope.launch {
-                                        settingsStore.update(settings.copy(taskWebhookUrl = webhookUrlInput.trim()))
-                                        toaster.show("Webhook URL saved")
-                                    }
-                                },
-                                modifier = Modifier.align(Alignment.End),
-                            ) { Text("Save") }
+                            Row(modifier = Modifier.align(Alignment.End)) {
+                                // 发送测试请求验证 URL 可用
+                                TextButton(
+                                    enabled = webhookUrlInput.isNotBlank() && !testing,
+                                    onClick = {
+                                        val url = webhookUrlInput.trim()
+                                        scope.launch {
+                                            testing = true
+                                            val ok = withContext(Dispatchers.IO) { testCompletionWebhook(url) }
+                                            toaster.show(if (ok) "Test sent ✓ (HTTP ok)" else "Test failed — check URL/network")
+                                            testing = false
+                                        }
+                                    },
+                                ) { Text(if (testing) "Sending..." else "Test") }
+                                TextButton(
+                                    onClick = {
+                                        scope.launch {
+                                            settingsStore.update(settings.copy(taskWebhookUrl = webhookUrlInput.trim()))
+                                            toaster.show("Webhook URL saved")
+                                        }
+                                    },
+                                ) { Text("Save") }
+                            }
                         }
                     }
 
@@ -784,6 +837,29 @@ private fun buildTaskResultText(task: TaskEntity): String? {
     } catch (_: Exception) {
         // 非 CITaskResult 格式（timer 等）：直接展示原文
         task.result.take(300)
+    }
+}
+
+/** [⑦] 解析自动监控白名单输入（逗号/换行分隔，去空白去重）。 */
+private fun parseRepoList(input: String): List<String> =
+    input.split(',', '\n').map { it.trim() }.filter { it.isNotBlank() }.distinct()
+
+/** [⑧] 发送测试请求到完成回调 URL，验证可用性。 */
+private suspend fun testCompletionWebhook(url: String): Boolean = withContext(Dispatchers.IO) {
+    try {
+        val payload = """{"event":"test","message":"RikkaHub background-task webhook test","timestamp":${System.currentTimeMillis()}}"""
+        val client = okhttp3.OkHttpClient.Builder()
+            .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+            .callTimeout(12, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+        val request = okhttp3.Request.Builder()
+            .url(url)
+            .post(payload.toRequestBody("application/json; charset=utf-8".toMediaType()))
+            .build()
+        client.newCall(request).execute().use { response -> response.isSuccessful }
+    } catch (e: Exception) {
+        false
     }
 }
 
