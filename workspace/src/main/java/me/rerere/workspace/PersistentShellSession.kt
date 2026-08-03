@@ -172,7 +172,8 @@ class PersistentShellSession(
         // [FIX] 尾部缓冲：主 sb 满后仍需检测 sentinel（sentinel 在输出末尾），
         // 否则 sb 截断后永远找不到 sentinel → 读到超时。保留最后 64 字符足够覆盖 sentinel 长度。
         val tail = StringBuilder()
-        @Volatile var truncated = false
+        // [FIX] 截断标记：用 AtomicBoolean 保证跨线程可见（readThread 写、主线程读）
+        val truncatedFlag = java.util.concurrent.atomic.AtomicBoolean(false)
         val readThread = Thread {
             try {
                 val buf = CharArray(4096)
@@ -183,9 +184,9 @@ class PersistentShellSession(
                     if (sb.length < MAX_OUTPUT_CHARS) {
                         val remaining = MAX_OUTPUT_CHARS - sb.length
                         sb.append(buf, 0, minOf(n, remaining))
-                        if (n > remaining) truncated = true
+                        if (n > remaining) truncatedFlag.set(true)
                     } else {
-                        truncated = true
+                        truncatedFlag.set(true)
                     }
                     // 尾部缓冲：始终追加（用于 sentinel 检测），保持小尺寸
                     tail.append(buf, 0, n)
@@ -247,7 +248,7 @@ class PersistentShellSession(
             stdout = output,
             stderr = "",
             timedOut = false,
-            truncated = truncated,
+            truncated = truncatedFlag.get(),
         )
     }
 
