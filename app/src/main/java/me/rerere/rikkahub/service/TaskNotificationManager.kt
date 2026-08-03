@@ -52,15 +52,15 @@ class TaskNotificationManager(
 
         val settings = settingsStore.settingsFlow.first()
 
-        // 1. 发送通知（尊重设置）
-        val shouldNotify = event.success && settings.taskNotifyOnSuccess || !event.success
+        // 1. 发送通知（任务级 notifyOnSuccess 优先，缺省用全局设置）
+        val shouldNotify = event.success && (event.notifyOnSuccess ?: settings.taskNotifyOnSuccess) || !event.success
         if (shouldNotify) {
             sendTaskNotification(event)
         }
 
-        // 2. 如果关联了对话，注入消息
+        // 2. 如果关联了对话，注入消息（任务级 autoAnalyze 优先）
         if (event.conversationId.isNotBlank()) {
-            injectIntoConversation(event, settings.taskAutoAnalyze)
+            injectIntoConversation(event, event.autoAnalyze ?: settings.taskAutoAnalyze)
         }
     }
 
@@ -128,7 +128,12 @@ class TaskNotificationManager(
             }
 
             // CI 失败 + 自动分析 → 触发 AI 回复
-            val shouldAutoGenerate = !event.success && event.taskType == "ci_monitor" && autoAnalyze
+            // [FIX] 会话正在生成时不抢占（sendMessage 会 cancel 当前生成，
+            // 打断用户正在看的回答）；只注入消息，下一轮对话 AI 自然看到。
+            val shouldAutoGenerate = !event.success &&
+                event.taskType == "ci_monitor" &&
+                autoAnalyze &&
+                !chatService.isGenerating(conversationId)
 
             chatService.sendMessage(
                 conversationId = conversationId,

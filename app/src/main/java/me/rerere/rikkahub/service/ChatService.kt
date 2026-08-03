@@ -959,6 +959,14 @@ class ChatService(
     }
 
     /**
+     * 指定会话当前是否正在生成回复。
+     * 任务结果注入用：生成中不抢占（避免打断用户正在看的回答），只注入消息。
+     */
+    fun isGenerating(conversationId: Uuid): Boolean {
+        return sessions[conversationId]?.isGenerating == true
+    }
+
+    /**
      * 删除文件夹（folder_id 归属会被清空，会话本身保留）。
      *
      * 先把内存中归属该文件夹的活跃 session folderId 置空，再删库：

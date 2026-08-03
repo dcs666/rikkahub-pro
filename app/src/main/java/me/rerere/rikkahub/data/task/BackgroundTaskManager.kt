@@ -636,13 +636,15 @@ class BackgroundTaskManager(
         rateLimitedUntil.remove(task.id)
         refreshState()
 
-        // 发出事件
+        // 发出事件（任务级配置优先，缺省时消费端回退到全局设置）
         val event = AppEvent.BackgroundTaskCompleted(
             taskId = task.id,
             taskType = task.type,
             success = success,
             conversationId = task.conversationId,
             resultSummary = buildResultSummary(task, resultJson, error, config),
+            autoAnalyze = config?.autoAnalyzeOnFailure,
+            notifyOnSuccess = config?.notifyOnSuccess,
         )
         eventBus.emit(event)
 

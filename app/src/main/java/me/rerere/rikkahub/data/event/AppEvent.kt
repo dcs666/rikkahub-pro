@@ -41,5 +41,10 @@ sealed class AppEvent {
         val success: Boolean,
         val conversationId: String, // 关联的对话 UUID string，空则不注入
         val resultSummary: String,
+        // [FIX] 任务创建时指定的配置透传（否则消费端只能用全局设置，
+        // 任务级 autoAnalyzeOnFailure/notifyOnSuccess 是死配置）。
+        // null = 使用全局设置。
+        val autoAnalyze: Boolean? = null,
+        val notifyOnSuccess: Boolean? = null,
     ) : AppEvent()
 }
