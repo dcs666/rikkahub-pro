@@ -251,7 +251,8 @@ class BackgroundTaskManager(
             branch = branch,
             runId = runId,
             workflowName = workflowName,
-            pollIntervalMs = pollIntervalMs,
+            // 防御性钳制：即使未来有调用方绕过工具/REST 的校验，也保证最小 10s
+            pollIntervalMs = pollIntervalMs.coerceAtLeast(10_000L),
             autoAnalyzeOnFailure = autoAnalyzeOnFailure,
             notifyOnSuccess = notifyOnSuccess,
             githubToken = githubToken,
