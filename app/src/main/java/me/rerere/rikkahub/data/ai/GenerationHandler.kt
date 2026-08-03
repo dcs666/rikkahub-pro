@@ -5,10 +5,15 @@ import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeout
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
@@ -64,6 +69,8 @@ private const val TOOL_EXECUTION_TIMEOUT_MS = 60_000L
 // workspace_shell 自带命令超时（默认 30s，最大 600s）；工具级超时 = 命令超时 + 该缓冲，
 // 避免误杀合法的长命令（构建/安装等显式设置了长 timeout 的场景）。
 private const val SHELL_TOOL_TIMEOUT_BUFFER_MS = 15_000L
+// [TURBO 并行] 同一轮多工具并行执行的并发上限：防模型一次返回过多工具时资源暴涨。
+private const val TOOL_PARALLELISM = 4
 
 @Serializable
 sealed interface GenerationChunk {
@@ -248,6 +255,9 @@ class GenerationHandler(
 
             // Handle tools (execute approved tools, handle denied tools)
             val executedTools = arrayListOf<UIMessagePart.Tool>()
+            // [TURBO 并行] Auto/Approved 的工具收集到并行队列，forEach 结束后统一并行执行；
+            // Denied/Answered/Pending 仍同步处理（快，不涉及执行）。
+            val toExecuteParallel = arrayListOf<UIMessagePart.Tool>()
             toolsToProcess.forEach { tool ->
                 when (tool.approvalState) {
                     is ToolApprovalState.Denied -> {
@@ -284,79 +294,30 @@ class GenerationHandler(
                     }
 
                     else -> {
-                        // Auto or Approved - execute the tool
-                        var timeoutMs = TOOL_EXECUTION_TIMEOUT_MS
-                        try {
-                            val toolDef = toolsInternal.find { toolDef -> toolDef.name == tool.toolName }
-                                ?: error("Tool ${tool.toolName} not found")
-                            val args = runCatching {
-                                json.parseToJsonElement(tool.input.ifBlank { "{}" })
-                            }.getOrElse {
-                                error("Invalid tool arguments JSON for ${tool.toolName}: ${it.message}")
+                        // Auto or Approved - 入队并行执行（见下方 coroutineScope 块）
+                        toExecuteParallel += tool
+                    }
+                }
+            }
+
+            // [TURBO 并行] 同一轮多个 Auto/Approved 工具并行执行（OpenAI parallel function
+            // calling 语义：模型同轮返回的多个 tool_calls 即视为可并行）。
+            // - 结果按调用顺序挂回（awaitAll 保持 deferreds 顺序），消息顺序与串行一致
+            // - 并发上限 TOOL_PARALLELISM（Semaphore），防模型一次返回过多工具时资源暴涨
+            // - 单工具超时/异常已被 executeToolSafely 消化为工具错误输出，不影响兄弟任务；
+            //   而 CancellationException 向上传播 → coroutineScope 取消全部并行任务，
+            //   与串行时"用户停止生成"的取消语义一致
+            if (toExecuteParallel.isNotEmpty()) {
+                coroutineScope {
+                    val semaphore = Semaphore(TOOL_PARALLELISM)
+                    val deferreds = toExecuteParallel.map { tool ->
+                        async {
+                            semaphore.withPermit {
+                                executeToolSafely(tool, toolsInternal)
                             }
-                            Log.i(TAG, "generateText: executing tool ${toolDef.name} with args: $args")
-                            // [FIX] 工具级超时。workspace_shell 按命令自身超时 + 缓冲计算，
-                            // 其余工具统一 60s。TimeoutCancellationException 是
-                            // CancellationException 的子类，必须先于取消分支处理，
-                            // 否则工具超时会被误判为"用户停止生成"向上传播。
-                            timeoutMs = if (toolDef.name == "workspace_shell") {
-                                val explicit = runCatching {
-                                    (args as? JsonObject)
-                                        ?.get("timeout")?.jsonPrimitive?.content?.toLongOrNull()
-                                }.getOrNull()
-                                (explicit ?: 30L).coerceIn(1L, 600L) * 1000L + SHELL_TOOL_TIMEOUT_BUFFER_MS
-                            } else {
-                                TOOL_EXECUTION_TIMEOUT_MS
-                            }
-                            val result = withTimeout(timeoutMs) { toolDef.execute(args) }
-                            val hasShellAccess = toolsInternal.any { it.name == "workspace_shell" }
-                            executedTools += tool.copy(
-                                output = maybeTruncateToolOutput(tool.toolCallId, result, hasShellAccess)
-                            )
-                        } catch (e: TimeoutCancellationException) {
-                            // 工具超时：作为工具错误注入结果（不是取消生成），
-                            // 模型读到后可调整策略（缩短命令/分批执行/换工具）
-                            executedTools += tool.copy(
-                                output = listOf(
-                                    UIMessagePart.Text(
-                                        json.encodeToString(
-                                            buildJsonObject {
-                                                put(
-                                                    "error",
-                                                    JsonPrimitive(
-                                                        "Tool ${tool.toolName} timed out after ${timeoutMs / 1000}s. " +
-                                                            "If this is a long-running shell command, increase the 'timeout' parameter."
-                                                    )
-                                                )
-                                            }
-                                        )
-                                    )
-                                )
-                            )
-                        } catch (e: CancellationException) {
-                            // 取消必须向上传播，否则停止生成会被误报为工具执行错误
-                            throw e
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                            executedTools += tool.copy(
-                                output = listOf(
-                                    UIMessagePart.Text(
-                                        json.encodeToString(
-                                            buildJsonObject {
-                                                put(
-                                                    "error",
-                                                    JsonPrimitive(buildString {
-                                                        append("[${e.javaClass.name}] ${e.message}")
-                                                        append("\n${e.stackTraceToString()}")
-                                                    })
-                                                )
-                                            }
-                                        )
-                                    )
-                                )
-                            )
                         }
                     }
+                    deferreds.awaitAll().forEach { executedTools += it }
                 }
             }
 
@@ -387,6 +348,83 @@ class GenerationHandler(
         }
 
     }.flowOn(Dispatchers.IO)
+
+    /**
+     * [TURBO 并行] 单工具安全执行（供并行队列调用）：
+     * - 工具级超时：workspace_shell 按命令自身 timeout + 缓冲，其余工具统一 60s
+     * - TimeoutCancellationException 消化为工具错误输出（不是取消生成）
+     * - 其它异常同样消化为工具错误输出，不中断并行中的兄弟任务
+     * - CancellationException 原样传播（用户停止生成 → coroutineScope 取消全部）
+     */
+    private suspend fun executeToolSafely(
+        tool: UIMessagePart.Tool,
+        toolsInternal: List<Tool>,
+    ): UIMessagePart.Tool {
+        var timeoutMs = TOOL_EXECUTION_TIMEOUT_MS
+        try {
+            val toolDef = toolsInternal.find { toolDef -> toolDef.name == tool.toolName }
+                ?: error("Tool ${tool.toolName} not found")
+            val args = runCatching {
+                json.parseToJsonElement(tool.input.ifBlank { "{}" })
+            }.getOrElse {
+                error("Invalid tool arguments JSON for ${tool.toolName}: ${it.message}")
+            }
+            Log.i(TAG, "generateText: executing tool ${toolDef.name} with args: $args")
+            timeoutMs = if (toolDef.name == "workspace_shell") {
+                val explicit = runCatching {
+                    (args as? JsonObject)
+                        ?.get("timeout")?.jsonPrimitive?.content?.toLongOrNull()
+                }.getOrNull()
+                (explicit ?: 30L).coerceIn(1L, 600L) * 1000L + SHELL_TOOL_TIMEOUT_BUFFER_MS
+            } else {
+                TOOL_EXECUTION_TIMEOUT_MS
+            }
+            val result = withTimeout(timeoutMs) { toolDef.execute(args) }
+            val hasShellAccess = toolsInternal.any { it.name == "workspace_shell" }
+            return tool.copy(
+                output = maybeTruncateToolOutput(tool.toolCallId, result, hasShellAccess)
+            )
+        } catch (e: TimeoutCancellationException) {
+            return tool.copy(
+                output = listOf(
+                    UIMessagePart.Text(
+                        json.encodeToString(
+                            buildJsonObject {
+                                put(
+                                    "error",
+                                    JsonPrimitive(
+                                        "Tool ${tool.toolName} timed out after ${timeoutMs / 1000}s. " +
+                                            "If this is a long-running shell command, increase the 'timeout' parameter."
+                                    )
+                                )
+                            }
+                        )
+                    )
+                )
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return tool.copy(
+                output = listOf(
+                    UIMessagePart.Text(
+                        json.encodeToString(
+                            buildJsonObject {
+                                put(
+                                    "error",
+                                    JsonPrimitive(buildString {
+                                        append("[${e.javaClass.name}] ${e.message}")
+                                        append("\n${e.stackTraceToString()}")
+                                    })
+                                )
+                            }
+                        )
+                    )
+                )
+            )
+        }
+    }
 
     private suspend fun generateInternal(
         assistant: Assistant,
