@@ -61,7 +61,7 @@ class BackgroundTaskManager(
      * 启动轮询循环。在 App 启动时调用。
      */
     fun start() {
-        if (pollerJob?.isActive == true) return
+        if (pollerJob?.isActive == true && cleanupJob?.isActive == true) return
         pollerJob = scope.launch {
             Log.i(TAG, "Task poller started")
             refreshState()
@@ -79,10 +79,12 @@ class BackgroundTaskManager(
             }
         }
         // 定期清理旧任务
-        cleanupJob = scope.launch {
-            while (isActive) {
-                delay(CLEANUP_INTERVAL_MS)
-                taskDao.cleanupOld(System.currentTimeMillis() - MAX_TASK_AGE_MS)
+        if (cleanupJob?.isActive != true) {
+            cleanupJob = scope.launch {
+                while (isActive) {
+                    delay(CLEANUP_INTERVAL_MS)
+                    taskDao.cleanupOld(System.currentTimeMillis() - MAX_TASK_AGE_MS)
+                }
             }
         }
     }
