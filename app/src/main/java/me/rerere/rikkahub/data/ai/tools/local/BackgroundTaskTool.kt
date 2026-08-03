@@ -133,6 +133,8 @@ internal fun buildBackgroundTaskTool(
         When the user pushes code or mentions waiting for CI, proactively offer to monitor it.
         When a CI task completes, you will receive the result as a new message in the conversation.
         If CI fails, analyze the error and suggest fixes.
+        Use get_task to check a specific task's status and result (e.g. failed job error summaries)
+        before answering questions about an ongoing or finished build.
         """.trimIndent()
     },
     execute = { input ->
