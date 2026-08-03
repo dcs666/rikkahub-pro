@@ -7,6 +7,12 @@ on:
     branches: [ master, main ]
   workflow_dispatch:
 
+# [FIX] 连续 push 时只构建最新代码：旧 run 排队/运行中会被取消，
+# 避免单 runner 上 10 个 commit 各自重复全量构建（每个 30-60min）
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest

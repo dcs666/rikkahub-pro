@@ -7,6 +7,11 @@ on:
     branches: [ master, main ]
   workflow_dispatch:
 
+# [FIX] 连续 push 时只测试最新代码（与 build.yml 保持一致）
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
