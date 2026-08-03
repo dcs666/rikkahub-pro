@@ -729,7 +729,15 @@ private fun buildTaskDescription(task: TaskEntity): String {
             TaskType.TIMER -> {
                 val config = JsonInstant.decodeFromString(me.rerere.rikkahub.data.task.TaskConfig.serializer(), task.config)
                     as? me.rerere.rikkahub.data.task.TaskConfig.Timer ?: return ""
-                config.message.ifBlank { "Timer (${config.delayMs / 1000}s)" }
+                buildString {
+                    append(config.message.ifBlank { "Timer (${config.delayMs / 1000}s)" })
+                    if (config.repeatIntervalMs > 0) {
+                        append(" (every ${config.repeatIntervalMs / 60_000}min")
+                        if (config.repeatCount > 0) append(", max ${config.repeatCount}x")
+                        append(")")
+                    }
+                    if (config.autoAi) append(" [AI]")
+                }
             }
             else -> ""
         }

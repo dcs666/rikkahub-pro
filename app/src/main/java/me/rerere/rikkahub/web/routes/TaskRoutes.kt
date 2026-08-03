@@ -195,6 +195,9 @@ fun Route.taskRoutes(
                 delayMs = delayMs,
                 message = request.message ?: "Timer",
                 conversationId = request.conversationId ?: "",
+                repeatIntervalMs = (request.repeatIntervalMinutes?.times(60_000)) ?: 0L,
+                repeatCount = request.repeatCount ?: 0,
+                autoAi = request.autoAi ?: false,
             )
             call.respond(HttpStatusCode.Created, mapOf("taskId" to taskId))
         }
@@ -383,6 +386,10 @@ data class CreateTimerRequest(
     val delaySeconds: Long? = null,
     val message: String? = null,
     val conversationId: String? = null,
+    // [⑥⑨] 重复定时器与定时 AI 动作
+    val repeatIntervalMinutes: Long? = null,
+    val repeatCount: Int? = null,
+    val autoAi: Boolean? = null,
 )
 
 @Serializable
