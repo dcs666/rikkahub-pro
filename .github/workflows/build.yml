@@ -65,7 +65,14 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
+            # [OPT] 项目级 .gradle：Kotlin 增量编译状态 + 配置缓存跨 run 保留。
+            # 改 1 个文件时只重编依赖链（而非模块全量）；runner 工作目录固定，
+            # 绝对路径引用有效。cache 保存时同 key 覆盖，增量状态每次更新。
+            .gradle
           key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          # gradle 文件变更时 key 失效：回退到最近一次缓存（依赖部分仍命中）
+          restore-keys: |
+            ${{ runner.os }}-gradle-
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
@@ -85,6 +92,12 @@ jobs:
             echo "debug.keyAlias=androiddebugkey"
             echo "debug.keyPassword=android"
           } >> local.properties
+
+      # [OPT] 快速失败：先只编译 Kotlin（编译错误 ~5 分钟暴露，不再等 30 分钟打包）。
+      # 同一 workspace 内 .gradle 增量状态直接被下一步复用——assemble 时
+      # Kotlin 编译几乎零成本（输入未变 → UP-TO-DATE），总时长不增反减。
+      - name: Compile Kotlin (fast fail)
+        run: ./gradlew :app:compileProfileableKotlin --stacktrace
 
       - name: Build debug APK
         run: ./gradlew assembleProfileable --stacktrace
