@@ -118,8 +118,9 @@ internal fun buildBackgroundTaskTool(
                     ?: settings.taskAutoAnalyze
                 val token = obj["github_token"]?.jsonPrimitive?.content
                     ?: settings.taskGithubToken
-                val pollInterval = (obj["poll_interval_sec"]?.jsonPrimitive?.content?.toLongOrNull()
-                    ?: settings.taskPollIntervalSec.toLong()) * 1000
+                // [FIX] clamp 最小轮询间隔 10s：AI 若传 1s，未认证 GitHub 60 req/hour 会被秒耗 rate limit
+                val pollInterval = ((obj["poll_interval_sec"]?.jsonPrimitive?.content?.toLongOrNull()
+                    ?: settings.taskPollIntervalSec.toLong()).coerceAtLeast(10L)) * 1000
 
                 if (repo.isBlank()) {
                     """{"error": "repo is required, e.g. 'dcs666/rikkahub-turbo'"}"""
