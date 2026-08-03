@@ -72,11 +72,12 @@ class TaskNotificationManager(
             else -> if (event.success) "✅ Task Done" else "❌ Task Failed"
         }
 
-        // 点击通知打开 app
+        // 点击通知打开 app（与 ChatNotificationManager 模式一致）
         val intent = Intent(app, RouteActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             if (event.conversationId.isNotBlank()) {
-                putExtra("conversation_id", event.conversationId)
+                // [FIX] RouteActivity.onNewIntent 读取的键是 "conversationId"（不是 "conversation_id"）
+                putExtra("conversationId", event.conversationId)
             }
         }
         val pendingIntent = PendingIntent.getActivity(
