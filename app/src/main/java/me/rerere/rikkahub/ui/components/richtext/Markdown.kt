@@ -191,6 +191,34 @@ private fun stripStreamingMarkdown(content: String): String {
     return r
 }
 
+/**
+ * [TURBO R3.1] 流式块级拆分：把生成中的内容按 ``` 围栏快速切分为 代码块/文本段。
+ * - 奇数索引段 = 代码块（``` 已闭合）：保留原始内容（换行/缩进），流式渲染为 monospace 容器
+ * - 偶数索引段 = 普通文本：走 stripStreamingMarkdown 轻量擦除
+ * - 未闭合代码块（奇数个 ```，生成中尾巴）按普通文本兜底，生成结束即恢复完整渲染
+ * 每帧成本 = 一次 split + 逐段 strip（O(n)），与 R3 纯文本方案同级；收益 = 代码块可见可读。
+ */
+private data class StreamingBlock(val isCode: Boolean, val text: String)
+
+private fun splitStreamingBlocks(content: String): List<StreamingBlock> {
+    if (content.isEmpty()) return emptyList()
+    val parts = content.split("```")
+    val blocks = mutableListOf<StreamingBlock>()
+    parts.forEachIndexed { index, part ->
+        val isCode = index % 2 == 1 // 围栏之间 = 代码
+        if (part.isEmpty()) return@forEachIndexed
+        if (isCode) {
+            // 剥离围栏后的首个换行与尾部换行；语言标记（```kotlin 的首行）保留在文本里无妨
+            val text = part.removePrefix("\n").trimEnd('\n')
+            if (text.isNotEmpty()) blocks.add(StreamingBlock(true, text))
+        } else {
+            val text = stripStreamingMarkdown(part)
+            if (text.isNotEmpty()) blocks.add(StreamingBlock(false, text))
+        }
+    }
+    return blocks
+}
+
 private fun preProcess(content: String): String {
     // 先找出所有代码块的位置
     val codeBlocks = mutableListOf<IntRange>()
@@ -323,19 +351,35 @@ fun MarkdownBlock(
     if (streaming) {
         // [TURBO R3] 流式降级渲染：生成中的消息每帧 content 真变、markdown 树真变，
         // 长回答时主线程每帧重组整棵 markdown 子树 = "生成时顿"的根因（sample 只降频率
-        // 不降单帧成本）。降级为单个 Text(content)：主线程只 layout 一个文本节点，成本比
-        // 几百节点的 markdown 树低一个数量级。上方后台 LaunchedEffect 仍 parse 预热 data，
-        // 故 streaming→false 切完整分支时 data 已就绪，零 parse 零跳变卡顿。
-        // trade-off：生成中显示原始 markdown 标记（**、``` 等），结束才格式化——激进实验场
-        // [TURBO R3+] 不再显示原始标记：喂给 Text 的是 stripStreamingMarkdown 擦除标记后的近似
-        // 干净文本（remember 缓存，content 变才重算）。擦除是确定性的→不会"闪现又消失"；成本为
-        // 每帧若干 O(n) 正则 replace，远低于完整 parse+compose 树，不退化生成跟手。生成结束
-        // streaming=false 切完整渲染分支，显示真正格式化的 markdown。
+        // 不降单帧成本）。降级渲染成本比几百节点的 markdown 树低一个数量级。
+        // 上方后台 LaunchedEffect 仍 parse 预热 data，故 streaming→false 切完整分支时
+        // data 已就绪，零 parse 零跳变卡顿。
+        // [TURBO R3.1] 块级降级：按 ``` 切分，已闭合代码块用 monospace 容器真渲染
+        // （代码阅读体验恢复），普通段 stripStreamingMarkdown 纯文本；每帧成本与
+        // R3 同级（O(n) split + strip，几个文本节点）。未闭合尾巴按文本兜底，
+        // 生成结束 streaming=false 切完整渲染分支，显示真正格式化的 markdown。
         ProvideTextStyle(style) {
-            Text(
-                text = remember(content) { stripStreamingMarkdown(content) },
-                modifier = modifier.padding(horizontal = 4.dp),
-            )
+            Column(modifier = modifier.padding(horizontal = 4.dp)) {
+                remember(content) { splitStreamingBlocks(content) }.forEach { block ->
+                    if (block.isCode) {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                        ) {
+                            Text(
+                                text = block.text,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = (style.fontSize * 0.9f).let { if (it.isUnspecified) 13.sp else it },
+                                lineHeight = if (style.lineHeight.isUnspecified) 18.sp else style.lineHeight,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            )
+                        }
+                    } else {
+                        Text(text = block.text)
+                    }
+                }
+            }
         }
     } else if (data.hasHtml) {
         MarkdownNew(
