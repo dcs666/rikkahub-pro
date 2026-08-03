@@ -17,6 +17,7 @@ import me.rerere.rikkahub.data.event.AppEvent
 import me.rerere.rikkahub.data.event.AppEventBus
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.utils.sendNotification
+import okhttp3.MediaType.Companion.toMediaType
 import kotlin.uuid.Uuid
 
 private const val TAG = "TaskNotificationMgr"
@@ -97,7 +98,7 @@ class TaskNotificationManager(
             val request = okhttp3.Request.Builder()
                 .url(url)
                 .post(okhttp3.RequestBody.create(
-                    okhttp3.MediaType.parse("application/json; charset=utf-8"), payload
+                    "application/json; charset=utf-8".toMediaType(), payload
                 ))
                 .build()
             httpClient.newCall(request).execute().use { response ->

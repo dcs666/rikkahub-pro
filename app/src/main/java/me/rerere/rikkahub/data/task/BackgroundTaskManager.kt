@@ -25,6 +25,7 @@ import kotlinx.serialization.json.Json
 import me.rerere.rikkahub.data.event.AppEvent
 import me.rerere.rikkahub.data.event.AppEventBus
 import me.rerere.rikkahub.utils.JsonInstant
+import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.uuid.Uuid
 
@@ -193,7 +194,7 @@ class BackgroundTaskManager(
         if (task.status == TaskStatus.PENDING) return 0L // 立即 poll
         val pollIntervalMs = runCatching {
             (json.decodeFromString(TaskConfig.serializer(), task.config) as? TaskConfig.CIMonitor)
-                ?.pollIntervalMs
+                ?.pollIntervalMs ?: DEFAULT_POLL_INTERVAL_MS
         }.getOrDefault(DEFAULT_POLL_INTERVAL_MS)
         return task.updatedAt + nextPollDelay(task.pollCount, pollIntervalMs)
     }
@@ -201,7 +202,7 @@ class BackgroundTaskManager(
     private fun timerDueAt(task: TaskEntity): Long {
         val delayMs = runCatching {
             (json.decodeFromString(TaskConfig.serializer(), task.config) as? TaskConfig.Timer)
-                ?.delayMs
+                ?.delayMs ?: 0L
         }.getOrDefault(0L)
         // 到期时刻 = 创建时刻 + 延迟；到期后返回过去时间 → 下一轮 poll 立即完成
         return task.createdAt + delayMs

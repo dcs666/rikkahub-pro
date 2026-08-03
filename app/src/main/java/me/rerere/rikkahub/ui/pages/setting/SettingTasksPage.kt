@@ -200,19 +200,25 @@ fun SettingTasksPage() {
                     }
 
                     // Auto Watch Repos（⑦ 全自动监控白名单）
-                    item(
-                        leadingContent = { Icon(HugeIcons.Github, null) },
-                        headlineContent = { Text("Auto-watch repos") },
-                        supportingContent = { Text("Comma-separated owner/name list. New workflow runs get monitored automatically via webhook") },
-                    ) {
+                    item {
                         var watchInput by remember(settings.taskAutoWatchRepos) {
                             mutableStateOf(settings.taskAutoWatchRepos)
                         }
-                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(HugeIcons.Github, null, modifier = Modifier.padding(end = 8.dp))
+                                Text("Auto-watch repos", style = MaterialTheme.typography.bodyLarge)
+                            }
+                            Text(
+                                "Comma-separated owner/name list. New workflow runs get monitored automatically via webhook",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 32.dp, bottom = 4.dp),
+                            )
                             TextField(
                                 value = watchInput,
                                 onValueChange = { watchInput = it },
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier.fillMaxWidth().padding(start = 24.dp),
                                 placeholder = { Text("dcs666/rikkahub-turbo, octocat/hello-world") },
                                 singleLine = true,
                             )
@@ -229,19 +235,25 @@ fun SettingTasksPage() {
                     }
 
                     // Completion webhook URL（⑧ 外部回调）
-                    item(
-                        leadingContent = { Icon(HugeIcons.Clock01, null) },
-                        headlineContent = { Text("Completion webhook URL") },
-                        supportingContent = { Text("POST task result JSON to this URL when a task finishes (e.g. Server酱/Bark)") },
-                    ) {
+                    item {
                         var webhookUrlInput by remember(settings.taskWebhookUrl) {
                             mutableStateOf(settings.taskWebhookUrl)
                         }
-                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(HugeIcons.Clock01, null, modifier = Modifier.padding(end = 8.dp))
+                                Text("Completion webhook URL", style = MaterialTheme.typography.bodyLarge)
+                            }
+                            Text(
+                                "POST task result JSON to this URL when a task finishes (e.g. Server酱/Bark)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 32.dp, bottom = 4.dp),
+                            )
                             TextField(
                                 value = webhookUrlInput,
                                 onValueChange = { webhookUrlInput = it },
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier.fillMaxWidth().padding(start = 24.dp),
                                 placeholder = { Text("https://sctapi.ftqq.com/...") },
                                 singleLine = true,
                             )
