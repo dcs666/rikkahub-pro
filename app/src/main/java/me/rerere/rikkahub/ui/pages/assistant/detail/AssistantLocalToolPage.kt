@@ -226,6 +226,20 @@ private fun AssistantLocalToolContent(
                     )
                 }
             )
+            item(
+                headlineContent = {
+                    Text("Background Tasks")
+                },
+                supportingContent = {
+                    Text("Monitor CI/CD pipelines, set timers. AI will notify you when tasks complete.")
+                },
+                trailingContent = {
+                    Switch(
+                        checked = assistant.localTools.contains(LocalToolOption.BackgroundTask),
+                        onCheckedChange = { toggleLocalTool(LocalToolOption.BackgroundTask, it) }
+                    )
+                }
+            )
         }
     }
 }
