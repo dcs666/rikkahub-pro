@@ -187,3 +187,9 @@
   4. speech 模块 4303 行全审（TTS 8 provider + ASR 5 provider：超时/SSE/WebSocket/录音释放/临时文件清理全到位）
   5. web-ui hooks 6 个 + chat-input + 组件（epoch 竞态防护/订阅清理/发送状态机高质量）
   6. material3 DynamicSchemeExt + locale-tui（yaml.safe_load 安全）
+
+## 深挖第二轮（2026-08-04，v1.7.2 后批 7-29，发现 3 个新修复）
+- 66483bf JsonExpression 求值器 StackOverflowError：余额表达式超长/深嵌套（粘贴触发）→ 512 字符上限 + SOE 兜底
+- 7c50c22 parseErrorDetail 递归深度上限 32：恶意/异常 API 深嵌套错误 JSON → SOE 崩溃
+- 防御：collectAllParts 嵌套深度上限 16（工具结果递归展开）
+- 深审确认干净：ai Provider 全家（FileEncoder OOM 防护/KeyRoulette LRU/ResponseAPI 流式/Claude/Google/Vertex JWT）、common 缓存/SSE、workspace 安装器（tar/pax/symlink 防护）、document 解析器、highlight 状态机（无 ReDoS）、web 路由全家（AIIcon/Folder/Settings/RouteUtils）、DTO、依赖审计（全最新版）、BackgroundTaskManager 状态机、MCP OAuth（PKCE/刷新锁）、Navigation、ChatDrawerVM

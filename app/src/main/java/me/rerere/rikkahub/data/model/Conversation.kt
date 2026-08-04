@@ -158,9 +158,14 @@ fun UIMessage.toMessageNode(): MessageNode {
 
 /**
  * 递归展开所有 parts，包括工具调用结果中的嵌套 parts。
+ * [FIX] 深度上限：防御恶意/异常工具结果构造超深嵌套（正常工具输出最多 2-3 层）。
  */
-private fun List<UIMessagePart>.collectAllParts(): List<UIMessagePart> =
-    this + filterIsInstance<UIMessagePart.Tool>().flatMap { it.output.collectAllParts() }
+private fun List<UIMessagePart>.collectAllParts(depth: Int = 0): List<UIMessagePart> {
+    if (depth > MAX_PART_NESTING_DEPTH) return this
+    return this + filterIsInstance<UIMessagePart.Tool>().flatMap { it.output.collectAllParts(depth + 1) }
+}
+
+private const val MAX_PART_NESTING_DEPTH = 16
 
 /**
  * 提取 part 中引用的本地文件 URI，新增文件类型时只需在此处添加。
