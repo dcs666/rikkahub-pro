@@ -64,6 +64,9 @@ import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
 private const val TAG = "GenerationHandler"
+
+/** 翻译输入长度上限（与文档注入截断一致） */
+private const val MAX_TRANSLATE_INPUT_CHARS = 200_000
 private const val MAX_TOOL_OUTPUT_CHARS = 32 * 1024
 private const val TOOL_OUTPUT_PREVIEW_CHARS = 4 * 1024
 // [FIX] 工具级超时：任何工具（含未来新增的）都不能无限挂起生成循环。
@@ -653,6 +656,9 @@ class GenerationHandler(
         targetLanguage: Locale,
         onStreamUpdate: ((String) -> Unit)? = null
     ): Flow<String> = flow {
+        // [FIX] 翻译输入无长度上限：超长文本（粘贴几十万字符）会构造超大 prompt →
+        // API 413/超时。与文档注入截断（200K）保持一致。
+        val cappedSource = sourceText.take(MAX_TRANSLATE_INPUT_CHARS)
         val model = settings.providers.findModelById(settings.translateModeId)
             ?: error("Translation model not found")
         val provider = model.findProvider(settings.providers)
@@ -663,7 +669,7 @@ class GenerationHandler(
         if (!ModelRegistry.QWEN_MT.match(model.modelId)) {
             // Use regular translation with prompt
             val prompt = settings.translatePrompt.applyPlaceholders(
-                "source_text" to sourceText,
+                "source_text" to cappedSource,
                 "target_lang" to targetLanguage.toString(),
             )
 
@@ -688,7 +694,7 @@ class GenerationHandler(
             }
         } else {
             // Use Qwen MT model with special translation options
-            val messages = listOf(UIMessage.user(sourceText))
+            val messages = listOf(UIMessage.user(cappedSource))
             val chunk = providerHandler.generateText(
                 providerSetting = provider,
                 messages = messages,
