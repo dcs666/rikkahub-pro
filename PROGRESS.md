@@ -207,3 +207,7 @@
 ## v1.7.3-turbo 发布（2026-08-04，2.4.9/178）
 - 包含 6 个修复（v1.7.2 后深挖轮）：JsonExpression SOE（66483bf）/ parseErrorDetail 深度（7c50c22）/ collectAllParts 深度（198ec66）/ highlight 兜底（ad7da54）/ toolCallId 文件名清洗（a9449cc）/ 记忆条数 200+注入封顶（1ed113a）
 - 双绿验证：5813aef（Unit Tests + Build APK success）
+
+## 深挖第六轮（批 61-90，发现 1 个修复，累计 26）
+- f2bf4e4 Room AutoMigration 链缺口（6→7/11→12/13→16 缺失 → 存量用户升级崩溃）补齐
+- 审过干净：MCP 官方 SDK transport（本地 transport 为死代码）、ChatPage 图片链路（HEIF 转换+回退）、assistant 详情/导入（SillyTavern 解析容错）、SearchVM（debounce）、web-ui conversation/code-block（subscriber 清理）、highlight 语言定义、ai 核心类型（Modality 设计）、AppDatabase 其余迁移、工作区编辑器、导出导入（JSON 校验）、Koin 4 模块、Manifest（exported 正确）、Gradle（minify=false 有注释）、前端 types/locales、SafeMode（崩溃恢复）、WebViewPage（JS 默认关闭）、Provider.getBalance TODO（被类型守卫挡住非 bug）
