@@ -113,3 +113,13 @@
 - **Build APK #104 失败**（a797c10 触发）：SearchVM 分页状态声明（isLoadingMore/hasMore/loadedCount/activeQuery/PAGE_SIZE）在首次编辑时被 workspace_edit_file 的宽容匹配**静默吞掉**——old_text 与实际文件不一致（误以为文件已有这些声明），宽容匹配跳过不存在的行后整块替换，代码引用了未声明变量 → unresolved reference
 - 修复：恢复全部声明；逐一核对 10 个改动文件完整性（Markdown/ChatMessage/ChatList/ChatPage/ChatVM/ChatService/FTS/SearchVM/SearchPage/MessageFtsManager）
 - **教训**：workspace_edit_file 的 old_text 必须与文件实际内容逐字一致；宽容匹配会在内容不匹配时静默替换，导致声明/逻辑丢失。编辑后用 grep 核对新增符号（本会话已核对）
+
+## v1.7-turbo 发布（2026-08-04，2.4.6/175）
+- **CI 连续修复 3 轮（df7bb7c → 0b4f002）**：
+  1. **根因**：df7bb7c 把 `updateMutex = Mutex()` 插进 settingsFlowRaw 流链中间 → decode 管线挂到 Mutex() 上（非 Flow）→ 205 个编译错误，所有 Settings 消费方（~25 文件）级联失败。CI 从 df7bb7c 起红，之前监控未确认误以为绿
+  2. **暴露的真实错误**：Settings 修好后 13 个错误全在功能改进批次：
+     - 并行 edit 同文件竞态（read-modify-write 非原子）丢参数/import（ChatList onSelectVersion ×2、SearchPage 3 import）
+     - `SpanStyleRange` 不存在 → `AnnotatedString.Range`
+     - 原 bug 被掩盖：ChatService:553 `getAllAvailableTools()` 缺 assistant 参数
+  3. **教训**：① edit 后必须 grep 核对新增符号；② 同文件编辑必须严格串行；③ CI 失败要拉完整错误列表（grep 全量 e: 行），别只看头部
+- 发布：v1.7-turbo（含 8 修复 + 4 功能改进 + 3 轮 CI 修复）
