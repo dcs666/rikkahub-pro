@@ -174,31 +174,40 @@ class FilesManager(
     @OptIn(ExperimentalEncodingApi::class)
     suspend fun convertBase64ImagePartToLocalFile(message: UIMessage): UIMessage =
         withContext(Dispatchers.IO) {
-            message.copy(
-                parts = message.parts.map { part ->
-                    when (part) {
-                        is UIMessagePart.Image -> {
-                            if (part.url.startsWith("data:image")) {
-                                val sourceByteArray = Base64.decode(part.url.substringAfter("base64,").toByteArray())
-                                val bitmap = BitmapFactory.decodeByteArray(sourceByteArray, 0, sourceByteArray.size)
-                                val byteArray = FileUtils.compressBitmapToPng(bitmap)
-                                val urls = createChatFilesByByteArrays(listOf(byteArray))
-                                Log.i(
-                                    TAG,
-                                    "convertBase64ImagePartToLocalFile: convert base64 img to ${urls.joinToString(", ")}"
-                                )
-                                part.copy(
-                                    url = urls.first().toString(),
-                                )
-                            } else {
-                                part
-                            }
-                        }
+            message.copy(parts = convertBase64ImagePartsToLocalFile(message.parts))
+        }
 
-                        else -> part
+    /**
+     * 把 [UIMessagePart.Image] 中 data:image base64 的图片转成聊天文件并返回本地 file:// URI。
+     * 供模型输出与工具结果两条注入路径复用（工具结果此前漏转，base64 图片进消息后
+     * 保存会触发 require(!hasBase64Part) 失败）。
+     */
+    @OptIn(ExperimentalEncodingApi::class)
+    suspend fun convertBase64ImagePartsToLocalFile(parts: List<UIMessagePart>): List<UIMessagePart> =
+        withContext(Dispatchers.IO) {
+            parts.map { part ->
+                when (part) {
+                    is UIMessagePart.Image -> {
+                        if (part.url.startsWith("data:image")) {
+                            val sourceByteArray = Base64.decode(part.url.substringAfter("base64,").toByteArray())
+                            val bitmap = BitmapFactory.decodeByteArray(sourceByteArray, 0, sourceByteArray.size)
+                            val byteArray = FileUtils.compressBitmapToPng(bitmap)
+                            val urls = createChatFilesByByteArrays(listOf(byteArray))
+                            Log.i(
+                                TAG,
+                                "convertBase64ImagePartToLocalFile: convert base64 img to ${urls.joinToString(", ")}"
+                            )
+                            part.copy(
+                                url = urls.first().toString(),
+                            )
+                        } else {
+                            part
+                        }
                     }
+
+                    else -> part
                 }
-            )
+            }
         }
 
     fun deleteChatFiles(uris: List<Uri>) {

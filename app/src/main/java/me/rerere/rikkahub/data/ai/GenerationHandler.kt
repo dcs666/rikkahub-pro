@@ -56,7 +56,9 @@ import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.AssistantMemory
 import me.rerere.rikkahub.data.repository.MemoryRepository
+import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.utils.applyPlaceholders
+import org.koin.java.KoinJavaComponent.getKoin
 import java.util.Locale
 import kotlin.time.Clock
 import kotlin.uuid.Uuid
@@ -85,6 +87,7 @@ class GenerationHandler(
     private val json: Json,
     private val memoryRepo: MemoryRepository,
 ) {
+    private val filesManager: FilesManager by lazy { getKoin().get() }
     fun generateText(
         settings: Settings,
         model: Model,
@@ -381,8 +384,13 @@ class GenerationHandler(
             }
             val result = withTimeout(timeoutMs) { toolDef.execute(args) }
             val hasShellAccess = toolsInternal.any { it.name == "workspace_shell" }
+            // [FIX] 工具返回的 base64 图片在注入消息前转本地文件：原转换链只覆盖模型输出
+            // （ChatService.outputTransformers），MCP 截图/图像工具返回 data: URL 时会带着
+            // base64 进消息 → saveConversation 的 require(!hasBase64Part) 抛异常 → 整条消息
+            // 保存失败（重启后丢失）。这里对工具结果做同样的转换。
+            val convertedResult = filesManager.convertBase64ImagePartsToLocalFile(result)
             return tool.copy(
-                output = maybeTruncateToolOutput(tool.toolCallId, result, hasShellAccess)
+                output = maybeTruncateToolOutput(tool.toolCallId, convertedResult, hasShellAccess)
             )
         } catch (e: TimeoutCancellationException) {
             return tool.copy(
