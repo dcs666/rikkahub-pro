@@ -1,5 +1,7 @@
 package me.rerere.rikkahub.ui.components.ui
 
+import android.os.Build
+import android.provider.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -23,9 +25,16 @@ fun FloatingWindow(
     val context = LocalContext.current
     var window: IFxAppControl? by remember { mutableStateOf(null) }
 
+    // [FIX] 悬浮窗权限缺失时 show() → WindowManager.addView SecurityException → 崩溃
+    //（TTS 朗读场景：未授权 SYSTEM_ALERT_WINDOW 直接崩溃）。无权限则静默降级不显示。
+    fun canShowOverlay(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)
+
     LaunchedEffect(visibility) {
         if (visibility) {
-            window?.show()
+            if (canShowOverlay()) {
+                window?.show()
+            }
         } else {
             window?.hide()
         }
@@ -46,7 +55,7 @@ fun FloatingWindow(
                 }
             })
         }
-        if (visibility) window?.show() else window?.hide()
+        if (visibility && canShowOverlay()) window?.show() else window?.hide()
         onDispose {
             window?.cancel()
         }
