@@ -108,3 +108,8 @@
 2. **对话压缩限并发**：compressConversation 全并行 → Semaphore(2)，避免长对话同时打十几个请求触发 API 速率限制
 3. **R3.3 流式行内格式**：闭合的行内代码/加粗/斜体生成中即可见（与最终渲染样式一致：等宽/Bold/Italic，复用旧 strip 同一组正则 → 识别规则零偏差）；未闭合标记按字面量显示（intellij 同样按字面量渲染 → 流式→完整零跳变）；链接仍剥除（半截 URL 渲染成链接会跳变）；JS 帧模拟验证：闭合瞬间出现样式且后续帧稳定、code 优先不重叠、嵌套正确、孤立标记字面量
 4. **编辑消息版本切换 UI**：editMessage 追加版本但 UI 无切换入口（selectMessageNode 仅 web API）→ 多版本消息显示 v{n}/{m} 徽章，点击循环切换（ChatMessage → ChatList → ChatPage → ChatVM.selectMessageNode 链路）
+
+## 功能改进批次修复（2026-08-04，0b3424f）
+- **Build APK #104 失败**（a797c10 触发）：SearchVM 分页状态声明（isLoadingMore/hasMore/loadedCount/activeQuery/PAGE_SIZE）在首次编辑时被 workspace_edit_file 的宽容匹配**静默吞掉**——old_text 与实际文件不一致（误以为文件已有这些声明），宽容匹配跳过不存在的行后整块替换，代码引用了未声明变量 → unresolved reference
+- 修复：恢复全部声明；逐一核对 10 个改动文件完整性（Markdown/ChatMessage/ChatList/ChatPage/ChatVM/ChatService/FTS/SearchVM/SearchPage/MessageFtsManager）
+- **教训**：workspace_edit_file 的 old_text 必须与文件实际内容逐字一致；宽容匹配会在内容不匹配时静默替换，导致声明/逻辑丢失。编辑后用 grep 核对新增符号（本会话已核对）
