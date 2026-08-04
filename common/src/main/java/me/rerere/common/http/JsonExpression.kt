@@ -15,6 +15,12 @@ data class ParseResult(
 )
 
 fun parseExpression(input: String): ParseResult {
+    // [FIX] 表达式长度上限：求值器为递归下降实现，超长/深嵌套输入（如一万层括号或
+    // 连续运算符）会让递归深度随输入线性增长 → StackOverflowError。该 Error 不继承
+    // Exception，原 catch 拦不住，用户把超长文本粘贴进余额表达式配置即崩溃。
+    if (input.length > MAX_EXPRESSION_LENGTH) {
+        return ParseResult(false, null, "Expression too long (max $MAX_EXPRESSION_LENGTH chars)")
+    }
     return try {
         val lexer = Lexer(input)
         val parser = Parser(lexer)
@@ -24,8 +30,12 @@ fun parseExpression(input: String): ParseResult {
         ParseResult(false, null, e.message)
     } catch (e: Exception) {
         ParseResult(false, null, e.message ?: "Unknown error")
+    } catch (e: StackOverflowError) {
+        ParseResult(false, null, "Expression too complex")
     }
 }
+
+private const val MAX_EXPRESSION_LENGTH = 512
 
 fun isJsonExprValid(input: String): Boolean = parseExpression(input).success
 
