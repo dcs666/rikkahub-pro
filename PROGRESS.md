@@ -177,3 +177,4 @@
   - 资源防护：文档注入截断（4f135b3）/ 记忆上限（06baee4）/ QuickJS 内存+超时（dd60e0a）/ fetch 5MB（ce187e4）/ Bing body 2MB（7230279）
   - 其他：mermaid 误报（fe2109d）/ CRLF（3652fd6）/ 日志清理
 - CI 全绿：7230279（Unit Tests + Build APK success）
+- **v1.7.2-turbo 发布完成**：2026-08-04 15:35（2.4.8/177，3 个 profileable APK，Release Turbo success，约 24 分钟构建）
