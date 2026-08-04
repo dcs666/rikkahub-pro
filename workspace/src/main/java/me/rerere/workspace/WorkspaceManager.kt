@@ -147,6 +147,12 @@ class WorkspaceManager(
         charset: Charset = StandardCharsets.UTF_8,
     ): WorkspaceFileEntry {
         requireValidRoot(root)
+        // [FIX] 与 fileSystem.writeText 的 maxWriteBytes 一致：workspace_write_file
+        // 工具（模型可控 text）走此路径，此前无大小限制 → 超大内容直接落盘。
+        val bytes = text.toByteArray(charset)
+        require(bytes.size <= config.maxWriteBytes) {
+            "Content is too large to write: ${bytes.size} bytes"
+        }
         val location = resolveRootfsPath(root, path)
         val file = fileSystem.resolve(location.rootDir, location.relativePath)
         require(!file.exists() || overwrite) { "File already exists: $path" }
