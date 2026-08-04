@@ -43,9 +43,6 @@ function CodePreviewPanel({ panel }: { panel: WorkbenchPanel }) {
     setMode(canRenderPreview ? "preview" : "source");
   }, [canRenderPreview, panel.payload]);
 
-  // [FIX] 预览 iframe 的 sandbox 只给 allow-scripts：srcDoc iframe 继承父页面
-  // origin，allow-scripts + allow-same-origin 组合会让 AI 生成的预览代码
-  // 直接读写父页面（web 会话 localStorage/token）。
   const iframeDoc = React.useMemo(() => {
     if (normalizedLanguage === "html") {
       return code;
@@ -209,34 +206,6 @@ export function WorkbenchHost({ panel, onClose, className }: WorkbenchHostProps)
           <div className="truncate font-medium text-sm">{panel.title}</div>
           <div className="truncate text-muted-foreground text-xs">
             {t("workbench.type_label", { type: panel.type })}
-          </div>
-        </div>
-        <Button
-          aria-label={t("workbench.close_panel")}
-          type="button"
-          size="icon-sm"
-          variant="ghost"
-          onClick={onClose}
-        >
-          <X className="size-4" />
-        </Button>
-      </div>
-
-      <div className="flex-1 min-h-0">
-        {renderer ? renderer.render(panel) : <UnknownPanel panel={panel} />}
-      </div>
-    </section>
-  );
-}
-   </div>
-
-      <div className="flex-1 min-h-0">
-        {renderer ? renderer.render(panel) : <UnknownPanel panel={panel} />}
-      </div>
-    </section>
-  );
-}
-nch.type_label", { type: panel.type })}
           </div>
         </div>
         <Button
