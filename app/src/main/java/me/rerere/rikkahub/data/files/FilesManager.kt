@@ -191,15 +191,26 @@ class FilesManager(
                         if (part.url.startsWith("data:image")) {
                             val sourceByteArray = Base64.decode(part.url.substringAfter("base64,").toByteArray())
                             val bitmap = BitmapFactory.decodeByteArray(sourceByteArray, 0, sourceByteArray.size)
-                            val byteArray = FileUtils.compressBitmapToPng(bitmap)
-                            val urls = createChatFilesByByteArrays(listOf(byteArray))
-                            Log.i(
-                                TAG,
-                                "convertBase64ImagePartToLocalFile: convert base64 img to ${urls.joinToString(", ")}"
-                            )
-                            part.copy(
-                                url = urls.first().toString(),
-                            )
+                            // [FIX] 解码失败（损坏/伪造的 base64）时 Bitmap 为 null，
+                            // 直接 compress 会 NPE 崩溃整条生成链；保留原 part 降级，
+                            // 保存侧 require 会给出用户可见错误而非进程崩溃。
+                            if (bitmap == null) {
+                                Log.w(
+                                    TAG,
+                                    "convertBase64ImagePartToLocalFile: failed to decode data:image, keep original part"
+                                )
+                                part
+                            } else {
+                                val byteArray = FileUtils.compressBitmapToPng(bitmap)
+                                val urls = createChatFilesByByteArrays(listOf(byteArray))
+                                Log.i(
+                                    TAG,
+                                    "convertBase64ImagePartToLocalFile: convert base64 img to ${urls.joinToString(", ")}"
+                                )
+                                part.copy(
+                                    url = urls.first().toString(),
+                                )
+                            }
                         } else {
                             part
                         }
