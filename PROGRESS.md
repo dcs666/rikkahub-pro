@@ -102,3 +102,9 @@
 - 下载无完整性校验（截断由 extractTar EOF 防御兜底）
 - SimpleHtmlBlock 的 img src 任意 scheme（Coil 加载，用户主动渲染的 AI 输出）
 - 多 <think> 块只保留第一个进 Reasoning（replace 删全部但 find 取第一个）
+
+## 功能改进批次（2026-08-04，a797c10）
+1. **搜索结果分页**：FTS LIMIT 50 硬编码 → limit/offset 参数化；SearchVM 每页 30 条滚动加载（过期页丢弃：查询/排序变化时忽略），SearchPage 接近底部自动加载下一页
+2. **对话压缩限并发**：compressConversation 全并行 → Semaphore(2)，避免长对话同时打十几个请求触发 API 速率限制
+3. **R3.3 流式行内格式**：闭合的行内代码/加粗/斜体生成中即可见（与最终渲染样式一致：等宽/Bold/Italic，复用旧 strip 同一组正则 → 识别规则零偏差）；未闭合标记按字面量显示（intellij 同样按字面量渲染 → 流式→完整零跳变）；链接仍剥除（半截 URL 渲染成链接会跳变）；JS 帧模拟验证：闭合瞬间出现样式且后续帧稳定、code 优先不重叠、嵌套正确、孤立标记字面量
+4. **编辑消息版本切换 UI**：editMessage 追加版本但 UI 无切换入口（selectMessageNode 仅 web API）→ 多版本消息显示 v{n}/{m} 徽章，点击循环切换（ChatMessage → ChatList → ChatPage → ChatVM.selectMessageNode 链路）
