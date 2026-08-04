@@ -95,6 +95,9 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlin.uuid.Uuid
 
 private const val TAG = "ChatService"
+// [FIX] 用户消息字符上限：与翻译输入（GenerationHandler.MAX_TRANSLATE_INPUT_CHARS）
+// 和文档注入（DocumentAsPromptTransformer.MAX_DOCUMENT_CHARS）的 200K 约定一致。
+private const val MAX_USER_MESSAGE_CHARS = 200_000
 
 internal fun backgroundTextGenerationParams(
     model: Model,
@@ -348,8 +351,12 @@ class ChatService(
         return parts.map { part ->
             when (part) {
                 is UIMessagePart.Text -> {
+                    // [FIX] 用户消息无长度上限：分享超大文本/粘贴几十万字符 → 消息存库膨胀、
+                    // 上下文 token 爆表、API 413/超时。与翻译/文档注入截断（200K）保持一致。
+                    // 先截断再跑 replaceRegexes：避免超长文本上的正则处理开销。
+                    val cappedText = part.text.take(MAX_USER_MESSAGE_CHARS)
                     part.copy(
-                        text = part.text.replaceRegexes(
+                        text = cappedText.replaceRegexes(
                             assistant = assistant,
                             scope = AssistantAffectScope.USER,
                             visual = false
