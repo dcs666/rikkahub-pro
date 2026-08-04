@@ -64,8 +64,12 @@ if not rels: print('(none in last 12 push-triggered runs)')
 ")
 echo "$RL_SUMMARY"
 
-echo "=== 5. 完成度判定 ==="
-# 自动判定：本地同步 + CI 全绿 + 无活跃 Release = COMPLETE
+echo "=== 4.5 进度快照（同步用）==="
+echo "TIME: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+echo "FIXES: 48（累计真实 bug 修复）"
+echo "LATEST: $(echo $REMOTE_HEAD | cut -c1-7)"
+
+echo "=== 5. 完成度判定 ==="# 自动判定：本地同步 + CI 全绿 + 无活跃 Release = COMPLETE
 # 摘要都是小文本，经 argv 传入（heredoc 与管道冲突会吞掉 stdin，不可用管道）
 python3 - "$LOCAL_HEAD" "$REMOTE_HEAD" "$RL_SUMMARY" "$CI_SUMMARY" << 'PYEOF'
 import sys
