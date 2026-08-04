@@ -31,6 +31,11 @@ import java.time.format.DateTimeFormatter
 
 private const val TAG = "WebDavClient"
 
+// [FIX #44] 路径段 percent-encode：URLEncoder 把空格编码为 +（URL path 中非法），
+// 转成 %20；段内字符全部编码（/ ? # & 中文 空格），分隔符由调用方拼接。
+internal fun encodePathSegment(seg: String): String =
+    java.net.URLEncoder.encode(seg, "UTF-8").replace("+", "%20")
+
 class WebDavClient(
     private val config: WebDavConfig,
     private val httpClient: HttpClient,
@@ -47,9 +52,7 @@ class WebDavClient(
         // [FIX] 每段单独 percent-encode：此前直接拼接，文件名含空格/中文/#/?/& 时
         // URL 非法（# 截断、? 变 query、空格 400）→ WebDAV 同步失败。
         // 每段编码后再拼（不编码分隔符 '/'；空格用 %20 而非 +）。
-        val encoded = pathSegments.joinToString("/") { seg ->
-            java.net.URLEncoder.encode(seg, "UTF-8").replace("+", "%20")
-        }
+        val encoded = pathSegments.joinToString("/") { seg -> encodePathSegment(seg) }
         return "$base/$encoded"
     }
     suspend fun put(
