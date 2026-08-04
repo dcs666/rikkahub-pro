@@ -241,6 +241,31 @@
 - 另：**修复 29** 用户消息 200K 截断（0e6432f，ChatService.preprocessUserInputParts 单点）——
   分享超大文本/粘贴超长 → 消息存库膨胀 + 上下文爆表 + API 413，与翻译/文档 200K 一致
 
+
+## 深挖第十二轮（批 301-322，22 轮，2 新修复）
+- 批 301 FloatingWindow/WebViewContentCache：**修复 34** 悬浮窗无 SYSTEM_ALERT_WINDOW 权限 → WindowManager.addView SecurityException → TTS 朗读即崩溃；Manifest 无声明且未检查 → canDrawOverlays 守卫静默降级（25bfbdc）；WebViewContentCache id=sha256 校验防路径遍历 ✔
+- 批 302 ai/completion：干净（BFS 上限 500/80 + gitignore 缓存 + fuzzyScore 线性）
+- 批 303 richtext Mermaid/SimpleHtmlBlock：XSS 安全确认（escapeHtml 完整转义 + Jsoup 白名单 + jsInterface 无注入点）
+- 批 304 MarkdownNew/ZoomableAsyncImage：干净（LinkAnnotation 无代码执行、coil file:// 仅显示）
+- 批 305 MathBlock/LatexText/DiffView：干净（jlatexmath 本地渲染无 WebView）
+- 批 306 MarkdownBlock：干净（MarkdownParseCache LRU 30 有界）
+- 批 307 HighlightCodeBlock/JsonTree/QRCode：干净（JsonTree 仅日志页、输入自产）
+- 批 308 hooks TTS/ASR/SharedPreferences：干净（ASR 焦点拒绝=已知记录项）
+- 批 309 PlayStore/EmojiBurst/DataTable：干净
+- 批 310 hooks 剩余 + NavContext：干净（useDebounce 无调用方、useThrottle 调用安全）
+- 批 311 UpdateChecker/StringUtils：干净（官方端点可信、escapeHtml 完整转义；模板二次替换轻微记录）
+- 批 312 SoundEffectPlayer/SimpleCache：干净（pendingPlay 泄漏有限、缓存过期清理）
+- 批 313 CrashHandler/PlayStoreUtil/DatabaseUtil：干净（commit 同步写崩溃标记）
+- 批 314 ContextUtil/AIIconMatcher：干净（openUrl runCatching 兜底）
+- 批 315 ImageUtils：干净（inSampleSize + RGB_565 采样解码）
+- 批 316 TimeUtil/ChatUtil：干净
+- 批 317 FilesPicker：文件附件无大小限制=用户主动选择，记录不修
+- 批 318 ModelList/SearchPicker：干净
+- 批 319 permission/WebViewLocalAssets：干净（assets 路径遍历拦截）
+- 批 320 BitmapComposer/ShareSheet：干净（分享含 key=用户主动；decodeProviderSetting runCatching 兜底）
+- 批 321 activity/theme/杂项：干净（均已覆盖）
+- 批 322 TextArea 等收尾：**修复 35** TextArea 文件导入无上限 → 输入框渲染卡死 + system prompt 膨胀 413；200K 截断（b6a3599）
+
 ## v1.7.4-turbo 发布（2026-08-04，2.5.0/179）
 - 包含 3 个修复（v1.7.3 后）：04bbb45 搜索响应 2MB 限量（19 服务）/ 15e37df 翻译输入 200K 截断 / 5f53f30 GitHub API 4MB 限量
 - 双绿验证：9e78b88（Unit Tests + Build APK success）
