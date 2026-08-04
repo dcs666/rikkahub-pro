@@ -38,10 +38,23 @@ class SearchVM(
         private set
     var isLoading by mutableStateOf(false)
         private set
+    var isLoadingMore by mutableStateOf(false)
+        private set
+    var hasMore by mutableStateOf(false)
+        private set
     var isRebuilding by mutableStateOf(false)
         private set
     var rebuildProgress by mutableStateOf(0 to 0)
         private set
+
+    // [改进] 搜索结果分页：原 FTS 查询硬编码 LIMIT 50，长对话/高频词命中 50 条后
+    // 无法继续加载。现按页追加（PAGE_SIZE 条/页），滚动到底触发 loadMore。
+    private var loadedCount = 0
+    private var activeQuery = ""
+
+    private companion object {
+        const val PAGE_SIZE = 30
+    }
 
     init {
         viewModelScope.launch {
