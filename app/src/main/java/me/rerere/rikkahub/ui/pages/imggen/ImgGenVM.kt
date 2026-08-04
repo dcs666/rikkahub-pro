@@ -294,7 +294,7 @@ class ImgGenVM(
         index: Int,
     ): File {
         val timestamp = System.currentTimeMillis()
-        val imageFile = File(getApplication<Application>().appTempFolder, "imggen_${timestamp}_${modelName}_$index.png")
+        val imageFile = File(getApplication<Application>().appTempFolder, "imggen_${timestamp}_${sanitizeModelName(modelName)}_$index.png")
         return filesManager.createImageFileFromBase64(item.data, imageFile.absolutePath)
     }
 
@@ -309,7 +309,7 @@ class ImgGenVM(
         val imagesDir = filesManager.getImagesDir()
 
         val timestamp = System.currentTimeMillis()
-        val filename = "${timestamp}_${modelName}_$index.png"
+        val filename = "${timestamp}_${sanitizeModelName(modelName)}_$index.png"
         val imageFile = File(imagesDir, filename)
 
         val createdFile = filesManager.createImageFileFromBase64(item.data, imageFile.absolutePath)
@@ -361,5 +361,9 @@ class ImgGenVM(
     companion object {
         private const val TAG = "ImgGenVM"
         private const val MAX_REFERENCE_IMAGES = 16
+
+        /** 文件名安全化：仅保留 [A-Za-z0-9_-]，限制长度，防路径逃逸。 */
+        private fun sanitizeModelName(modelName: String): String =
+            modelName.replace(Regex("[^A-Za-z0-9_-]"), "_").take(48)
     }
 }
