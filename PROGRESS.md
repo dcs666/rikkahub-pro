@@ -169,3 +169,11 @@
 - f2a84d9 技能 zip 导入 zip bomb 防护（单文件 32MB/总量 256MB）
 - 48dd5c3 BitmapComposer 取消安全（view 泄漏 + 永久挂起）+ import
 - 4f135b3 文档注入 prompt 截断（200K 字符，防 API 413/超时）
+
+## v1.7.2-turbo 发布（2026-08-04，2.4.8/177）
+- **包含 18 个修复**（v1.7.1 之后，7230279 全绿验证）：
+  - 数据丢失：超长保存静默失败（c135a3a）/ 压缩覆盖新消息（ffc5a3a）/ 工具 base64 漏转（77fef1b）
+  - 崩溃：coerceIn(0,-1) 设置保存（5be15b3）/ decode null NPE（1588d97）/ 技能 zip bomb（f2a84d9）/ 导出取消挂起（48dd5c3）/ 编译修复 ×3（3a82c42, 836440d, 1629002）
+  - 资源防护：文档注入截断（4f135b3）/ 记忆上限（06baee4）/ QuickJS 内存+超时（dd60e0a）/ fetch 5MB（ce187e4）/ Bing body 2MB（7230279）
+  - 其他：mermaid 误报（fe2109d）/ CRLF（3652fd6）/ 日志清理
+- CI 全绿：7230279（Unit Tests + Build APK success）
