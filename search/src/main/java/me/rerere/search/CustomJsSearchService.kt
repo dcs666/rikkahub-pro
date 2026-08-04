@@ -94,12 +94,12 @@ object CustomJsSearchService : SearchService<SearchServiceOptions.CustomJsOption
             // 内存上限防止脚本一次性申请 GB 级；withTimeout 保证调用方不被永久挂起
             // （注意：QuickJS 为同步执行，超时后 IO 线程仍被脚本占住直到脚本返回，
             // 但调用方会及时收到超时错误而非无限等待）。
-            context.setMemoryLimit(64 * 1024 * 1024L)
+            context.setMemoryLimit(64 * 1024 * 1024)
             context.injectFetch(httpClient)
             withTimeout(20_000) {
                 context.evaluate(userScript)
                 val result = context.evaluate("JSON.stringify($invocation)")
-                result as? String ?: error("Function returned null or undefined")
+                return@withTimeout result as? String ?: error("Function returned null or undefined")
             }
         } finally {
             context.destroy()
