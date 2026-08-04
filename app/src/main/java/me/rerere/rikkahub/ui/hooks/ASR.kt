@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.StateFlow
 import me.rerere.asr.ASRController
 import me.rerere.asr.ASRProviderSetting
 import me.rerere.asr.ASRState
+import me.rerere.asr.ASRStatus
 import me.rerere.asr.providers.DashScopeASRController
 import me.rerere.asr.providers.MiMoASRController
 import me.rerere.asr.providers.OpenAIRealtimeASRController
@@ -88,9 +89,23 @@ private class CustomAsrStateImpl(
 
     override fun start(onTranscriptChange: (String) -> Unit) {
         val result = audioManager.requestAudioFocus(audioFocusRequest)
-        if (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
-            controller?.start(onTranscriptChange)
+        // [FIX] 焦点被拒（其他应用占用音频）或 ASR 未配置时此前静默无反馈：
+        // UI 侧已监听 errorMessage 弹 toast，这里把失败原因写入状态。
+        if (result != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+            idleState.value = ASRState(
+                status = ASRStatus.Error,
+                errorMessage = "Audio focus denied - cannot record",
+            )
+            return
         }
+        if (controller == null) {
+            idleState.value = ASRState(
+                status = ASRStatus.Error,
+                errorMessage = "ASR provider not configured",
+            )
+            return
+        }
+        controller.start(onTranscriptChange)
     }
 
     override fun stop() {
