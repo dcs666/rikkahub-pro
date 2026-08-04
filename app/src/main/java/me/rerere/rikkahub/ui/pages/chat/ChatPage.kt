@@ -586,7 +586,6 @@ private fun ChatFilesPickerSheet(
     val imagePickerLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { selectedUris ->
             if (selectedUris.isNotEmpty()) {
-                Log.d("ImagePickButton", "Selected URIs: $selectedUris")
                 if (setting.displaySetting.skipCropImage) {
                     inputState.addImages(filesManager.createChatFilesByContents(selectedUris))
                     dismissAll()

@@ -61,6 +61,7 @@ fun Mermaid(
                             val imageBytes = Base64.decode(base64Image, Base64.DEFAULT)
                             val bitmap =
                                 BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+                                ?: throw IllegalStateException("Failed to decode mermaid image")
                             context.exportImage(
                                 it,
                                 bitmap,
