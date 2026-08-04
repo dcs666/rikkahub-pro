@@ -22,6 +22,8 @@ import me.rerere.rikkahub.data.files.SkillMetadata
 import org.json.JSONArray
 import kotlin.collections.iterator
 
+private const val TAG = "SkillsVM"
+
 /** 单个 zip 条目最大未压缩大小（技能文件通常 <1MB，32MB 覆盖一切合法场景） */
 private const val MAX_ZIP_ENTRY_SIZE = 32L * 1024 * 1024
 /** zip 解压总量上限，防 zip bomb */
