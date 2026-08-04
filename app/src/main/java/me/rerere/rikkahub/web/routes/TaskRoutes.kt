@@ -55,7 +55,11 @@ fun Route.taskWebhookRoute(
             val signature = call.request.headers["X-Hub-Signature-256"]
 
             if (secret.isNotBlank()) {
-                val expected = "sha256=" + hmacSha256Hex(secret, bodyText)
+                // [FIX] expected 也必须是纯 hex（与 provided 同格式）：
+                // 原来 expected 带 "sha256=" 前缀而 provided 已 removePrefix，
+                // MessageDigest.isEqual 对长度不同的数组恒返回 false → 配置 Token 后
+                // webhook 永远 401，秒级通知通道失效（只剩轮询兜底）。
+                val expected = hmacSha256Hex(secret, bodyText)
                 val provided = signature?.lowercase()?.removePrefix("sha256=")
                 val valid = provided != null &&
                     MessageDigest.isEqual(
