@@ -218,3 +218,7 @@
 ## 深挖第八轮（批 141-190，50 轮，发现 1 个修复，累计 27）
 - 15e37df translateText 输入截断 200K（与文档注入一致，防 API 413/超时）
 - 审过干净：AudioPlayer 全量（listener 清理/invokeOnCancellation/WAV 头）、TaskEntity 4 配置、WebServerService、ChatboxImporter（流式+稳定 UUID）、翻译双分支、ImgGenPage、FolderRepository、CustomTheme（toInt 截断安全）、workbench（iframe sandbox=allow-scripts 无 same-origin ✔）、McpOAuthCallback（appScope 防丢事件）、AskUser/ScreenTime（时间解析容错+范围校验）/Clipboard/Calendar（审批+权限）工具、SettingSearchDetailPage
+
+## 深挖第九轮（批 191-240，50 轮，发现 1 个修复，累计 28）
+- 5f53f30 GitHub API httpGet 响应限量 4MB（与日志限量一致，防异常响应 OOM）
+- 审过干净：ChatDrawer（snapshotFlow 滚动保存）、MeshGradient/Background（opacity coerce）、BalanceOption、SearchPage snippet 解析（index 推进无死循环）、web-ui clipboard（execCommand 回退+选区恢复）、DTO 全量、speech 模型、GitHubActionsClient（30s 超时/rate limit 识别/4MB 日志）、web-ui i18n 键 0 差异、Settings 模型默认值、ChatList（滚动/选中）、HighlightCache（LRU 100+synchronized）、ImageGenSize、LanguageSelector（when+else 兜底）、ConversationSystemPromptButton
