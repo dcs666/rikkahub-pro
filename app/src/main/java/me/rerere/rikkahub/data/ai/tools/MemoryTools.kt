@@ -73,16 +73,19 @@ fun buildMemoryTools(
         execute = {
             val params = it.jsonObject
             val action = params["action"]?.jsonPrimitive?.contentOrNull ?: error("action is required")
+            // [FIX] 记忆内容上限：模型偶发把整段对话/文档塞进记忆时，若不限制，
+            // 记忆表膨胀且此后每次生成都全量注入 prompt（token 爆炸/请求失败）。
+            val MAX_MEMORY_CONTENT_CHARS = 20_000
             val payload = when (action) {
                 "create" -> {
                     val content = params["content"]?.jsonPrimitive?.contentOrNull ?: error("content is required")
-                    json.encodeToJsonElement(AssistantMemory.serializer(), onCreation(content))
+                    json.encodeToJsonElement(AssistantMemory.serializer(), onCreation(content.take(MAX_MEMORY_CONTENT_CHARS)))
                 }
 
                 "edit" -> {
                     val id = params["id"]?.jsonPrimitive?.intOrNull ?: error("id is required")
                     val content = params["content"]?.jsonPrimitive?.contentOrNull ?: error("content is required")
-                    json.encodeToJsonElement(AssistantMemory.serializer(), onUpdate(id, content))
+                    json.encodeToJsonElement(AssistantMemory.serializer(), onUpdate(id, content.take(MAX_MEMORY_CONTENT_CHARS)))
                 }
 
                 "delete" -> {
