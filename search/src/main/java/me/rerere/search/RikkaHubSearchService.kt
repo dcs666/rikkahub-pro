@@ -65,7 +65,7 @@ object RikkaHubSearchService : SearchService<SearchServiceOptions.RikkaHubOption
 
             val response = httpClient.newCall(request).await()
             if (response.isSuccessful) {
-                val responseBody = response.body.string().let {
+                val responseBody = response.readLimitedBody().let {
                     json.decodeFromString<RikkaHubSearchResponse>(it)
                 }
 
@@ -82,7 +82,7 @@ object RikkaHubSearchService : SearchService<SearchServiceOptions.RikkaHubOption
                     )
                 )
             } else {
-                error("response failed #${response.code}: ${response.body?.string()}")
+                error("response failed #${response.code}: ${response.readLimitedBodySafe()}")
             }
         }
     }

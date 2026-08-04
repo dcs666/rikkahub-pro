@@ -73,7 +73,7 @@ object SerperSearchService : SearchService<SearchServiceOptions.SerperOptions> {
 
             val response = httpClient.newCall(request).await()
             if (response.isSuccessful) {
-                val responseBody = response.body.string()
+                val responseBody = response.readLimitedBody()
                 val searchResponse = json.decodeFromString<SerperSearchResponse>(responseBody)
 
                 val answer = searchResponse.answerBox?.let { it.answer ?: it.snippet }

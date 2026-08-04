@@ -87,7 +87,7 @@ object LinkUpService : SearchService<SearchServiceOptions.LinkUpOptions> {
 
             val response = httpClient.newCall(request).await()
             if (response.isSuccessful) {
-                val responseBody = response.body.string().let {
+                val responseBody = response.readLimitedBody().let {
                     json.decodeFromString<LinkUpSearchResponse>(it)
                 }
 
@@ -104,7 +104,7 @@ object LinkUpService : SearchService<SearchServiceOptions.LinkUpOptions> {
                     )
                 )
             } else {
-                error("response failed #${response.code}: ${response.body?.string()}")
+                error("response failed #${response.code}: ${response.readLimitedBodySafe()}")
             }
         }
     }
@@ -133,7 +133,7 @@ object LinkUpService : SearchService<SearchServiceOptions.LinkUpOptions> {
 
             val response = httpClient.newCall(request).await()
             if (response.isSuccessful) {
-                val responseBody = response.body.string().let {
+                val responseBody = response.readLimitedBody().let {
                     json.decodeFromString<LinkUpFetchResponse>(it)
                 }
 
@@ -148,7 +148,7 @@ object LinkUpService : SearchService<SearchServiceOptions.LinkUpOptions> {
                     )
                 )
             } else {
-                error("response failed #${response.code}: ${response.body?.string()}")
+                error("response failed #${response.code}: ${response.readLimitedBodySafe()}")
             }
         }
     }

@@ -92,7 +92,7 @@ object PerplexitySearchService : SearchService<SearchServiceOptions.PerplexityOp
 
             val response = httpClient.newCall(request).await()
             if (response.isSuccessful) {
-                val responseBody = response.body.string().let {
+                val responseBody = response.readLimitedBody().let {
                     json.decodeFromString<PerplexityResponse>(it)
                 }
 
@@ -114,7 +114,7 @@ object PerplexitySearchService : SearchService<SearchServiceOptions.PerplexityOp
                     )
                 )
             } else {
-                error("response failed #${response.code}: ${response.body?.string()}")
+                error("response failed #${response.code}: ${response.readLimitedBodySafe()}")
             }
         }
     }

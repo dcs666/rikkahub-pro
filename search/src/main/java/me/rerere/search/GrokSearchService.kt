@@ -101,7 +101,7 @@ object GrokSearchService : SearchService<SearchServiceOptions.GrokOptions> {
 
             val response = httpClient.newCall(request).await()
             if (response.isSuccessful) {
-                val responseBody = response.body.string().let {
+                val responseBody = response.readLimitedBody().let {
                     json.decodeFromString<GrokResponse>(it)
                 }
 
@@ -133,7 +133,7 @@ object GrokSearchService : SearchService<SearchServiceOptions.GrokOptions> {
                     )
                 )
             } else {
-                error("response failed #${response.code}: ${response.body?.string()}")
+                error("response failed #${response.code}: ${response.readLimitedBodySafe()}")
             }
         }
     }

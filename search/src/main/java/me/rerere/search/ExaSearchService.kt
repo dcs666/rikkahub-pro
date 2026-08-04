@@ -96,7 +96,7 @@ object ExaSearchService : SearchService<SearchServiceOptions.ExaOptions> {
 
             val response = httpClient.newCall(request).execute()
             if (response.isSuccessful) {
-                val bodyRaw = response.body.string()
+                val bodyRaw = response.readLimitedBody()
                 val response = runCatching {
                     json.decodeFromString<ExaData>(bodyRaw)
                 }.onFailure {
@@ -118,7 +118,7 @@ object ExaSearchService : SearchService<SearchServiceOptions.ExaOptions> {
                         images = response.results.mapNotNull { it.image?.takeIf { url -> url.isNotBlank() } },
                     ))
             } else {
-                println(response.body.string())
+                println(response.readLimitedBody())
                 error("response failed #${response.code}")
             }
         }
@@ -147,7 +147,7 @@ object ExaSearchService : SearchService<SearchServiceOptions.ExaOptions> {
 
             val response = httpClient.newCall(request).execute()
             if (response.isSuccessful) {
-                val bodyRaw = response.body.string()
+                val bodyRaw = response.readLimitedBody()
                 val data = runCatching {
                     json.decodeFromString<ExaData>(bodyRaw)
                 }.onFailure {
@@ -170,7 +170,7 @@ object ExaSearchService : SearchService<SearchServiceOptions.ExaOptions> {
                     )
                 )
             } else {
-                println(response.body.string())
+                println(response.readLimitedBody())
                 error("response failed #${response.code}")
             }
         }

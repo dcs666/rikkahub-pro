@@ -89,7 +89,7 @@ object SearXNGService : SearchService<SearchServiceOptions.SearXNGOptions> {
 
             val response = httpClient.newCall(request).await()
             if (response.isSuccessful) {
-                val bodyRaw = response.body.string()
+                val bodyRaw = response.readLimitedBody()
                 val searchResponse = runCatching {
                     json.decodeFromString<SearXNGResponse>(bodyRaw)
                 }.onFailure {
@@ -111,7 +111,7 @@ object SearXNGService : SearchService<SearchServiceOptions.SearXNGOptions> {
 
                 return@withContext Result.success(SearchResult(items = items))
             } else {
-                val errorBody = response.body?.string()
+                val errorBody = response.readLimitedBodySafe()
                 println("SearXNG API error: ${response.code} - $errorBody")
                 error("SearXNG request failed with status ${response.code}")
             }

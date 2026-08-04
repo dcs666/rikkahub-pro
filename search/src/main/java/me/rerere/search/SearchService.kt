@@ -357,3 +357,24 @@ internal suspend fun Call.await(): Response {
         })
     }
 }
+
+/**
+ * [FIX] 限量读取响应体：此前各搜索服务直接 `response.readLimitedBody()` 全量读入内存，
+ * 异常/恶意响应（代理拦截页、错误 HTML 等可到数 MB~数十 MB）→ OOM 崩溃。
+ * Bing 已用 Jsoup maxBodySize 限制，其余 19 个服务全部走这里，统一 2MB 上限。
+ * 读取后关闭 Response（等价于 string() 的自动关闭语义）。
+ */
+internal const val MAX_SEARCH_RESPONSE_BODY_BYTES = 2L * 1024 * 1024
+
+internal fun Response.readLimitedBody(maxBytes: Long = MAX_SEARCH_RESPONSE_BODY_BYTES): String {
+    val source = body?.source() ?: return ""
+    try {
+        return source.readUtf8(maxBytes)
+    } finally {
+        close()
+    }
+}
+
+/** 限量读取的容错版：body 缺失/读取失败时返回 null（用于错误信息展示）。 */
+internal fun Response.readLimitedBodySafe(): String? =
+    runCatching { readLimitedBody() }.getOrNull()
