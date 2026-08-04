@@ -72,3 +72,33 @@
 - 并行工具对同一文件路径的写竞态（workspace_write_file + edit 同轮同路径可能 lost update）——OpenAI parallel calling 语义固有，模型通常不会同轮改同一文件
 - 非 shell 工具超时后底层工作可能短暂继续（workspace_shell 走 runInterruptible 会真正杀进程）
 - 流式语言标记仅限 ``` 围栏；~~~ 围栏与 4+ 反引号围栏不识别（既有范围）
+
+## 第 123-124 轮全面审查（2026-08-04，workspace 模块 + data/service 层 + web 层）
+### 本轮审查修复（6 个提交）
+- `d990687` fix(workspace): extractTar 特殊头（LONG_NAME/LONG_LINK/PAX/GLOBAL_PAX）处理移到 name.isBlank() 检查之前 —— GNU tar 全局头 name 为空，原顺序直接跳过数据区，GLOBAL_PAX 支持（e6a347f 引入）实际从未生效；parsePax 加固：length<=0 死循环、损坏头 substring 崩溃（JS 6 组边界全过）
+- `df7bb7c` fix(settings): SettingsStore.update(fn) 读-改-写加 Mutex 串行化 —— 并发调用基于同一快照导致 lost update（MCP syncTools 并发丢工具列表的根因）
+- `88a12d1` fix(sync): zip-slip 路径穿越 —— S3/WebDAV 备份恢复的 upload/ 分支直接 File(uploadFolder, fileName) 无穿越防护（FONTS 有 contains('/')、skills 有 SkillPaths canonical 防护），恶意/损坏备份可写 app 私有目录任意位置。修复为 canonical + startsWith 检查（JS 模拟 8 场景验证）
+- `9d73247` fix(web): webhook HMAC 验证恒失败 —— expected 带 "sha256=" 前缀而 provided removePrefix 去前缀，MessageDigest.isEqual 对长度不同数组恒 false，配置 Token 后 webhook 全 401（秒级通知通道失效只剩轮询）
+- `859a16e` fix(mcp): getAllAvailableTools 用 getCurrentAssistant() 过滤 → 改为调用方传入对话所属 assistant —— 多助手场景工具错配（暴露未授权 server 或缺失应有工具）
+- `c897647` fix(chat): ConversationSession.setJob 旧 job 完成回调无条件清 _generationJob.value，晚于新 job 设置时误清新引用 → isGenerating 假 false / stopGeneration 失效 / 空闲检查误清理。改为 identity 比较
+
+### 已确认无误（本轮深审）
+- PromptInjectionTransformer（findSafeInsertIndex 防护、AT_DEPTH 深到浅、正则错误安全降级）
+- GitHubActionsClient（rate limit 专用异常、4MB 日志上限、错误行提取）
+- McpSessionRegistry（stale 检查、重连去重、NonCancellable 清理、connectionKey 精确判定）—— 记录：两 server 并发 syncTools 的 settingsStore.update lost update（已随 df7bb7c 修复）
+- FilesManager（UUID 文件名、磁盘↔DB 双向同步、content:// 先落本地）
+- ChatboxImporter（流式 JsonReader 不整载、SYSTEM 提示合并、未知 part 保留原文）
+- ConversationRepository / MessageFtsManager（事务外 decode、FTS 参数化、blob 超限兜底）
+- AppDatabase（migration 链 1→25 完整、WAL、jieba+FTS5）
+- ChatService（fork 文件独立副本、内存-库一致性、压缩并行无上限——记录不修）
+- ScreenTimeTool / CalendarTool / WebDavClient / S3Client（SigV4 签名正确）/ McpOAuth（PKCE+state 防 CSRF+刷新锁）
+- WebApiModule（JWT 动态验证、常量时间比较、webhook 独立认证、zip-slip 双重防护）
+- transformers / ExportSerializer / LocalTools / AppEventBus / BackgroundTaskManager 调度（动态唤醒+退避）
+- MarkdownNew = HTML 内容回退渲染（活代码）
+
+### 记录不修（低风险）
+- compressConversation 的 async 并行无并发上限（chunk 数 = ceil(消息/256)，长对话并行请求多）
+- tar size 字段 base-256 编码（>8GB 归档才出现）
+- 下载无完整性校验（截断由 extractTar EOF 防御兜底）
+- SimpleHtmlBlock 的 img src 任意 scheme（Coil 加载，用户主动渲染的 AI 输出）
+- 多 <think> 块只保留第一个进 Reasoning（replace 删全部但 find 取第一个）
