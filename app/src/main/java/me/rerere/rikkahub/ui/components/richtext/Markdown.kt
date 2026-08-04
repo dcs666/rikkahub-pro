@@ -64,6 +64,7 @@ import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.SpanStyleRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -165,31 +166,53 @@ private val LATEX_BLOCK_LINE_BREAK_REGEX = Regex("""[ \t]*\r?\n[ \t]*""")
 // [TURBO R3+] 流式降级渲染专用：把 markdown 源码擦成"近似干净文本"，消除生成中裸标记闪烁。
 // 顶层正则只编译一次。擦除是确定性的（同 content → 同结果），故不会"闪现又消失"。
 // 流式半截未闭合标记由末尾兜底删除处理；生成结束 streaming=false 切完整渲染，显示真正格式。
-private val STREAM_FENCED_CODE = Regex("```[^\\n]*\\n([\\s\\S]*?)```")
 private val STREAM_INLINE_CODE = Regex("`([^`\\n]+)`")
 private val STREAM_LINK = Regex("!?\\[([^\\]]*)]\\([^)]*\\)")
 private val STREAM_BOLD = Regex("\\*\\*([\\s\\S]+?)\\*\\*|__([\\s\\S]+?)__")
 private val STREAM_ITALIC =
     Regex("(?<![\\*\\w])\\*([^\\*\\n]+?)\\*(?![\\*\\w])|(?<![_\\w])_([^_\\n]+?)_(?![_\\w])")
-private val STREAM_HEADING = Regex("(?m)^#{1,6}\\s+")
-private val STREAM_QUOTE = Regex("(?m)^>\\s?")
-private val STREAM_STRAY_STAR = Regex("(?<!\\*)\\*{1,3}(?!\\*)")
 
-private fun stripStreamingMarkdown(content: String): String {
-    if (content.isEmpty()) return content
-    var r = content
-    r = STREAM_FENCED_CODE.replace(r) { it.groupValues[1] }
-    r = STREAM_INLINE_CODE.replace(r) { it.groupValues[1] }
-    r = STREAM_LINK.replace(r) { it.groupValues[1] }
-    r = STREAM_BOLD.replace(r) { it.groupValues[1].ifEmpty { it.groupValues[2] } }
-    r = STREAM_ITALIC.replace(r) { it.groupValues[1].ifEmpty { it.groupValues[2] } }
-    r = STREAM_HEADING.replace(r, "")
-    r = STREAM_QUOTE.replace(r, "")
-    // 兜底：删除流式未闭合残留的裸标记（```、孤立 * ** ***、`）。近似处理，生成完即恢复。
-    r = r.replace("```", "")
-    r = r.replace(STREAM_STRAY_STAR, "")
-    r = r.replace("`", "")
-    return r
+/**
+ * [TURBO R3.3] 流式行内文本规范化：仅剥离链接标记（保持原行为），
+ * 行内代码/加粗/斜体的标记**保留原文**——闭合的由 [styleStreamingLine] 加样式，
+ * 未闭合的以字面量显示（intellij 对未闭合星号/反引号同样按字面量渲染，
+ * 因此流式→完整渲染零跳变；旧的 strip 方案会删掉孤立标记，反而制造"字符消失"跳变）。
+ */
+private fun normalizeStreamingInline(text: String): String =
+    if (text.isEmpty()) text else STREAM_LINK.replace(text) { it.groupValues[1] }
+
+/**
+ * [TURBO R3.3] 流式行内格式渲染：基于与旧 strip 相同的正则集识别**单行内已闭合**
+ * 的行内代码/加粗/斜体并附加样式（等宽 / Bold / Italic，与最终渲染对齐）；
+ * 反引号区间优先，加粗/斜体不与行内代码重叠（intellij 语义：code 内标记是字面量）。
+ * 未闭合标记保持字面量（同 intellij 字面量渲染，结束切完整渲染时无跳变）。
+ */
+private fun styleStreamingLine(text: String): AnnotatedString {
+    if (text.isEmpty()) return AnnotatedString(text)
+    val spans = mutableListOf<Pair<IntRange, SpanStyle>>()
+    val codeRanges = STREAM_INLINE_CODE.findAll(text).map { it.range }.toList()
+    codeRanges.forEach { spans.add(it to SpanStyle(fontFamily = FontFamily.Monospace)) }
+
+    fun overlapsCode(range: IntRange): Boolean =
+        codeRanges.any { it.first <= range.last && range.first <= it.last }
+
+    STREAM_BOLD.findAll(text).forEach { match ->
+        if (!overlapsCode(match.range)) {
+            spans.add(match.range to SpanStyle(fontWeight = FontWeight.Bold))
+        }
+    }
+    STREAM_ITALIC.findAll(text).forEach { match ->
+        if (!overlapsCode(match.range)) {
+            spans.add(match.range to SpanStyle(fontStyle = FontStyle.Italic))
+        }
+    }
+    if (spans.isEmpty()) return AnnotatedString(text)
+    return AnnotatedString(
+        text = text,
+        spanStyles = spans
+            .sortedBy { it.first.first }
+            .map { (range, style) -> SpanStyleRange(style, range.first, range.last + 1) }
+    )
 }
 
 // ==================== R3.2 块级结构化流式渲染 ====================
@@ -229,7 +252,7 @@ private fun splitStreamingBlocks(content: String): List<StreamBlock> {
 
     fun flushParagraph() {
         if (!paraDirty) return
-        val text = stripStreamingMarkdown(paraBuf.toString()).trim()
+        val text = normalizeStreamingInline(paraBuf.toString()).trim()
         if (text.isNotEmpty()) blocks.add(StreamBlock(StreamBlockKind.PARAGRAPH, text))
         paraBuf = StringBuilder()
         paraDirty = false
@@ -262,7 +285,7 @@ private fun splitStreamingBlocks(content: String): List<StreamBlock> {
         val heading = STREAM_HEADING_RE.find(lt)
         if (heading != null) {
             flushParagraph()
-            val text = stripStreamingMarkdown(lt.substring(heading.value.length)).trim()
+            val text = normalizeStreamingInline(lt.substring(heading.value.length)).trim()
             if (text.isNotEmpty()) {
                 blocks.add(
                     StreamBlock(
@@ -277,21 +300,21 @@ private fun splitStreamingBlocks(content: String): List<StreamBlock> {
         val quote = STREAM_QUOTE_RE.find(lt)
         if (quote != null) {
             flushParagraph()
-            val text = stripStreamingMarkdown(lt.substring(quote.value.length)).trim()
+            val text = normalizeStreamingInline(lt.substring(quote.value.length)).trim()
             if (text.isNotEmpty()) blocks.add(StreamBlock(StreamBlockKind.QUOTE, text))
             continue
         }
         val unordered = STREAM_UNORDERED_RE.find(lt)
         if (unordered != null) {
             flushParagraph()
-            val text = stripStreamingMarkdown(lt.substring(unordered.value.length)).trim()
+            val text = normalizeStreamingInline(lt.substring(unordered.value.length)).trim()
             if (text.isNotEmpty()) blocks.add(StreamBlock(StreamBlockKind.LIST, text))
             continue
         }
         val ordered = STREAM_ORDERED_RE.find(lt)
         if (ordered != null) {
             flushParagraph()
-            val text = stripStreamingMarkdown(lt.substring(ordered.value.length)).trim()
+            val text = normalizeStreamingInline(lt.substring(ordered.value.length)).trim()
             if (text.isNotEmpty()) {
                 blocks.add(
                     StreamBlock(
@@ -307,7 +330,7 @@ private fun splitStreamingBlocks(content: String): List<StreamBlock> {
         // 普通段落行：累积（markdown soft line break 语义，段落内换行不新开块）
         paraDirty = true
         if (paraBuf.isNotEmpty()) paraBuf.append('\n')
-        paraBuf.append(stripStreamingMarkdown(line))
+        paraBuf.append(normalizeStreamingInline(line))
     }
     flushParagraph()
     // 未闭合代码块（生成中尾巴）：按代码块渲染，代码生成中可见；结束切完整渲染恢复
@@ -456,8 +479,8 @@ fun MarkdownBlock(
         // [TURBO R3.2] 块级结构化降级：按行分类 代码块/标题/引用/列表/段落，样式与最终
         // 渲染对齐（HeaderStyle.fromLevel / 引用左线+斜体 / "• " 前缀 / monospace 容器）。
         // markdown 追加式 → 已渲染块参数不变，Compose 智能跳过重组；每帧成本 O(n) 行扫描。
-        // 行内格式仍 stripStreamingMarkdown 擦除兜底；生成结束 streaming=false 切完整渲染
-        // 分支（data 已后台预热），只剩行内格式的细微变化。
+        // 行内格式 R3.3：闭合标记（code/bold/italic）流式中即可见且与最终渲染样式一致，
+        // 未闭合标记按字面量显示（intellij 同样按字面量渲染 → 结束切完整渲染零跳变）。
         val fontSizeRatio = LocalSettings.current.displaySetting.fontSizeRatio
         ProvideTextStyle(style) {
             Column(
@@ -484,7 +507,7 @@ fun MarkdownBlock(
 
                         StreamBlockKind.HEADING -> {
                             Text(
-                                text = block.text,
+                                text = styleStreamingLine(block.text),
                                 style = HeaderStyle.fromLevel(block.headingLevel, fontSizeRatio),
                             )
                         }

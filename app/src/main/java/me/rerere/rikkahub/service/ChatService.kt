@@ -11,6 +11,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -901,10 +903,17 @@ class ChatService(
                 ?: throw IllegalStateException("Failed to generate compressed summary")
         }
 
+        // [FIX] 限并发压缩：原实现所有 chunk 全并行 async（长对话可同时打十几个
+        // 请求），容易触发 API 速率限制且失败重试成本高。Semaphore(2) 限制同时
+        // 最多 2 个压缩请求，其余排队。
         val compressedSummaries = coroutineScope {
-            splitMessages(messagesToCompress)
-                .map { chunk -> async { compressMessages(chunk) } }
-                .awaitAll()
+            val chunks = splitMessages(messagesToCompress)
+            val compressionSlots = Semaphore(2)
+            chunks.map { chunk ->
+                async {
+                    compressionSlots.withPermit { compressMessages(chunk) }
+                }
+            }.awaitAll()
         }
 
         // Create new conversation with compressed history as multiple user messages + kept messages

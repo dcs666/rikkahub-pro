@@ -118,6 +118,8 @@ fun ChatMessage(
     onClearTranslation: (UIMessage) -> Unit = {},
     onToolApproval: ((toolCallId: String, approved: Boolean, reason: String) -> Unit)? = null,
     onToolAnswer: ((toolCallId: String, answer: String) -> Unit)? = null,
+    // [改进] 编辑消息的多版本切换：node.messages.size > 1 时显示版本徽章，点击循环切换。
+    onSelectVersion: (MessageNode, Int) -> Unit = { _, _ -> },
     // [TURBO R2] 长消息折叠状态：由 ChatList 提升管理（LazyColumn 滚出回收 item 会丢
     // ChatMessage 内的 remember，提升到 ChatList 后滚回仍保持展开）。
     isExpanded: Boolean = false,
@@ -239,6 +241,27 @@ fun ChatMessage(
 
         ProvideTextStyle(textStyle) {
             ChatMessageNerdLine(message = message)
+        }
+
+        // [改进] 编辑消息的版本指示器：编辑会追加新版本（原文保留），多版本时显示
+        // "v{n}/{m}" 徽章，点击循环切换到下一个版本（配合 ChatVM.selectMessageNode）。
+        if (node.messages.size > 1) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                Text(
+                    text = "v${node.selectIndex + 1}/${node.messages.size}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable {
+                            onSelectVersion(node, (node.selectIndex + 1) % node.messages.size)
+                        }
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                )
+            }
         }
 
     }

@@ -33,6 +33,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -194,7 +195,21 @@ fun SearchPage(vm: SearchVM = koinViewModel()) {
                     }
 
                     else -> {
+                        val listState = rememberLazyListState()
+                        // [FIX] 滚动接近底部（剩 3 项）时加载下一页：原搜索结果被 FTS
+                        // LIMIT 50 截断，长对话/高频词命中后无法继续加载。
+                        val shouldLoadMore by remember {
+                            derivedStateOf {
+                                val info = listState.layoutInfo
+                                val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
+                                info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - 3
+                            }
+                        }
+                        LaunchedEffect(shouldLoadMore) {
+                            if (shouldLoadMore) vm.loadMore()
+                        }
                         LazyColumn(
+                            state = listState,
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.fillMaxSize(),
@@ -210,6 +225,18 @@ fun SearchPage(vm: SearchVM = koinViewModel()) {
                                         )
                                     }
                                 )
+                            }
+                            if (vm.isLoadingMore) {
+                                item {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 16.dp),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        CircularProgressIndicator(Modifier.size(24.dp))
+                                    }
+                                }
                             }
                         }
                     }

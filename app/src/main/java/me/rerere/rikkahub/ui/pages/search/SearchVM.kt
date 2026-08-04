@@ -88,13 +88,43 @@ class SearchVM(
     private suspend fun performSearch(query: String) {
         if (query.isBlank()) {
             results = emptyList()
+            loadedCount = 0
+            activeQuery = ""
+            hasMore = false
             return
         }
         isLoading = true
+        activeQuery = query
         try {
-            results = conversationRepo.searchMessages(query, sortOrder)
+            val page = conversationRepo.searchMessages(query, sortOrder, limit = PAGE_SIZE, offset = 0)
+            results = page
+            loadedCount = page.size
+            hasMore = page.size >= PAGE_SIZE
         } finally {
             isLoading = false
+        }
+    }
+
+    /** 滚动接近底部时加载下一页；与当前查询/排序不匹配的过期调用直接忽略。 */
+    fun loadMore() {
+        if (isLoading || isLoadingMore || !hasMore) return
+        val query = activeQuery
+        if (query.isBlank()) return
+        val sortAtCall = sortOrder
+        viewModelScope.launch {
+            isLoadingMore = true
+            try {
+                val page = conversationRepo.searchMessages(
+                    query, sortAtCall, limit = PAGE_SIZE, offset = loadedCount
+                )
+                // 加载期间查询/排序可能已变，丢弃过期页
+                if (query != activeQuery || sortAtCall != sortOrder) return@launch
+                results = results + page
+                loadedCount += page.size
+                hasMore = page.size >= PAGE_SIZE
+            } finally {
+                isLoadingMore = false
+            }
         }
     }
 }

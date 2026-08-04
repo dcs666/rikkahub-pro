@@ -74,8 +74,12 @@ class MessageFtsManager(private val database: AppDatabase) {
     suspend fun search(
         keyword: String,
         sort: MessageSearchSort = MessageSearchSort.RELEVANCE,
+        limit: Int = 50,
+        offset: Int = 0,
     ): List<MessageSearchResult> = withContext(Dispatchers.IO) {
         val results = mutableListOf<MessageSearchResult>()
+        val safeLimit = limit.coerceIn(1, 200)
+        val safeOffset = offset.coerceAtLeast(0)
         val cursor = db.query(
             """
             SELECT node_id, message_id, conversation_id, title, update_at,
@@ -83,9 +87,9 @@ class MessageFtsManager(private val database: AppDatabase) {
             FROM message_fts
             WHERE text MATCH jieba_query(?)
             ORDER BY ${sort.orderBy}
-            LIMIT 50
+            LIMIT ? OFFSET ?
             """.trimIndent(),
-            arrayOf(keyword)
+            arrayOf(keyword, safeLimit.toString(), safeOffset.toString())
         )
         Log.i(TAG, "search: $keyword")
         cursor.use {

@@ -171,6 +171,7 @@ fun ChatList(
                 onForkMessage = onForkMessage,
                 onDelete = onDelete,
                 onUpdateMessage = onUpdateMessage,
+                onSelectVersion = onSelectVersion,
                 onClickSuggestion = onClickSuggestion,
                 onTranslate = onTranslate,
                 onClearTranslation = onClearTranslation,
@@ -363,6 +364,7 @@ private fun ChatListNormal(
                             onUpdate = {
                                 onUpdateMessage(it)
                             },
+                            onSelectVersion = onSelectVersion,
                             isFavorite = node.isFavorite,
                             onToggleFavorite = {
                                 onToggleFavorite?.invoke(node)
