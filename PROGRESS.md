@@ -281,6 +281,20 @@
 - 批 333 GenerationPrompts/WebServerManager：干净（记忆注入 60/100K 确认；restart 竞态在未调用路径记录）
 - 批 334 NsdServiceRegistrar/web 剩余：干净（jmdns runCatching 兜底）
 
+
+## 深挖第十四轮（批 335-345，11 轮，4 新修复）
+- 批 335 ai/util：**修复 38** mergeJsonObjects/removeElements 递归无深度上限（CustomBody 请求构造 + GoogleProvider 模型响应深嵌套 → SOE 崩溃）；depth 32 防御截断（6fdb22d）
+- 批 336 ai 核心：干净（InstantSerializer/TokenUsage.merge/ReasoningLevel）
+- 批 337 common 模块：干净（await/SSE/AcceptLang）
+- 批 338 WorkspaceFileSystem：**修复 39** delete/move 只拒绝字面量 "."，"./" 变体可解析到工作区根 → recursive 删除整个工作区（模型可控 path）；canonical 对比根目录拦截（9677cd4）
+- 批 339 PersistentShellSession：干净（shellQuote 注入防护 + sentinel 超时销毁 + destroy SIGTERM→SIGKILL）
+- 批 340 ProotShellRunner/RootfsPatcher：干净（会话池 LRU 有界 + 空闲才淘汰 + 每 workspace 锁 + fallback 一次性 proot）
+- 批 341 WorkspaceManager：**修复 40** writeTextRootfs 无大小限制（workspace_write_file 工具模型可控 text → 超大落盘）；maxWriteBytes 2MB 上限（a4bfa04）
+- 批 342 search 模块：确认（readLimitedBody 2MB 全服务在案）
+- 批 343 speech TextChunker：**修复 41** 超长无标点段不硬切 → 单 chunk 超 TTS provider 上限失败/413；按 maxChunkLength 硬切（2561283）
+- 批 344 TtsSynthesizer/document：干净（音频缓冲=用户配置 provider，记录不修；4 解析器已审）
+- 批 345 模块覆盖确认：web-ui/material3/locale-tui/highlight 全部已覆盖（highlight 47 文件）
+
 ## v1.7.4-turbo 发布（2026-08-04，2.5.0/179）
 - 包含 3 个修复（v1.7.3 后）：04bbb45 搜索响应 2MB 限量（19 服务）/ 15e37df 翻译输入 200K 截断 / 5f53f30 GitHub API 4MB 限量
 - 双绿验证：9e78b88（Unit Tests + Build APK success）
