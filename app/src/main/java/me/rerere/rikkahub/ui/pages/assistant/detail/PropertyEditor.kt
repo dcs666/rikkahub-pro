@@ -166,7 +166,10 @@ fun CustomBodies(customBodies: List<CustomBody>, onUpdate: (List<CustomBody>) ->
                                             updatedBodies[index].copy(value = newJsonValue)
                                         onUpdate(updatedBodies)
                                         jsonParseError = null
-                                    } catch (e: Exception) {
+                                    } catch (e: Throwable) {
+                                        // [FIX] 深嵌套 JSON（万层 [[[...]]]）→ parseToJsonElement
+                                        // 递归 StackOverflowError（Error 非 Exception）→ catch Exception
+                                        // 捕获不到 → UI 崩溃。与 parseErrorDetail 深度防御一致。
                                         jsonParseError =
                                             context.getString(
                                                 R.string.assistant_page_invalid_json,
