@@ -157,3 +157,15 @@
 ## v1.7.1-turbo 发布（2026-08-04，2.4.7/176）
 - **包含修复**（v1.7-turbo 之后）：QuickJS 原生内存泄漏（bc72f78）、i18n 折叠按钮 6 语言（d26bb49）、冗余 UI 移除（290973f+6af5d66）、web-ui 预览 iframe sandbox + mermaid strict（e9b7749）、file_paths 收窄 filesDir 暴露（db26bff）、全部审查记录
 - CI 全绿验证：09888a0（Unit Tests + Build APK success）
+
+## v1.7.2-turbo 候选修复批次（2026-08-04，11 个提交 c135a3a..4f135b3）
+- c135a3a 超长消息保存失败静默吞掉 → 用户可见错误（>2MB blob 限制）
+- ffc5a3a 压缩期间新消息被整体覆盖 → 合并最新状态保留追加节点
+- 5be15b3 删光搜索服务后 coerceIn(0,-1) 设置保存崩溃
+- 77fef1b 工具结果 base64 图片漏转 → require 失败消息丢失（抽取 parts 级转换复用）
+- 1588d97 损坏 base64 图片 decode null → NPE 崩溃（降级保留原 part）
+- fe2109d mermaid 导出失败误报成功 + 移除调试 URI 日志（CI 已验证 ✅）
+- 3652fd6 RouteActivity CRLF 规范化
+- f2a84d9 技能 zip 导入 zip bomb 防护（单文件 32MB/总量 256MB）
+- 48dd5c3 BitmapComposer 取消安全（view 泄漏 + 永久挂起）+ import
+- 4f135b3 文档注入 prompt 截断（200K 字符，防 API 413/超时）
