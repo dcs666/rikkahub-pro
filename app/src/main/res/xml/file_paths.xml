@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- [FIX] 收窄 filesDir 暴露面：原 path="." 会把整个 filesDir（含 skills/、fonts/、
+     workspaces/ 等）暴露给获得分享 URI 的外部 app；只保留实际会被
+     FileProvider.getUriForFile 分享的目录（附件/图片生成/工具输出）。
+     其余分享路径（导出、相机、workspace 导出）都在 cacheDir，由 cache-path 覆盖。 -->
 <paths>
   <cache-path
     name="cache"
@@ -8,5 +12,11 @@
     path="." />
   <files-path
     name="upload"
-    path="." />
+    path="upload/" />
+  <files-path
+    name="images"
+    path="images/" />
+  <files-path
+    name="tool_outputs"
+    path="tool_outputs/" />
 </paths>
