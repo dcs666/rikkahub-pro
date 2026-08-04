@@ -226,6 +226,21 @@
 ## 深挖第十轮（批 241-290，50 轮，0 新 bug）
 - 审过：PresetTheme/findThemeById（兜底）、消息组件剩余（CopySheet/NerdLine/Translation/EditedFiles 导出 FileProvider）、ToolUI/BuiltinToolUIs（记忆删除）、ChatInputState（编辑态）、web-ui api.ts（localStorage token+expiresAt 校验）、ProviderConfigure/ConnectionTester（runCatching）、AppEventBus（buffer 16+tryEmit 丢弃策略，7 文件消费方无孤儿）、PreferencesStore update（dummy 防护）、NotificationUtil、SettingPage（赞助弹窗）
 
+
+## 深挖第十一轮（批 291-300，10 轮，5 新修复）
+- 批 291 ShareHandlerVM/Page：分享文本经 base64 → 输入框无长度限制 → 与用户消息截断合并修复
+- 批 292 Favorite/History：**修复 30** 历史页滑动删除立即物理删附件 → 撤销恢复后附件永久丢失；deleteConversation 加 deleteFiles 参数，撤销窗口结束才清理文件（2b3574d）
+- 批 293 ImgGenVM/TranslatorVM：**修复 31** 图片文件名含未清洗 modelName（用户自定义 provider 远端响应可含 /.. → 路径逃逸）；sanitizeModelName [A-Za-z0-9_-]+48（8425679）
+- 批 294 AssistantDetailVM 头像/背景：干净（createChatFilesByContents 复制私有目录，删除安全）
+- 批 295 PropertyEditor/Extensions：**修复 32** CustomBodies JSON 解析深嵌套（万层）→ parseToJsonElement SOE（Error 非 Exception）→ UI 崩溃；catch Throwable（a038e62）
+- 批 296 LocalTool/Memory 页：干净（权限守卫 + 数据层记忆限制兜底）
+- 批 297 Mcp/Request/Prompt 页：干净（正则 compileRegexCached + 异常兜底完善）
+- 批 298 MemoryPage/Importer：**修复 33** 导入 JSON readText() 全量读 + PNG tEXt/Base64 解码无上限 → OOM；5MB 上限（2c8487c）
+- 批 299 DetailPage/BackgroundPicker：干净（URL 背景安全、删除只删本地副本）
+- 批 300 AssistantPage/VM：干净（删除 assistant 有确认弹窗，连带删记忆+对话有提示）
+- 另：**修复 29** 用户消息 200K 截断（0e6432f，ChatService.preprocessUserInputParts 单点）——
+  分享超大文本/粘贴超长 → 消息存库膨胀 + 上下文爆表 + API 413，与翻译/文档 200K 一致
+
 ## v1.7.4-turbo 发布（2026-08-04，2.5.0/179）
 - 包含 3 个修复（v1.7.3 后）：04bbb45 搜索响应 2MB 限量（19 服务）/ 15e37df 翻译输入 200K 截断 / 5f53f30 GitHub API 4MB 限量
 - 双绿验证：9e78b88（Unit Tests + Build APK success）
