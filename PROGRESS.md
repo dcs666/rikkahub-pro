@@ -222,3 +222,6 @@
 ## 深挖第九轮（批 191-240，50 轮，发现 1 个修复，累计 28）
 - 5f53f30 GitHub API httpGet 响应限量 4MB（与日志限量一致，防异常响应 OOM）
 - 审过干净：ChatDrawer（snapshotFlow 滚动保存）、MeshGradient/Background（opacity coerce）、BalanceOption、SearchPage snippet 解析（index 推进无死循环）、web-ui clipboard（execCommand 回退+选区恢复）、DTO 全量、speech 模型、GitHubActionsClient（30s 超时/rate limit 识别/4MB 日志）、web-ui i18n 键 0 差异、Settings 模型默认值、ChatList（滚动/选中）、HighlightCache（LRU 100+synchronized）、ImageGenSize、LanguageSelector（when+else 兜底）、ConversationSystemPromptButton
+
+## 深挖第十轮（批 241-290，50 轮，0 新 bug）
+- 审过：PresetTheme/findThemeById（兜底）、消息组件剩余（CopySheet/NerdLine/Translation/EditedFiles 导出 FileProvider）、ToolUI/BuiltinToolUIs（记忆删除）、ChatInputState（编辑态）、web-ui api.ts（localStorage token+expiresAt 校验）、ProviderConfigure/ConnectionTester（runCatching）、AppEventBus（buffer 16+tryEmit 丢弃策略，7 文件消费方无孤儿）、PreferencesStore update（dummy 防护）、NotificationUtil、SettingPage（赞助弹窗）
