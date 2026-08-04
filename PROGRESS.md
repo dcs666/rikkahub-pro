@@ -123,3 +123,15 @@
      - 原 bug 被掩盖：ChatService:553 `getAllAvailableTools()` 缺 assistant 参数
   3. **教训**：① edit 后必须 grep 核对新增符号；② 同文件编辑必须严格串行；③ CI 失败要拉完整错误列表（grep 全量 e: 行），别只看头部
 - 发布：v1.7-turbo（含 8 修复 + 4 功能改进 + 3 轮 CI 修复）
+
+## 全面逐行审查批次（2026-08-04，v1.7-turbo 发布期间）
+- **新修复**：
+  1. **JavascriptTool QuickJS 内存泄漏**（bc72f78）：每次 eval 创建 QuickJSContext 不销毁 → 原生内存泄漏，长会话 OOM。try/finally destroy()
+  2. **i18n 硬编码中文**（d26bb49）：折叠按钮"展开全文"抽到 strings.xml（en/zh/zh-TW/ja/ko/ru 6 语言）
+- **确认无问题**：web 模块全量（WebApiModule JWT 动态密码/常量时间比较、WebServerService FGS 容错、WebServerManager 端口预检、NsdServiceRegistrar、FilesRoutes 双保险路径防护、TaskRoutes webhook HMAC、ConversationRoutes UUID 校验）、通知管理器（节流/前后台）、ChatInputState 编辑合并、hooks（debounce/throttle/生命周期）、transformers（时间提醒/think 标签/正则/模板）、MCP OAuth（PKCE/DCR/串行刷新）、DAO 全参数化、SkillPaths 防护、migrations 兜底、CrashHandler、终端会话、VM 无泄漏
+- **记录不修（低风险/取舍）**：
+  - CoroutineUtils.toMutableStateFlow 流异常时 Runtime.halt(1) 硬杀进程（fail-fast 设计，settings 损坏场景）
+  - MCP OAuth token 明文存 Preferences（app 私有目录，与既有模式一致）
+  - webhook 未配 token 时不校验签名（局域网暴露场景低危）
+  - WebServerManager.restart 未使用（stop 异步 + start early-return 竞态，无调用方）
+  - FilesRoutes canonicalPath.startsWith 缺分隔符边界（已被 ".." 检查前置拦截）
