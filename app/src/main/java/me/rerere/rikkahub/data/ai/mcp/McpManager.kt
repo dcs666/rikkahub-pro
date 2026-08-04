@@ -21,7 +21,6 @@ import kotlinx.serialization.json.JsonObject
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.data.datastore.SettingsStore
-import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.event.AppEventBus
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.files.saveUploadFromBytes
@@ -96,10 +95,12 @@ class McpManager(
 
     fun getStatus(config: McpServerConfig): Flow<McpStatus> = sessionRegistry.getStatus(config.id)
 
-    fun getAllAvailableTools(): List<Triple<Uuid, String, McpTool>> {
+    fun getAllAvailableTools(assistant: me.rerere.rikkahub.data.model.Assistant): List<Triple<Uuid, String, McpTool>> {
         val settings = settingsStore.settingsFlow.value
-        val assistant = settings.getCurrentAssistant()
         return settings.mcpServers
+            // [FIX] 按调用方传入的 assistant（对话所属）过滤，而非 getCurrentAssistant()：
+            // 原实现用 current assistant，多助手场景下对话 A 生成时可能拿到助手 B 绑定的
+            // MCP server 工具（配置未授权暴露），或缺失本应可用的工具。
             .filter { it.commonOptions.enable && it.id in assistant.mcpServers }
             .flatMap { server ->
                 server.commonOptions.tools
