@@ -858,6 +858,3 @@ private fun BoxScope.MessageJumper(
         }
     }
 }
-  }
-    }
-}
