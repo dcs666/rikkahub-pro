@@ -36,39 +36,45 @@ internal fun buildJavascriptTool(): Tool = Tool(
     },
     execute = {
         val logs = arrayListOf<String>()
+        // [FIX] QuickJS 上下文持有原生内存，执行完必须 destroy()，
+        // 否则每次工具调用泄漏一份 native heap（长会话反复调用会 OOM）。
         val context = QuickJSContext.create()
-        context.setConsole(object : QuickJSContext.Console {
-            override fun log(info: String?) {
-                logs.add("[LOG] $info")
-            }
-
-            override fun info(info: String?) {
-                logs.add("[INFO] $info")
-            }
-
-            override fun warn(info: String?) {
-                logs.add("[WARN] $info")
-            }
-
-            override fun error(info: String?) {
-                logs.add("[ERROR] $info")
-            }
-        })
-        val code = it.jsonObject["code"]?.jsonPrimitive?.contentOrNull
-        val result = context.evaluate(code)
-        val payload = buildJsonObject {
-            if (logs.isNotEmpty()) {
-                put("logs", JsonPrimitive(logs.joinToString("\n")))
-            }
-            put(
-                key = "result",
-                element = when (result) {
-                    null -> JsonNull
-                    is QuickJSObject -> JsonPrimitive(result.stringify())
-                    else -> JsonPrimitive(result.toString())
+        try {
+            context.setConsole(object : QuickJSContext.Console {
+                override fun log(info: String?) {
+                    logs.add("[LOG] $info")
                 }
-            )
+
+                override fun info(info: String?) {
+                    logs.add("[INFO] $info")
+                }
+
+                override fun warn(info: String?) {
+                    logs.add("[WARN] $info")
+                }
+
+                override fun error(info: String?) {
+                    logs.add("[ERROR] $info")
+                }
+            })
+            val code = it.jsonObject["code"]?.jsonPrimitive?.contentOrNull
+            val result = context.evaluate(code)
+            val payload = buildJsonObject {
+                if (logs.isNotEmpty()) {
+                    put("logs", JsonPrimitive(logs.joinToString("\n")))
+                }
+                put(
+                    key = "result",
+                    element = when (result) {
+                        null -> JsonNull
+                        is QuickJSObject -> JsonPrimitive(result.stringify())
+                        else -> JsonPrimitive(result.toString())
+                    }
+                )
+            }
+            listOf(UIMessagePart.Text(payload.toString()))
+        } finally {
+            context.destroy()
         }
-        listOf(UIMessagePart.Text(payload.toString()))
     }
 )
