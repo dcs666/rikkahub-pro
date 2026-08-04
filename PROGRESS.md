@@ -214,3 +214,7 @@
 
 ## 深挖第七轮（批 91-140，50 批，0 新 bug）
 - 审过：消息组件（分组/分支/工具 UI）、ChatSizeChecker（阈值）、PropertyEditor（JSON 容错）、Navigator（自研导航）、ai 类型、highlight 31 语言、FTS（limit coerce+cursor.use+枚举 orderBy 无注入）、OCR 缓存 64、ChatExport（FileProvider）、通知渠道 5 个、StatsVM（GROUP BY≤371 行）、web-ui hooks 全 6 个（cleanup 完整）、SkillsVM（zip bomb 防护复核）、终端（onDispose finish）、i18n 完整性验证（@string 引用 0 缺失）、ModelRegistry（模态解析正确）、ChatService 压缩 Semaphore(2)、S3Sync 复核、RikkaHubApp 初始化链（全 runCatching）、CrashHandler、后台维护 5 函数、TTSAutoPlay/ConversationList/WorkspaceRepository
+
+## 深挖第八轮（批 141-190，50 轮，发现 1 个修复，累计 27）
+- 15e37df translateText 输入截断 200K（与文档注入一致，防 API 413/超时）
+- 审过干净：AudioPlayer 全量（listener 清理/invokeOnCancellation/WAV 头）、TaskEntity 4 配置、WebServerService、ChatboxImporter（流式+稳定 UUID）、翻译双分支、ImgGenPage、FolderRepository、CustomTheme（toInt 截断安全）、workbench（iframe sandbox=allow-scripts 无 same-origin ✔）、McpOAuthCallback（appScope 防丢事件）、AskUser/ScreenTime（时间解析容错+范围校验）/Clipboard/Calendar（审批+权限）工具、SettingSearchDetailPage
