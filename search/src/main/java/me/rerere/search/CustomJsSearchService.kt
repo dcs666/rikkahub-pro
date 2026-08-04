@@ -96,10 +96,10 @@ object CustomJsSearchService : SearchService<SearchServiceOptions.CustomJsOption
             // 但调用方会及时收到超时错误而非无限等待）。
             context.setMemoryLimit(64 * 1024 * 1024)
             context.injectFetch(httpClient)
-            withTimeout(20_000) {
+            return withTimeout(20_000) {
                 context.evaluate(userScript)
                 val result = context.evaluate("JSON.stringify($invocation)")
-                return@withTimeout result as? String ?: error("Function returned null or undefined")
+                result as? String ?: error("Function returned null or undefined")
             }
         } finally {
             context.destroy()
