@@ -164,9 +164,6 @@ class SettingsStore(
     private val dataStore = context.settingsStore
 
     val settingsFlowRaw = dataStore.data
-
-    /** [FIX] 串行化 update(fn) 的读-改-写（防 lost update）。 */
-    private val updateMutex = Mutex()
         .catch { exception ->
             if (exception is IOException) {
                 emit(emptyPreferences())
@@ -355,6 +352,9 @@ class SettingsStore(
         .onEach {
             get<PebbleEngine>().templateCache.invalidateAll()
         }
+
+    /** [FIX] 串行化 update(fn) 的读-改-写（防 lost update）。 */
+    private val updateMutex = Mutex()
 
     val settingsFlow = settingsFlowRaw
         .distinctUntilChanged()
