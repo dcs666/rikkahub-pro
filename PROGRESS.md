@@ -295,6 +295,16 @@
 - 批 344 TtsSynthesizer/document：干净（音频缓冲=用户配置 provider，记录不修；4 解析器已审）
 - 批 345 模块覆盖确认：web-ui/material3/locale-tui/highlight 全部已覆盖（highlight 47 文件）
 
+
+## 深挖第十五轮（批 346-352，7 批，2 新修复）
+- 批 346 web/Entry.kt + RootfsInstaller 确认：CORS anyHost+Authorization 允许 = 本地服务设计项（token 同源保护，记录）；RootfsInstaller zip-slip 防护在案
+- 批 347 gradle 配置 + baselineprofile：干净（纯构建/测试）
+- 批 348 data/event + ui/activity：**修复 42** RouteActivity.ShareHandler 只 getStringExtra(EXTRA_STREAM)，系统分享（相册/文件）的 Parcelable Uri 类型不匹配 → null → 分享图片/文件丢失；兼容 Parcelable 读取（40da9cf）；AppEventBus tryEmit 丢弃设计 ✔；ShortcutHandlerActivity 字符串存储兼容 ✔
+- 批 349 SafeModeActivity + McpOAuthCallbackActivity：干净
+- 批 350 AppEvent + modifier：**修复 43** onClick(enabled=false) 未透传给 clickable → 禁用态按钮仍可点击（重复提交/竞态）；补 enabled 透传（ff55890）
+- 批 351 ui/theme + ui/context：干净（ChatFont canonical 逃逸检查在案；15 主题纯 UI）
+- 覆盖确认：399 文件全量（ui/pages 96 + components 92 + data/ai 46 + db 29 + theme 15 + hooks 14 + routes 9 + sync 8 + model 8 + repository 7 + datastore 7 + context 6 + task 5 + files 5 + activity 3 + modifier 2 + favorite 2 + export 2 + event 2 + api 2）
+
 ## v1.7.4-turbo 发布（2026-08-04，2.5.0/179）
 - 包含 3 个修复（v1.7.3 后）：04bbb45 搜索响应 2MB 限量（19 服务）/ 15e37df 翻译输入 200K 截断 / 5f53f30 GitHub API 4MB 限量
 - 双绿验证：9e78b88（Unit Tests + Build APK success）
