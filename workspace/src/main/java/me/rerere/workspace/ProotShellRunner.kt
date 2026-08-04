@@ -24,24 +24,38 @@ class ProotShellRunner(
     // - 切换 workspace 零冷启动（会话复用）
     // - 不同 workspace 的命令可并行（link2symlink DB 是每 proot 进程独立的，跨进程无共享状态）
     // - 淘汰最久未用的会话并销毁，池大小有界
-    private val sessions = object : LinkedHashMap<File, SessionEntry>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<File, SessionEntry>?): Boolean {
-            if (size <= MAX_SESSIONS) return false
-            eldest?.value?.session?.destroy()
-            return true
-        }
-    }
+    private val sessions = object : LinkedHashMap<File, SessionEntry>(16, 0.75f, true) {}
 
     private class SessionEntry(
         val session: PersistentShellSession,
         val lock: ReentrantLock,
     )
 
+    // [A1-FIX] 淘汰改为手动扫描（不再用 removeEldestEntry）：
+    // 原实现里 removeEldestEntry 在 sessionFor 的 @Synchronized 锁内调用 session.destroy()，
+    // 而 destroy() 也是 session 上的 @Synchronized —— 若被淘汰会话正有命令在跑（execute 持有
+    // session monitor），destroy() 会阻塞等待命令结束（最长 600s），期间所有 workspace 的
+    // sessionFor 全部卡住 → 全局 shell 头阻塞。且 MAX_SESSIONS(3) < TOOL_PARALLELISM(4)，
+    // 4 个并行工具打 4 个不同 workspace 时必然触发淘汰，命中忙会话的概率不低。
+    // 现在：只淘汰「最久未用且空闲」的会话（destroy 立即完成，无阻塞）；全部忙碌时允许池
+    // 暂时超限（有界于并发命令数），忙碌会话结束后下次插入会再淘汰。
     @Synchronized
-    private fun sessionFor(linuxDir: File): SessionEntry =
-        sessions.getOrPut(linuxDir) {
-            SessionEntry(PersistentShellSession(patcher), ReentrantLock(true))
+    private fun sessionFor(linuxDir: File): SessionEntry {
+        sessions[linuxDir]?.let { return it }
+        if (sessions.size >= MAX_SESSIONS) {
+            val iterator = sessions.entries.iterator()
+            while (iterator.hasNext()) {
+                val entry = iterator.next()
+                if (!entry.value.lock.isLocked) {
+                    entry.value.session.destroy()
+                    iterator.remove()
+                    break
+                }
+            }
         }
+        return SessionEntry(PersistentShellSession(patcher), ReentrantLock(true))
+            .also { sessions[linuxDir] = it }
+    }
 
     override fun execute(context: WorkspaceShellContext): WorkspaceCommandResult {
         if (!context.linuxDir.hasUsableRootfs()) {

@@ -42,7 +42,7 @@ fun Route.eventsRoutes(
     conversationRepo: ConversationRepository,
     folderRepo: FolderRepository,
     settingsStore: SettingsStore,
-    eventBus: AppEventBus,
+    eventBus: AppEventBus? = null,
 ) {
     sse("/events") {
         heartbeat {
@@ -114,9 +114,10 @@ fun Route.eventsRoutes(
         // [FIX] 后台任务完成事件（CI 监控 / 定时器）桥接到 SSE：web 端无需轮询
         // /api/tasks 即可实时收到任务结果（AppEventBus 为 SharedFlow，无 replay，
         // 只投递连接建立后发生的事件，符合"实时通知"语义）。
-        val taskEvents = eventBus.events
-            .filterIsInstance<AppEvent.BackgroundTaskCompleted>()
-            .map { event ->
+        // eventBus 可空：未注入时仅缺 task_completed 事件，/events 其余事件不受影响。
+        val taskEvents = eventBus?.events
+            ?.filterIsInstance<AppEvent.BackgroundTaskCompleted>()
+            ?.map { event ->
                 EventPayload(
                     event = "task_completed",
                     json = buildJsonObject {
@@ -130,7 +131,12 @@ fun Route.eventsRoutes(
                 )
             }
 
-        merge(settingsEvents, conversationListEvents, folderEvents, taskEvents).collect { payload ->
+        val merged = if (taskEvents != null) {
+            merge(settingsEvents, conversationListEvents, folderEvents, taskEvents)
+        } else {
+            merge(settingsEvents, conversationListEvents, folderEvents)
+        }
+        merged.collect { payload ->
             send(data = payload.json, event = payload.event)
         }
     }

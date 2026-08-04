@@ -179,7 +179,7 @@ fun Application.configureWebApi(
                 authenticate("auth-jwt") {
                     conversationRoutes(chatService, conversationRepo, folderRepo, settingsStore)
                     folderRoutes(chatService, folderRepo, settingsStore)
-                    eventBus?.let { eventsRoutes(chatService, conversationRepo, folderRepo, settingsStore, it) }
+                    eventsRoutes(chatService, conversationRepo, folderRepo, settingsStore, eventBus)
                     settingsRoutes(settingsStore)
                     filesRoutes(filesManager, context)
                     assetsRoutes(context)
@@ -188,7 +188,7 @@ fun Application.configureWebApi(
             } else {
                 conversationRoutes(chatService, conversationRepo, folderRepo, settingsStore)
                 folderRoutes(chatService, folderRepo, settingsStore)
-                eventBus?.let { eventsRoutes(chatService, conversationRepo, folderRepo, settingsStore, it) }
+                eventsRoutes(chatService, conversationRepo, folderRepo, settingsStore, eventBus)
                 settingsRoutes(settingsStore)
                 filesRoutes(filesManager, context)
                 assetsRoutes(context)
