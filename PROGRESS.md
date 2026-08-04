@@ -199,3 +199,7 @@
 - a9449cc toolCallId 文件名清洗：模型可控 ID 含 ../ → 逃逸写 app 私有目录
 - 1ed113a 记忆双端限制：条数 200（最旧淘汰）+ 注入 60 条/100K 字符（防 prompt 爆炸）
 - 深审干净：ChatVM/ChatService（防并发生成+Cancellation 过滤）/FilesManager/S3Sync+WebDav 导入（zip-slip canonical 防护在案）/SkillPaths/HighlightEngine（零宽匹配防死循环+迭代守卫）/CalendarTool（LIKE 参数化）/BackgroundTaskTool（poll 下限 10s）/MemoryTools/GenerationHandler
+
+## 深挖第四轮（批 41-50，全部干净，0 新 bug）
+- 审过：PreferencesStore 迁移 V1-V3/SettingsJsonMigrator（runCatching 兜底）、设置 ProviderDetail（删除确认）、OCR（LRU 缓存+getOrElse）、ASR 音频焦点（GRANTED 检查+abandon）、ModelDsl TokenMatcher（内置正则）、WebDav/S3 同步（zip-slip 同款防护）、WebApiModule JWT（动态密码/subject 校验/403 区分）、前端 files/export-markdown、AI 嵌入
+- 剩余轻微 UX 项（非 bug，记录不修）：ASR 焦点拒绝无提示、ModelList 加载失败静默、WebDav URL 未编码（path 内部生成）
