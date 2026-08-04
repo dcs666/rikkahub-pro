@@ -57,7 +57,7 @@ fun JsonObject.mergeCustomBody(bodies: List<CustomBody>): JsonObject {
 
             if (existingValue is JsonObject && newValue is JsonObject) {
                 // 递归合并两个JsonObject
-                content[body.key] = mergeJsonObjects(existingValue, newValue)
+                content[body.key] = mergeJsonObjects(existingValue, newValue, depth = 0)
             } else {
                 // 直接替换或添加
                 content[body.key] = newValue
@@ -69,8 +69,11 @@ fun JsonObject.mergeCustomBody(bodies: List<CustomBody>): JsonObject {
 
 /**
  * 递归合并两个JsonObject
+ * [FIX] 递归无深度上限：深嵌套 CustomBody 在请求构造时 SOE（Error 不 catch）→ 崩溃。
+ * 深度超过上限直接返回 overlay（放弃合并深度，防御性截断）。
  */
-private fun mergeJsonObjects(base: JsonObject, overlay: JsonObject): JsonObject {
+private fun mergeJsonObjects(base: JsonObject, overlay: JsonObject, depth: Int): JsonObject {
+    if (depth > MAX_JSON_MERGE_DEPTH) return overlay
     val result = base.toMutableMap()
 
     for ((key, value) in overlay) {
@@ -78,7 +81,7 @@ private fun mergeJsonObjects(base: JsonObject, overlay: JsonObject): JsonObject 
 
         result[key] = if (baseValue is JsonObject && value is JsonObject) {
             // 如果两者都是JsonObject，递归合并
-            mergeJsonObjects(baseValue, value)
+            mergeJsonObjects(baseValue, value, depth + 1)
         } else {
             // 否则使用新值替换旧值
             value
@@ -93,8 +96,11 @@ private fun mergeJsonObjects(base: JsonObject, overlay: JsonObject): JsonObject 
  * @param keys 要操作的键列表
  * @param keepOnly 如果为 true，则只保留指定的键；如果为 false，则移除指定的键
  * @return 处理后的 JsonElement
+ * [FIX] 递归无深度上限：模型响应（GoogleProvider 流式 chunk）深嵌套 → SOE 崩溃。
+ * 深度超过上限原样返回（防御性截断，与 parseErrorDetail 深度防护一致）。
  */
-fun JsonElement.removeElements(keys: List<String>, keepOnly: Boolean = false): JsonElement {
+fun JsonElement.removeElements(keys: List<String>, keepOnly: Boolean = false, depth: Int = 0): JsonElement {
+    if (depth > MAX_JSON_MERGE_DEPTH) return this
     return when (this) {
         is JsonObject -> {
             val newContent = if (keepOnly) {
@@ -109,14 +115,16 @@ fun JsonElement.removeElements(keys: List<String>, keepOnly: Boolean = false): J
 
             // 递归处理嵌套的 JsonElement
             JsonObject(newContent.mapValues { (_, value) ->
-                value.removeElements(keys, keepOnly)
+                value.removeElements(keys, keepOnly, depth + 1)
             })
         }
 
         is JsonArray -> {
-            JsonArray(map { it.removeElements(keys, keepOnly) })
+            JsonArray(map { it.removeElements(keys, keepOnly, depth + 1) })
         }
 
         else -> this // 基本类型直接返回
     }
 }
+
+private const val MAX_JSON_MERGE_DEPTH = 32
