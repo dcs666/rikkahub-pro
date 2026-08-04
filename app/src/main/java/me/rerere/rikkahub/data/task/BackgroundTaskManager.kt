@@ -24,7 +24,9 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import me.rerere.rikkahub.data.event.AppEvent
 import me.rerere.rikkahub.data.event.AppEventBus
+import me.rerere.rikkahub.service.ChatService
 import me.rerere.rikkahub.utils.JsonInstant
+import org.koin.java.KoinJavaComponent.getKoin
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.uuid.Uuid
@@ -50,6 +52,8 @@ private const val POLL_CONCURRENCY = 3
 private const val CONSECUTIVE_FAILURE_LIMIT = 5
 private const val CONSECUTIVE_NOT_FOUND_LIMIT = 10
 private const val RATE_LIMIT_BACKOFF_MS = 5 * 60_000L  // 403/429 后强制退避 5 分钟
+private const val TIMER_INJECTION_RETRY_DELAY_MS = 30_000L // 对话忙时定时注入重试冷却
+private const val MAX_TIMER_INJECTION_RETRIES = 10        // 重试上限（约 5 分钟窗口）
 
 /**
  * 后台任务管理器。
@@ -90,6 +94,15 @@ class BackgroundTaskManager(
 
     // 轮询并发限流器（基于 Dispatchers.IO 的共享线程池）
     private val pollDispatcher = Dispatchers.IO.limitedParallelism(POLL_CONCURRENCY)
+
+    // [FIX] 定时 AI 动作注入防丢失：目标对话生成中时延迟重试（30s 冷却），
+    // 最多 10 次（约 5 分钟）。原实现直接 completeTask → 注入被 awaitGenerationIdle
+    // 超时跳过 → 触发永久丢失（用户看到"定时器没执行"）。
+    private val timerInjectionRetries = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    private val timerRetryAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    // 懒加载避免构造环（ChatService 不依赖本类，但防御性用 Koin 懒取）
+    private val chatService: ChatService by lazy { getKoin().get() }
 
     // [OPT] 唤醒信号：新任务创建/取消/删除后立即唤醒 poller，
     // 避免空闲态 30s 睡眠导致新任务首轮 poll 被延迟
@@ -805,6 +818,12 @@ class BackgroundTaskManager(
     }
 
     private suspend fun pollTimerTask(task: TaskEntity) {
+        // [FIX] 冷却期内的重试：目标对话忙时保持 PENDING 并进入 30s 冷却，
+        // poller 每 2s 唤醒但这里直接放行冷却结束的任务。
+        timerRetryAt[task.id]?.let { retryAt ->
+            if (System.currentTimeMillis() < retryAt) return
+            timerRetryAt.remove(task.id)
+        }
         val config = try {
             (json.decodeFromString(TaskConfig.serializer(), task.config) as? TaskConfig.Timer)
                 ?: run {
@@ -818,6 +837,38 @@ class BackgroundTaskManager(
 
         val elapsed = System.currentTimeMillis() - task.createdAt
         if (elapsed >= config.delayMs) {
+            // [FIX] 注入防丢失：定时 AI 动作的目标对话正在生成时（长回复/深挖轮次），
+            // 原实现 completeTask 后 TaskNotificationManager 的 awaitGenerationIdle(2min)
+            // 超时即跳过注入 → 触发永久丢失。改为延迟重试：
+            // 保持 PENDING + 30s 冷却，poller 重试触发，最多 10 次（约 5 分钟）。
+            if (config.autoAi && task.conversationId.isNotBlank() &&
+                runCatching { chatService.isGenerating(Uuid.parse(task.conversationId)) }.getOrDefault(false)
+            ) {
+                val retries = timerInjectionRetries.merge(task.id, 1, Int::plus)
+                if (retries >= MAX_TIMER_INJECTION_RETRIES) {
+                    timerInjectionRetries.remove(task.id)
+                    completeTask(
+                        task,
+                        success = true,
+                        resultJson = kotlinx.serialization.json.buildJsonObject {
+                            put(
+                                "message",
+                                kotlinx.serialization.json.JsonPrimitive(
+                                    "Timer fired but the target conversation stayed busy >5min; injection skipped."
+                                )
+                            )
+                        }.toString(),
+                        aiAction = config.autoAi,
+                    )
+                    Log.w(TAG, "Timer ${task.id}: gave up injection after $retries retries (conversation busy)")
+                    return
+                }
+                timerRetryAt[task.id] = System.currentTimeMillis() + TIMER_INJECTION_RETRY_DELAY_MS
+                Log.i(TAG, "Timer ${task.id}: target conversation busy, retry $retries/$MAX_TIMER_INJECTION_RETRIES in ${TIMER_INJECTION_RETRY_DELAY_MS / 1000}s")
+                return
+            }
+            timerInjectionRetries.remove(task.id)
+            timerRetryAt.remove(task.id)
             // 到期：完成本次触发
             completeTask(
                 task,
