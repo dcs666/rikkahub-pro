@@ -120,10 +120,9 @@ class RootfsInstaller(
                 )
                 pendingName = null
                 pendingLinkName = null
-                if (header.name.isBlank()) {
-                    input.skipFully(header.size.paddedTarSize())
-                    continue
-                }
+                // [FIX] 特殊头类型必须优先于 name.isBlank() 检查：GNU tar 的全局头（typeflag
+                // 'g'）与部分实现的长名/PAX 头 name 字段为空，先查 isBlank 会直接跳过数据区，
+                // 导致 GLOBAL_PAX 的 path/linkpath 等全局变量永不生效（e6a347f 引入该缺陷）。
                 if (header.type == TarEntryType.LONG_NAME) {
                     pendingName = input.readExactly(header.size).toString(Charsets.UTF_8).trimEnd('\u0000', '\n')
                     input.skipFully(header.size.paddingSize())
@@ -143,6 +142,10 @@ class RootfsInstaller(
                         pendingLinkName = pax["linkpath"]
                     }
                     input.skipFully(header.size.paddingSize())
+                    continue
+                }
+                if (header.name.isBlank()) {
+                    input.skipFully(header.size.paddedTarSize())
                     continue
                 }
                 val target = targetDir.safeResolve(header.name)
@@ -260,8 +263,17 @@ class RootfsInstaller(
         while (index < text.length) {
             val space = text.indexOf(' ', index)
             if (space < 0) break
+            // [FIX] length 解析失败或 <=0 时必须终止：否则 index += length 不前进 → 死循环
+            // （损坏/恶意的 PAX 头可写 "0 " / "abc "）
             val length = text.substring(index, space).toIntOrNull() ?: break
+            if (length <= 0) break
             val end = (index + length).coerceAtMost(text.length)
+            // [FIX] record 头长度大于声明长度时（损坏头），跳过该 record 而非抛
+            // StringIndexOutOfBounds 崩溃整个解压
+            if (space + 1 >= end) {
+                index += length
+                continue
+            }
             val record = text.substring(space + 1, end).trimEnd('\n')
             val equals = record.indexOf('=')
             if (equals > 0) {
