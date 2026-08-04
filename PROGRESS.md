@@ -178,3 +178,12 @@
   - 其他：mermaid 误报（fe2109d）/ CRLF（3652fd6）/ 日志清理
 - CI 全绿：7230279（Unit Tests + Build APK success）
 - **v1.7.2-turbo 发布完成**：2026-08-04 15:35（2.4.8/177，3 个 profileable APK，Release Turbo success，约 24 分钟构建）
+
+## 全库深挖收官（2026-08-04，v1.7.2 发布后）
+- 6 批深挖（未发现新 bug，全部干净）：
+  1. utils 22 个工具类（UpdateChecker/SemVer/SimpleCache/SoundPool/通知/CursorWindow/时间格式化等）
+  2. 设置页 21 个（端口校验/权限/主题导入/任务/MCP 导入/文件删除确认等）
+  3. 功能页面（ImgGen/Translator/终端 proot/日志/收藏/历史/分享/Debug/工作区）
+  4. speech 模块 4303 行全审（TTS 8 provider + ASR 5 provider：超时/SSE/WebSocket/录音释放/临时文件清理全到位）
+  5. web-ui hooks 6 个 + chat-input + 组件（epoch 竞态防护/订阅清理/发送状态机高质量）
+  6. material3 DynamicSchemeExt + locale-tui（yaml.safe_load 安全）
