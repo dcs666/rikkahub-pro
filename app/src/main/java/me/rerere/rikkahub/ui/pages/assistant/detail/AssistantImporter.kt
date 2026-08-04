@@ -248,6 +248,11 @@ private fun parseAssistantFromJson(
 
 // endregion
 
+// [FIX] 导入文件大小上限：JSON 分支 readText() 与 PNG tEXt/Base64 解码此前均无限制，
+// 超大文件（几十上百 MB）会直接 OOM 崩溃。上限与文档注入（200K）不同量级——
+// 导入是完整文件解析，5MB 覆盖所有正常 tavern 卡。
+private const val MAX_IMPORT_FILE_CHARS = 5_000_000
+
 private suspend fun importAssistantFromUri(
     context: Context,
     uri: Uri,
@@ -262,6 +267,10 @@ private suspend fun importAssistantFromUri(
                 "image/png" -> {
                     val result = ImageUtils.getTavernCharacterMeta(context, uri)
                     result.map { base64Data ->
+                        // [FIX] tEXt chunk 无大小限制 → Base64 解码全量膨胀 → OOM
+                        if (base64Data.length > MAX_IMPORT_FILE_CHARS) {
+                            error("Assistant import file is too large (max 5MB)")
+                        }
                         val json = String(Base64.decode(base64Data, Base64.DEFAULT))
                         val bg = filesManager.createChatFilesByContents(listOf(uri)).first().toString()
                         json to bg
@@ -269,6 +278,14 @@ private suspend fun importAssistantFromUri(
                 }
 
                 "application/json" -> {
+                    // [FIX] readText() 全量读入无上限：超大 JSON 直接 OOM。
+                    // 读取前先查文件长度（ContentProvider 不可用时跳过检查）。
+                    val size = runCatching {
+                        context.contentResolver.openAssetFileDescriptor(uri, "r")?.length ?: -1L
+                    }.getOrDefault(-1L)
+                    if (size > MAX_IMPORT_FILE_CHARS) {
+                        error("Assistant import file is too large (max 5MB)")
+                    }
                     val json = context.contentResolver.openInputStream(uri)?.bufferedReader()
                         .use { it?.readText() }
                         ?: error(context.getString(R.string.assistant_importer_read_json_failed))
