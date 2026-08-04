@@ -193,3 +193,9 @@
 - 7c50c22 parseErrorDetail 递归深度上限 32：恶意/异常 API 深嵌套错误 JSON → SOE 崩溃
 - 防御：collectAllParts 嵌套深度上限 16（工具结果递归展开）
 - 深审确认干净：ai Provider 全家（FileEncoder OOM 防护/KeyRoulette LRU/ResponseAPI 流式/Claude/Google/Vertex JWT）、common 缓存/SSE、workspace 安装器（tar/pax/symlink 防护）、document 解析器、highlight 状态机（无 ReDoS）、web 路由全家（AIIcon/Folder/Settings/RouteUtils）、DTO、依赖审计（全最新版）、BackgroundTaskManager 状态机、MCP OAuth（PKCE/刷新锁）、Navigation、ChatDrawerVM
+
+## 深挖第三轮（2026-08-04 批 30-40，新增 4 个修复，累计 24）
+- ad7da54 highlight 引擎兜底：MAX_ITERATIONS 守卫触发时降级纯文本（原崩溃 UI）
+- a9449cc toolCallId 文件名清洗：模型可控 ID 含 ../ → 逃逸写 app 私有目录
+- 1ed113a 记忆双端限制：条数 200（最旧淘汰）+ 注入 60 条/100K 字符（防 prompt 爆炸）
+- 深审干净：ChatVM/ChatService（防并发生成+Cancellation 过滤）/FilesManager/S3Sync+WebDav 导入（zip-slip canonical 防护在案）/SkillPaths/HighlightEngine（零宽匹配防死循环+迭代守卫）/CalendarTool（LIKE 参数化）/BackgroundTaskTool（poll 下限 10s）/MemoryTools/GenerationHandler
