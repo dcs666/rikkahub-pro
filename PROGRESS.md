@@ -317,6 +317,14 @@
 - 批 360 全仓库文件清单终确认：64 java = MuPDF fitz JNI 第三方绑定（vendored）；43 tokens = highlight 测试 fixture；19 pro = proguard 规则（-dontobfuscate 已知设计 + JWT/serializable keep 合理）；web-ui 前端 113 个 ts/tsx 已全审
 - **结论：全仓库代码面（Kotlin 399 + Java 64 + TS/TSX 113 + XML 38 + 构建配置 + 测试）全部深挖完毕，剩余均为记录项（设计选择/隐私选项）**
 
+
+## 深挖第十七轮（批 361-366，记录项清理，4 新修复）
+- **修复 44** WebDav buildUrl 路径段不编码：文件名含空格/中文/#/?/& → URL 非法 → 同步失败；逐段 percent-encode（UTF-8 + %20）（ea17fb4）
+- **修复 45** TtsSynthesizer 音频流全量收集无上限：异常 provider 响应 → OOM；8MB 上限抛异常优雅失败（b57d2a5）
+- **修复 46** ASR start() 静默失败：焦点被拒（其他应用占用）/ 未配置 provider key 时无任何反馈（录音无声但按钮显示激活）；写入 ASRStatus.Error + errorMessage（UI 已有 toast 机制）（bdae36e）
+- **修复 47** WebServerManager.restart() 竞态：stop() 异步 → restart 立即 start() 时旧 server 未停（start 直接 return）→ 只停不启；同步停止后再启动（be3a48d，当前无调用方加固）
+- 其他：release.yml dispatch 默认 tag v1.1.5-turbo 陈旧 → 空默认回退 github.ref_name（3cc2262）；模板二次替换确认无风险（Pebble 单次 evaluate）；模型列表为本地数据无加载面
+
 ## v1.7.4-turbo 发布（2026-08-04，2.5.0/179）
 - 包含 3 个修复（v1.7.3 后）：04bbb45 搜索响应 2MB 限量（19 服务）/ 15e37df 翻译输入 200K 截断 / 5f53f30 GitHub API 4MB 限量
 - 双绿验证：9e78b88（Unit Tests + Build APK success）
