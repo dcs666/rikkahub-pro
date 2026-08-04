@@ -148,3 +148,8 @@
 - **确认无问题**：ChatSizeChecker（768 节点/30万token 阈值）、ChatDrawerVM（Paging+分隔符）、PromptVM/QuickMessagesVM（引用完整性清理）、SkillsVM（GitHub 导入 URL 正则校验 + zip 路径穿越防护 + 原子保存回滚）、WorkspaceVM、ProviderConnectionTester、前端编辑 draft 逻辑（附件保留/追加）、设置页全量
 - **记录不修**：SkillsVM GitHub 导入无文件数/下载大小限制（技能仓库通常小）；workspace runBlocking（DocumentsProvider 同步 binder 必需）
 - **收官状态**：621 Kotlin + 109 前端文件全部覆盖（深审核心逻辑 + 全库危险模式扫描）；TODO/FIXME=0；GlobalScope/Thread.sleep/System.exit=0
+
+## 持续审查批次 4（2026-08-04）
+- **新修复**：file_paths.xml 收窄 filesDir 暴露（db26bff）：原 path="." 把整个 filesDir（skills/fonts/workspaces）暴露给获得分享 URI 的外部 app → 只留 upload/images/tool_outputs；导出/相机/workspace 分享均在 cacheDir
+- **确认**：Manifest 权限/exported 状态合理（WebServerService exported=false、FileProvider=false、DocumentsProvider 标准配置）；ShareSheet 的 apiKey 明文分享为有意设计（测试锁定往返）；测试套件 17 个文件覆盖 TextReplacers/PromptInjection/MCP key/backoff/rate-limit
+- **记录不修**：usesCleartextTraffic=true（自托管 provider 需要）、McpOAuth deep link exported（state 防护）
