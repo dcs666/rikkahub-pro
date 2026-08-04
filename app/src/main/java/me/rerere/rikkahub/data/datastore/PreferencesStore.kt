@@ -16,6 +16,8 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
@@ -162,6 +164,9 @@ class SettingsStore(
     private val dataStore = context.settingsStore
 
     val settingsFlowRaw = dataStore.data
+
+    /** [FIX] 串行化 update(fn) 的读-改-写（防 lost update）。 */
+    private val updateMutex = Mutex()
         .catch { exception ->
             if (exception is IOException) {
                 emit(emptyPreferences())
@@ -430,7 +435,12 @@ class SettingsStore(
     }
 
     suspend fun update(fn: (Settings) -> Settings) {
-        update(fn(settingsFlow.value))
+        // [FIX] 读-改-写竞态：update(fn) 基于内存快照计算新值，两个并发调用
+        // 会基于同一快照 → 后写覆盖先写（lost update，如 McpSessionRegistry.syncTools
+        // 并发时丢工具列表）。用 Mutex 串行化 read-modify-write。
+        updateMutex.withLock {
+            update(fn(settingsFlow.value))
+        }
     }
 
     suspend fun updateAssistant(assistantId: Uuid) {
