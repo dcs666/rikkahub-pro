@@ -11,7 +11,12 @@ class HttpException(
     message: String
 ) : RuntimeException(message)
 
-fun JsonElement.parseErrorDetail(): HttpException {
+fun JsonElement.parseErrorDetail(depth: Int = 0): HttpException {
+    // [FIX] 递归深度上限：恶意/异常 API 可返回深度嵌套的错误 JSON
+    // （{"error":{"error":{...}}} 递归万层）→ StackOverflowError（Error 不捕获）崩溃进程。
+    if (depth > MAX_ERROR_PARSE_DEPTH) {
+        return HttpException(Json.encodeToString(JsonElement.serializer(), this))
+    }
     return when (this) {
         is JsonObject -> {
             // 尝试获取常见的错误字段
@@ -22,7 +27,7 @@ fun JsonElement.parseErrorDetail(): HttpException {
 
             if (foundField != null) {
                 // 递归解析找到的字段值
-                this[foundField]!!.parseErrorDetail()
+                this[foundField]!!.parseErrorDetail(depth + 1)
             } else {
                 // 如果没有找到任何错误字段，序列化整个对象
                 HttpException(Json.encodeToString(JsonElement.serializer(), this))
@@ -34,7 +39,7 @@ fun JsonElement.parseErrorDetail(): HttpException {
                 HttpException("Unknown error: Empty JSON array")
             } else {
                 // 递归解析数组的第一个元素
-                this.first().parseErrorDetail()
+                this.first().parseErrorDetail(depth + 1)
             }
         }
 
@@ -49,3 +54,5 @@ fun JsonElement.parseErrorDetail(): HttpException {
         }
     }
 }
+
+private const val MAX_ERROR_PARSE_DEPTH = 32
