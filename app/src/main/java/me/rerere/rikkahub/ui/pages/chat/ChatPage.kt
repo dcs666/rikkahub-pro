@@ -461,9 +461,6 @@ private fun ChatPageContent(
                         ))
                     vm.saveConversationAsync()
                 },
-                onSelectVersion = { node, selectIndex ->
-                    vm.selectMessageNode(node, selectIndex)
-                },
                 onClickSuggestion = { suggestion ->
                     inputState.editingMessage = null
                     inputState.setMessageText(suggestion)

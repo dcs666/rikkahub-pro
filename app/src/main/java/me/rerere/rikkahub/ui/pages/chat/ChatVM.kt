@@ -344,19 +344,4 @@ class ChatVM(
         }
     }
 
-    /**
-     * [改进] 编辑消息的多版本切换：editMessage 会把修改追加为新版本（原文保留），
-     * 此前 UI 无切换入口（只有 web API 可调 selectMessageNode），用户无法回看旧版本。
-     * 现在 ChatMessage 的版本徽章点击循环切换。
-     */
-    fun selectMessageNode(node: MessageNode, selectIndex: Int) {
-        viewModelScope.launch {
-            runCatching {
-                chatService.selectMessageNode(_conversationId, node.id, selectIndex)
-            }.onFailure {
-                it.printStackTrace()
-            }
-        }
-    }
-
 }
