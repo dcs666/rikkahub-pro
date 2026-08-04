@@ -59,6 +59,9 @@ object BingSearchService : SearchService<SearchServiceOptions.BingLocalOptions> 
                 .referrer("https://www.bing.com/")
                 .cookie("SRCHHPGUSR", "ULSR=1")
                 .timeout(5000)
+                // [FIX] Jsoup 默认 maxBodySize=0（无限）：异常/恶意响应会把整个页面读进内存。
+                // 搜索结果页正常远小于 2MB。
+                .maxBodySize(2 * 1024 * 1024)
                 .get()
 
             // 解析搜索结果
