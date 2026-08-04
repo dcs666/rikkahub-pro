@@ -402,7 +402,12 @@ class SettingsStore(
 
             preferences[SEARCH_SERVICES] = JsonInstant.encodeToString(settings.searchServices)
             preferences[SEARCH_COMMON] = JsonInstant.encodeToString(settings.searchCommonOptions)
-            preferences[SEARCH_SELECTED] = settings.searchServiceSelected.coerceIn(0, settings.searchServices.size - 1)
+            // [FIX] searchServices 为空（用户删光所有搜索服务）时 size-1 = -1，
+            // coerceIn(0, -1) 会抛 IllegalArgumentException，导致此后所有设置保存
+            // 在磁盘写入前崩溃（内存已更新、磁盘没写 → 不一致 + 用户改什么都报错）。
+            preferences[SEARCH_SELECTED] = settings.searchServiceSelected.coerceIn(
+                0, (settings.searchServices.size - 1).coerceAtLeast(0)
+            )
 
             preferences[MCP_SERVERS] = JsonInstant.encodeToString(settings.mcpServers)
             preferences[WEBDAV_CONFIG] = JsonInstant.encodeToString(settings.webDavConfig)
