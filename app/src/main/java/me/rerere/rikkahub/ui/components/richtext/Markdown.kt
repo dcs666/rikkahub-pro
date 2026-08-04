@@ -223,7 +223,7 @@ private fun splitStreamingBlocks(content: String): List<StreamBlock> {
     val blocks = mutableListOf<StreamBlock>()
     val lines = content.split('\n')
     var inCode = false
-    val codeBuf = StringBuilder()
+    var codeBuf = StringBuilder()
     var paraBuf = StringBuilder()
     var paraDirty = false
 
