@@ -64,7 +64,6 @@ import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.SpanStyleRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -211,7 +210,7 @@ private fun styleStreamingLine(text: String): AnnotatedString {
         text = text,
         spanStyles = spans
             .sortedBy { it.first.first }
-            .map { (range, style) -> SpanStyleRange(style, range.first, range.last + 1) }
+            .map { (range, style) -> AnnotatedString.Range(style, range.first, range.last + 1) }
     )
 }
 

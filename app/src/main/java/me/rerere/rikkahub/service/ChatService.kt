@@ -550,7 +550,7 @@ class ChatService(
                             )
                         )
                     }
-                    mcpManager.getAllAvailableTools().also { allTools ->
+                    mcpManager.getAllAvailableTools(assistant).also { allTools ->
                         val invalidNames = allTools
                             .map { it.second }
                             .distinct()
