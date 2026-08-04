@@ -203,3 +203,7 @@
 ## 深挖第四轮（批 41-50，全部干净，0 新 bug）
 - 审过：PreferencesStore 迁移 V1-V3/SettingsJsonMigrator（runCatching 兜底）、设置 ProviderDetail（删除确认）、OCR（LRU 缓存+getOrElse）、ASR 音频焦点（GRANTED 检查+abandon）、ModelDsl TokenMatcher（内置正则）、WebDav/S3 同步（zip-slip 同款防护）、WebApiModule JWT（动态密码/subject 校验/403 区分）、前端 files/export-markdown、AI 嵌入
 - 剩余轻微 UX 项（非 bug，记录不修）：ASR 焦点拒绝无提示、ModelList 加载失败静默、WebDav URL 未编码（path 内部生成）
+
+## v1.7.3-turbo 发布（2026-08-04，2.4.9/178）
+- 包含 6 个修复（v1.7.2 后深挖轮）：JsonExpression SOE（66483bf）/ parseErrorDetail 深度（7c50c22）/ collectAllParts 深度（198ec66）/ highlight 兜底（ad7da54）/ toolCallId 文件名清洗（a9449cc）/ 记忆条数 200+注入封顶（1ed113a）
+- 双绿验证：5813aef（Unit Tests + Build APK success）
