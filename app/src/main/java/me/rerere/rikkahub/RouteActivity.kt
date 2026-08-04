@@ -2,6 +2,7 @@ package me.rerere.rikkahub
 
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.view.KeyEvent
@@ -204,8 +205,13 @@ class RouteActivity : ComponentActivity() {
         val shareIntent = remember {
             Intent().apply {
                 action = intent?.action
+                // [FIX] 系统分享（相册/文件管理器）的 EXTRA_STREAM 是 Parcelable Uri，
+                // getStringExtra 类型不匹配返回 null → 分享图片/文件全部丢失；
+                // 自定义 ShortcutHandlerActivity 存的是字符串，两种都兼容读取。
+                val stream = intent?.getStringExtra(Intent.EXTRA_STREAM)
+                    ?: intent?.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)?.toString()
                 putExtra(Intent.EXTRA_TEXT, intent?.getStringExtra(Intent.EXTRA_TEXT))
-                putExtra(Intent.EXTRA_STREAM, intent?.getStringExtra(Intent.EXTRA_STREAM))
+                putExtra(Intent.EXTRA_STREAM, stream)
                 putExtra(Intent.EXTRA_PROCESS_TEXT, intent?.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT))
             }
         }
