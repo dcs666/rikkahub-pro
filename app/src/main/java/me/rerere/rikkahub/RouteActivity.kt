@@ -208,8 +208,10 @@ class RouteActivity : ComponentActivity() {
                 // [FIX] 系统分享（相册/文件管理器）的 EXTRA_STREAM 是 Parcelable Uri，
                 // getStringExtra 类型不匹配返回 null → 分享图片/文件全部丢失；
                 // 自定义 ShortcutHandlerActivity 存的是字符串，两种都兼容读取。
+                // 多图分享（相册多选）数据在 clipData 而非 EXTRA_STREAM，也兜底取第一项。
                 val stream = intent?.getStringExtra(Intent.EXTRA_STREAM)
                     ?: intent?.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)?.toString()
+                    ?: intent?.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.uri?.toString()
                 putExtra(Intent.EXTRA_TEXT, intent?.getStringExtra(Intent.EXTRA_TEXT))
                 putExtra(Intent.EXTRA_STREAM, stream)
                 putExtra(Intent.EXTRA_PROCESS_TEXT, intent?.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT))
