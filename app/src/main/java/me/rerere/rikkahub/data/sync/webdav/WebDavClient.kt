@@ -42,11 +42,15 @@ class WebDavClient(
             *segments.map { it.trim('/') }.toTypedArray()
         ).filter { it.isNotEmpty() }
 
-        return if (pathSegments.isEmpty()) {
-            base
-        } else {
-            "$base/${pathSegments.joinToString("/")}"
+        if (pathSegments.isEmpty()) return base
+
+        // [FIX] 每段单独 percent-encode：此前直接拼接，文件名含空格/中文/#/?/& 时
+        // URL 非法（# 截断、? 变 query、空格 400）→ WebDAV 同步失败。
+        // 每段编码后再拼（不编码分隔符 '/'；空格用 %20 而非 +）。
+        val encoded = pathSegments.joinToString("/") { seg ->
+            java.net.URLEncoder.encode(seg, "UTF-8").replace("+", "%20")
         }
+        return "$base/$encoded"
     }
     suspend fun put(
         path: String,
