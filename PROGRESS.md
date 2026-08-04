@@ -153,3 +153,7 @@
 - **新修复**：file_paths.xml 收窄 filesDir 暴露（db26bff）：原 path="." 把整个 filesDir（skills/fonts/workspaces）暴露给获得分享 URI 的外部 app → 只留 upload/images/tool_outputs；导出/相机/workspace 分享均在 cacheDir
 - **确认**：Manifest 权限/exported 状态合理（WebServerService exported=false、FileProvider=false、DocumentsProvider 标准配置）；ShareSheet 的 apiKey 明文分享为有意设计（测试锁定往返）；测试套件 17 个文件覆盖 TextReplacers/PromptInjection/MCP key/backoff/rate-limit
 - **记录不修**：usesCleartextTraffic=true（自托管 provider 需要）、McpOAuth deep link exported（state 防护）
+
+## v1.7.1-turbo 发布（2026-08-04，2.4.7/176）
+- **包含修复**（v1.7-turbo 之后）：QuickJS 原生内存泄漏（bc72f78）、i18n 折叠按钮 6 语言（d26bb49）、冗余 UI 移除（290973f+6af5d66）、web-ui 预览 iframe sandbox + mermaid strict（e9b7749）、file_paths 收窄 filesDir 暴露（db26bff）、全部审查记录
+- CI 全绿验证：09888a0（Unit Tests + Build APK success）
