@@ -844,7 +844,7 @@ class BackgroundTaskManager(
             if (config.autoAi && task.conversationId.isNotBlank() &&
                 runCatching { chatService.isGenerating(Uuid.parse(task.conversationId)) }.getOrDefault(false)
             ) {
-                val retries = timerInjectionRetries.merge(task.id, 1, Int::plus)
+                val retries = timerInjectionRetries.merge(task.id, 1, Int::plus) ?: 1
                 if (retries >= MAX_TIMER_INJECTION_RETRIES) {
                     timerInjectionRetries.remove(task.id)
                     completeTask(
