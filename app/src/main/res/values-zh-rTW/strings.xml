@@ -329,6 +329,7 @@
   <string name="error_title_generate_title">自動產生標題失敗</string>
   <string name="error_title_generation">訊息產生失敗</string>
   <string name="error_title_operation">操作失敗</string>
+  <string name="error_title_save_conversation">訊息過長，儲存失敗（重啟後可能遺失）</string>
   <string name="error_title_regenerate_message">訊息重新產生失敗</string>
   <string name="error_title_send_message">訊息傳送失敗</string>
   <string name="error_title_tool_approval">工具呼叫處理失敗</string>

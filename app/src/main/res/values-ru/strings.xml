@@ -329,6 +329,7 @@
   <string name="error_title_generate_title">Не удалось автоматически сгенерировать заголовок</string>
   <string name="error_title_generation">Ошибка генерации сообщения</string>
   <string name="error_title_operation">Операция не выполнена</string>
+  <string name="error_title_save_conversation">Сообщение слишком длинное для сохранения (может потеряться после перезапуска)</string>
   <string name="error_title_regenerate_message">Не удалось повторно сгенерировать сообщение</string>
   <string name="error_title_send_message">Не удалось отправить сообщение</string>
   <string name="error_title_tool_approval">Сбой обработки вызова инструмента</string>

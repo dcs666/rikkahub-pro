@@ -2,6 +2,7 @@ package me.rerere.rikkahub.service
 
 import android.app.Application
 import android.content.Context
+import android.database.sqlite.SQLiteBlobTooBigException
 import android.util.Log
 import androidx.core.net.toUri
 import kotlinx.coroutines.CancellationException
@@ -1018,18 +1019,30 @@ class ChatService(
     }
 
     suspend fun saveConversation(conversationId: Uuid, conversation: Conversation) {
-        val exists = conversationRepo.existsConversationById(conversation.id)
-        if (!exists && conversation.title.isBlank() && conversation.messageNodes.isEmpty()) {
-            return // 新会话且为空时不保存
-        }
+        // [FIX] 超长消息兜底：单节点 JSON 超过 SQLite/CursorWindow 限制（约 2MB）时
+        // insertAll 抛 SQLiteBlobTooBigException，原来会向上冒泡导致"生成成功但保存失败"，
+        // 消息只在内存中、重启后丢失且用户无感知。此处捕获并转为用户可见错误；
+        // 会话内存态不受影响（本次会话内仍可继续查看/操作）。
+        try {
+            val exists = conversationRepo.existsConversationById(conversation.id)
+            if (!exists && conversation.title.isBlank() && conversation.messageNodes.isEmpty()) {
+                return // 新会话且为空时不保存
+            }
 
-        val updatedConversation = conversation.copy()
-        updateConversation(conversationId, updatedConversation)
+            val updatedConversation = conversation.copy()
+            updateConversation(conversationId, updatedConversation)
 
-        if (!exists) {
-            conversationRepo.insertConversation(updatedConversation)
-        } else {
-            conversationRepo.updateConversation(updatedConversation)
+            if (!exists) {
+                conversationRepo.insertConversation(updatedConversation)
+            } else {
+                conversationRepo.updateConversation(updatedConversation)
+            }
+        } catch (e: SQLiteBlobTooBigException) {
+            Log.e(TAG, "saveConversation: node too large, conversation not persisted", e)
+            addError(e, conversationId, title = context.getString(R.string.error_title_save_conversation))
+        } catch (e: Exception) {
+            Log.e(TAG, "saveConversation failed", e)
+            addError(e, conversationId, title = context.getString(R.string.error_title_operation))
         }
     }
 

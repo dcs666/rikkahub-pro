@@ -329,6 +329,7 @@
   <string name="error_title_generate_title">自動タイトル生成に失敗しました</string>
   <string name="error_title_generation">メッセージ生成に失敗しました</string>
   <string name="error_title_operation">操作に失敗しました</string>
+  <string name="error_title_save_conversation">メッセージが長すぎて保存できません（再起動で失われる可能性があります）</string>
   <string name="error_title_regenerate_message">メッセージの再生成に失敗しました</string>
   <string name="error_title_send_message">メッセージ送信失敗</string>
   <string name="error_title_tool_approval">ツール呼び出し処理に失敗しました</string>
