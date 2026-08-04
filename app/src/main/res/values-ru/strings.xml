@@ -585,6 +585,7 @@
   <string name="search_page_rebuilding_simple">Пересоздание индекса…</string>
   <string name="search_page_sort">Сортировка</string>
   <string name="search_page_sort_newest">Сначала новые</string>
+  <string name="message_collapse_expand">Развернуть полный текст (~%1$d симв.)</string>
   <string name="search_page_sort_oldest">Сначала старые</string>
   <string name="search_page_sort_relevance">По релевантности</string>
   <string name="search_page_title">Поиск сообщений</string>

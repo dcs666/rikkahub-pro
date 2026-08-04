@@ -593,6 +593,7 @@
   <string name="search_page_rebuilding_simple">Rebuilding index...</string>
   <string name="search_page_sort">Sort</string>
   <string name="search_page_sort_newest">Newest first</string>
+  <string name="message_collapse_expand">Expand full text (~%1$d chars)</string>
   <string name="search_page_sort_oldest">Oldest first</string>
   <string name="search_page_sort_relevance">Relevance</string>
   <string name="search_page_title">Search Messages</string>

@@ -721,8 +721,7 @@ private fun CollapsedMessagePreview(
         )
         Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             TextButton(onClick = onExpand) {
-                // TODO(i18n): 折叠按钮文案暂硬编码中文，后续可抽到 strings.xml
-                Text("展开全文（约 $textLength 字）")
+                Text(stringResource(R.string.message_collapse_expand, textLength))
             }
         }
     }

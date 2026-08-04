@@ -585,6 +585,7 @@
   <string name="search_page_rebuilding_simple">색인 재구성 중...</string>
   <string name="search_page_sort">정렬</string>
   <string name="search_page_sort_newest">최신순</string>
+  <string name="message_collapse_expand">전체 텍스트 펼치기(약 %1$d자)</string>
   <string name="search_page_sort_oldest">오래된순</string>
   <string name="search_page_sort_relevance">관련성</string>
   <string name="search_page_title">메시지 검색</string>
