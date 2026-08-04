@@ -194,9 +194,10 @@ private fun stripStreamingMarkdown(content: String): String {
 
 /**
  * [TURBO R3.1] 流式块级拆分：把生成中的内容按 ``` 围栏快速切分为 代码块/文本段。
- * - 奇数索引段 = 代码块（``` 已闭合）：保留原始内容（换行/缩进），流式渲染为 monospace 容器
+ * - 奇数索引段 = 代码块：保留原始内容（换行/缩进），流式渲染为 monospace 容器。
+ *   注意：围栏数为奇数时尾段（未闭合代码块，模型仍在写代码）同样落在奇数索引 → 按代码块
+ *   渲染——这正是"生成中代码可见可读"的预期行为；生成结束 streaming=false 切完整渲染。
  * - 偶数索引段 = 普通文本：走 stripStreamingMarkdown 轻量擦除
- * - 未闭合代码块（奇数个 ```，生成中尾巴）按普通文本兜底，生成结束即恢复完整渲染
  * 每帧成本 = 一次 split + 逐段 strip（O(n)），与 R3 纯文本方案同级；收益 = 代码块可见可读。
  */
 private data class StreamingBlock(val isCode: Boolean, val text: String)
@@ -209,8 +210,23 @@ private fun splitStreamingBlocks(content: String): List<StreamingBlock> {
         val isCode = index % 2 == 1 // 围栏之间 = 代码
         if (part.isEmpty()) return@forEachIndexed
         if (isCode) {
-            // 剥离围栏后的首个换行与尾部换行；语言标记（```kotlin 的首行）保留在文本里无妨
-            val text = part.removePrefix("\n").trimEnd('\n')
+            // 剥离围栏后的首个换行与尾部换行；围栏语言标记（```kotlin 行）不渲染进代码体：
+            // 否则流式代码块首行会出现 "kotlin"，且生成结束切完整渲染时该行消失（跳变）。
+            // 保守判定：紧贴围栏的单 token（字母数字 _ - +，≤20 字符）且后面还有换行才算标记；
+            // shebang（#!/bin/bash）、含空格行、单行代码（无换行）都不会误删。
+            val text = part
+                .let { raw ->
+                    val firstLine = raw.substringBefore('\n')
+                    if (firstLine.isNotEmpty() &&
+                        firstLine.length <= 20 &&
+                        firstLine.all { it.isLetterOrDigit() || it == '_' || it == '-' || it == '+' } &&
+                        raw.contains('\n')
+                    ) {
+                        raw.substringAfter('\n')
+                    } else raw
+                }
+                .removePrefix("\n")
+                .trimEnd('\n')
             if (text.isNotEmpty()) blocks.add(StreamingBlock(true, text))
         } else {
             val text = stripStreamingMarkdown(part)
@@ -355,10 +371,10 @@ fun MarkdownBlock(
         // 不降单帧成本）。降级渲染成本比几百节点的 markdown 树低一个数量级。
         // 上方后台 LaunchedEffect 仍 parse 预热 data，故 streaming→false 切完整分支时
         // data 已就绪，零 parse 零跳变卡顿。
-        // [TURBO R3.1] 块级降级：按 ``` 切分，已闭合代码块用 monospace 容器真渲染
+        // [TURBO R3.1] 块级降级：按 ``` 切分，代码块（含未闭合尾段）用 monospace 容器真渲染
         // （代码阅读体验恢复），普通段 stripStreamingMarkdown 纯文本；每帧成本与
-        // R3 同级（O(n) split + strip，几个文本节点）。未闭合尾巴按文本兜底，
-        // 生成结束 streaming=false 切完整渲染分支，显示真正格式化的 markdown。
+        // R3 同级（O(n) split + strip，几个文本节点）。生成结束 streaming=false
+        // 切完整渲染分支，显示真正格式化的 markdown。
         ProvideTextStyle(style) {
             Column(modifier = modifier.padding(horizontal = 4.dp)) {
                 remember(content) { splitStreamingBlocks(content) }.forEach { block ->
