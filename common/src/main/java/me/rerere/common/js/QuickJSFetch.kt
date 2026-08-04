@@ -89,7 +89,20 @@ fun QuickJSContext.injectFetch(httpClient: OkHttpClient) {
         }
 
         val response = httpClient.newCall(requestBuilder.build()).execute()
-        val responseBody = response.body.string()
+        // [FIX] 响应体限量读取：JS 脚本 fetch 任意 URL，不限制时一个超大响应会把
+        // 整个响应读进内存再塞给 QuickJS（OOM 崩溃面）。5MB 上限覆盖正常抓取场景。
+        val maxResponseBytes = 5L * 1024 * 1024
+        val responseBody = try {
+            val source = response.body.source()
+            val buffer = okio.Buffer()
+            val read = source.read(buffer, maxResponseBytes + 1)
+            if (read > maxResponseBytes) {
+                error("Response too large (>5MB) for JS fetch")
+            }
+            buffer.readUtf8()
+        } catch (e: okio.IOException) {
+            error("Failed to read response: ${e.message}")
+        }
         val code = response.code
         val message = response.message
         response.close()
