@@ -13,6 +13,9 @@ import me.rerere.document.PptxParser
 import java.io.File
 
 object DocumentAsPromptTransformer : InputMessageTransformer {
+    /** 单文档注入 prompt 的最大字符数：防超大 PDF/文本撑爆请求体（API 413/超时）。 */
+    private const val MAX_DOCUMENT_CHARS = 200_000
+
     override suspend fun transform(
         ctx: TransformerContext,
         messages: List<UIMessage>,
@@ -24,7 +27,17 @@ object DocumentAsPromptTransformer : InputMessageTransformer {
                         val documents = filterIsInstance<UIMessagePart.Document>()
                         if (documents.isNotEmpty()) {
                             documents.forEach { document ->
-                                val content = readDocumentContent(document)
+                                val rawContent = readDocumentContent(document)
+                                // [FIX] 截断超长文档：全量注入大文件会让请求体爆炸
+                                // （数十 MB 文本 → 数十万 token → 413/超时/内存压力）。
+                                // workspace 场景 AI 可凭 path 属性用工具直接读原文件。
+                                val content = if (rawContent.length > MAX_DOCUMENT_CHARS) {
+                                    rawContent.take(MAX_DOCUMENT_CHARS) +
+                                        "\n...[truncated: file too large, ${rawContent.length} chars total; " +
+                                        "read the original file for full content]"
+                                } else {
+                                    rawContent
+                                }
                                 val path = resolveWorkspacePath(document)
                                 val pathAttr = path?.let { " path=\"$it\"" } ?: ""
                                 val prompt = """
