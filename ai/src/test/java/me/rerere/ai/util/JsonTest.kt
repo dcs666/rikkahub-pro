@@ -6,6 +6,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import me.rerere.ai.provider.CustomBody
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class JsonTest {
@@ -129,5 +130,26 @@ class JsonTest {
         assertEquals(2, result.size)
         assertEquals("value1", result["key1"]?.toString()?.trim('"'))
         assertEquals("value2", result["key2"]?.toString()?.trim('"'))
+    }
+
+    // [FIX #38 回归测试] removeElements 深度上限：万层嵌套不再 SOE（Error 不可捕获）
+    @Test
+    fun `removeElements should not overflow stack on deeply nested json`() {
+        var deep: JsonObject = buildJsonObject { put("leaf", "value") }
+        repeat(1000) { deep = buildJsonObject { put("nested", deep) } }
+        // 不抛 StackOverflowError 即通过；深度 > 32 截断返回原值
+        val result = deep.removeElements(listOf("leaf"))
+        assertEquals(deep, result)
+    }
+
+    // [FIX #38 回归测试] mergeJsonObjects 深度上限：万层嵌套不再 SOE
+    @Test
+    fun `mergeCustomBody should not overflow stack on deeply nested overlay`() {
+        var overlay: JsonObject = buildJsonObject { put("leaf", "x") }
+        repeat(1000) { overlay = buildJsonObject { put("nested", overlay) } }
+        val base: JsonObject = buildJsonObject { put("nested", "base") }
+        val result = base.mergeCustomBody(listOf(CustomBody("nested", overlay)))
+        // 深度超限防御截断：不抛 SOE 即通过
+        assertTrue(result["nested"] is JsonObject)
     }
 }
