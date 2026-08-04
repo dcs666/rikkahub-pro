@@ -46,16 +46,14 @@ import me.rerere.rikkahub.utils.JsonInstant
         AutoMigration(from = 3, to = 4),
         AutoMigration(from = 4, to = 5),
         AutoMigration(from = 5, to = 6),
-        AutoMigration(from = 6, to = 7),
+        // 6→7 / 11→12 / 13→14 / 14→15 / 15→16 为手写数据迁移（数据转换），
+        // 已在 DataSourceModule.addMigrations(...) 注册，此处不可重复声明 AutoMigration
+        //（Room 编译期校验：同版本对同时存在手写 Migration 时禁止 AutoMigration）。
         AutoMigration(from = 7, to = 8),
         AutoMigration(from = 8, to = 9, spec = Migration_8_9::class),
         AutoMigration(from = 9, to = 10),
         AutoMigration(from = 10, to = 11),
-        AutoMigration(from = 11, to = 12),
         AutoMigration(from = 12, to = 13),
-        AutoMigration(from = 13, to = 14),
-        AutoMigration(from = 14, to = 15),
-        AutoMigration(from = 15, to = 16),
         AutoMigration(from = 16, to = 17, spec = Migration_16_17::class),
         AutoMigration(from = 17, to = 18),
         AutoMigration(from = 18, to = 19),
