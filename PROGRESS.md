@@ -325,6 +325,15 @@
 - **修复 47** WebServerManager.restart() 竞态：stop() 异步 → restart 立即 start() 时旧 server 未停（start 直接 return）→ 只停不启；同步停止后再启动（be3a48d，当前无调用方加固）
 - 其他：release.yml dispatch 默认 tag v1.1.5-turbo 陈旧 → 空默认回退 github.ref_name（3cc2262）；模板二次替换确认无风险（Pebble 单次 evaluate）；模型列表为本地数据无加载面
 
+
+## 深挖第十八轮（批 367-372，测试补强 + 边界复查）
+- **修复 48**（边界补全 #42）：多图分享（相册多选）Uri 在 clipData 而非 EXTRA_STREAM → 仍丢图；兜底取 clipData 第一项（4374afa）
+- 编译修复 8df2310：ASR controller smart cast（局部变量）+ WebServerManager suspend unregister 同步调用（restart 只停 server，NSD 保持）
+- 回归测试 c5252a0：#38 JSON 深度防护（1000 层嵌套 removeElements/mergeCustomBody 不 SOE）
+- 回归测试 cf10a2f：TaskConfig 序列化（Timer autoAi round-trip + 缺省 false + CIMonitor + 旧格式兼容）
+- 定时器治理：旧版 v1.7.7 指令定时器（7cfe590d/6bce01f8）已取消，唯一活跃 c40845d0（无限巡检 auto_ai=true 新版指令）；行为准则固化进记忆（定时器触发 = 查 CI + 找活干，不许只"待命"）
+- **累计修复 48 个真实 bug**；v1.7.8 候选：cf10a2f（44-47 修复 + 编译修复 + 测试 + clipData + ci tag）
+
 ## v1.7.4-turbo 发布（2026-08-04，2.5.0/179）
 - 包含 3 个修复（v1.7.3 后）：04bbb45 搜索响应 2MB 限量（19 服务）/ 15e37df 翻译输入 200K 截断 / 5f53f30 GitHub API 4MB 限量
 - 双绿验证：9e78b88（Unit Tests + Build APK success）
