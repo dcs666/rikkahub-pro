@@ -211,3 +211,6 @@
 ## 深挖第六轮（批 61-90，发现 1 个修复，累计 26）
 - f2bf4e4 Room AutoMigration 链缺口（6→7/11→12/13→16 缺失 → 存量用户升级崩溃）补齐
 - 审过干净：MCP 官方 SDK transport（本地 transport 为死代码）、ChatPage 图片链路（HEIF 转换+回退）、assistant 详情/导入（SillyTavern 解析容错）、SearchVM（debounce）、web-ui conversation/code-block（subscriber 清理）、highlight 语言定义、ai 核心类型（Modality 设计）、AppDatabase 其余迁移、工作区编辑器、导出导入（JSON 校验）、Koin 4 模块、Manifest（exported 正确）、Gradle（minify=false 有注释）、前端 types/locales、SafeMode（崩溃恢复）、WebViewPage（JS 默认关闭）、Provider.getBalance TODO（被类型守卫挡住非 bug）
+
+## 深挖第七轮（批 91-140，50 批，0 新 bug）
+- 审过：消息组件（分组/分支/工具 UI）、ChatSizeChecker（阈值）、PropertyEditor（JSON 容错）、Navigator（自研导航）、ai 类型、highlight 31 语言、FTS（limit coerce+cursor.use+枚举 orderBy 无注入）、OCR 缓存 64、ChatExport（FileProvider）、通知渠道 5 个、StatsVM（GROUP BY≤371 行）、web-ui hooks 全 6 个（cleanup 完整）、SkillsVM（zip bomb 防护复核）、终端（onDispose finish）、i18n 完整性验证（@string 引用 0 缺失）、ModelRegistry（模态解析正确）、ChatService 压缩 Semaphore(2)、S3Sync 复核、RikkaHubApp 初始化链（全 runCatching）、CrashHandler、后台维护 5 函数、TTSAutoPlay/ConversationList/WorkspaceRepository
