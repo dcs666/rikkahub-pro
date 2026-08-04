@@ -626,7 +626,10 @@ class GenerationHandler(
         val fullText = textParts.joinToString("\n") { it.text }
         val preview = fullText.take(TOOL_OUTPUT_PREVIEW_CHARS)
 
-        val fileName = "${toolCallId}.txt"
+        // [FIX] toolCallId 由模型提供（外部可控），直接拼文件名可含 "/" 或 "../" →
+        // 逃逸 tool_outputs 目录写入 app 私有目录其他位置（父目录存在时静默覆盖）。
+        val safeFileName = toolCallId.replace(Regex("[^A-Za-z0-9_-]"), "_")
+        val fileName = "$safeFileName.txt"
         val outputDir = File(context.filesDir, FileFolders.TOOL_OUTPUTS).apply { mkdirs() }
         File(outputDir, fileName).writeText(fullText)
 
