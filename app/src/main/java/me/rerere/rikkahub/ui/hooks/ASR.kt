@@ -98,14 +98,15 @@ private class CustomAsrStateImpl(
             )
             return
         }
-        if (controller == null) {
+        val activeController = controller // 局部变量：controller 是可变属性，无法 smart cast
+        if (activeController == null) {
             idleState.value = ASRState(
                 status = ASRStatus.Error,
                 errorMessage = "ASR provider not configured",
             )
             return
         }
-        controller.start(onTranscriptChange)
+        activeController.start(onTranscriptChange)
     }
 
     override fun stop() {

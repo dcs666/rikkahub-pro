@@ -152,10 +152,11 @@ class WebServerManager(
         // [FIX] stop() 内部是异步 launch：restart() 立即调 start() 时旧 server
         // 尚未停止（server != null → start 直接 return "Server already running"），
         // 结果是只停不启。改为同步停止旧 server 后再启动。
+        // 注意：不在此处理 NSD（unregister 是 suspend，且 restart 默认同端口同名，
+        // 已注册的 NSD 服务继续有效；start() 内部会按需重新注册）。
         server?.let { old ->
             old.stop(1000, 2000)
             server = null
-            runCatching { nsdRegistrar.unregister() }
         }
         start(port, serviceName, localhostOnly)
     }
