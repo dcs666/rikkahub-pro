@@ -37,7 +37,15 @@ interface ExportSerializer<T> {
     }
 
     // 读取 URI 内容的便捷方法
+    // [FIX] 无大小限制：用户选择超大 JSON → readText() 全量入内存 → OOM。
+    // 与 AssistantImporter 的 5MB 上限一致（导入是完整文件解析）。
     fun readUri(context: Context, uri: Uri): String {
+        val size = runCatching {
+            context.contentResolver.openAssetFileDescriptor(uri, "r")?.length ?: -1L
+        }.getOrDefault(-1L)
+        if (size > MAX_IMPORT_FILE_CHARS) {
+            error("Import file is too large (max 5MB)")
+        }
         return context.contentResolver.openInputStream(uri)
             ?.bufferedReader()
             ?.use { it.readText() }
@@ -54,6 +62,9 @@ interface ExportSerializer<T> {
     }
 
     companion object {
+        // [FIX] 导入文件字符上限（与 AssistantImporter 一致）
+        private const val MAX_IMPORT_FILE_CHARS = 5_000_000L
+
         val DefaultJson = Json {
             ignoreUnknownKeys = true
             encodeDefaults = true
