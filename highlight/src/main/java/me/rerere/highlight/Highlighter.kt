@@ -1,5 +1,6 @@
 package me.rerere.highlight
 
+import android.util.Log
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -18,6 +19,8 @@ import me.rerere.highlight.languages.builtinLanguages
 
 private const val MAX_CODE_LENGTH = 4096
 
+private const val TAG = "CodeHighlighter"
+
 val LocalCodeHighlighter = staticCompositionLocalOf { CodeHighlighter() }
 
 /**
@@ -32,8 +35,15 @@ class CodeHighlighter {
     fun highlight(code: String, language: String): List<HighlightToken> {
         if (code.isEmpty()) return emptyList()
 
-        return engine.highlight(code, language)
-            ?: listOf(HighlightToken.Plain(code))
+        // [FIX] 引擎内部有死循环兜底（MAX_ITERATIONS check 抛 IllegalStateException），
+        // 但调用方（Compose remember 块）无捕获 → 崩溃整个 UI。兜底为纯文本。
+        return try {
+            engine.highlight(code, language)
+                ?: listOf(HighlightToken.Plain(code))
+        } catch (e: Exception) {
+            Log.w(TAG, "highlight: fallback to plain text for $language", e)
+            listOf(HighlightToken.Plain(code))
+        }
     }
 
     fun supports(language: String): Boolean = engine.supports(language)
