@@ -6,6 +6,7 @@ import androidx.compose.ui.res.stringResource
 import com.whl.quickjs.wrapper.QuickJSContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -86,14 +87,20 @@ object CustomJsSearchService : SearchService<SearchServiceOptions.CustomJsOption
         }
     }
 
-    private fun executeScript(userScript: String, invocation: String): String {
+    private suspend fun executeScript(userScript: String, invocation: String): String {
         val context = QuickJSContext.create()
         try {
+            // [FIX] 限制脚本资源：用户自定义脚本可能分配爆炸（内存）或死循环（永不返回）。
+            // 内存上限防止脚本一次性申请 GB 级；withTimeout 保证调用方不被永久挂起
+            // （注意：QuickJS 为同步执行，超时后 IO 线程仍被脚本占住直到脚本返回，
+            // 但调用方会及时收到超时错误而非无限等待）。
+            context.setMemoryLimit(64 * 1024 * 1024L)
             context.injectFetch(httpClient)
-            context.evaluate(userScript)
-
-            val result = context.evaluate("JSON.stringify($invocation)")
-            return result as? String ?: error("Function returned null or undefined")
+            withTimeout(20_000) {
+                context.evaluate(userScript)
+                val result = context.evaluate("JSON.stringify($invocation)")
+                result as? String ?: error("Function returned null or undefined")
+            }
         } finally {
             context.destroy()
         }
