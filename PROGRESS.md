@@ -225,3 +225,7 @@
 
 ## 深挖第十轮（批 241-290，50 轮，0 新 bug）
 - 审过：PresetTheme/findThemeById（兜底）、消息组件剩余（CopySheet/NerdLine/Translation/EditedFiles 导出 FileProvider）、ToolUI/BuiltinToolUIs（记忆删除）、ChatInputState（编辑态）、web-ui api.ts（localStorage token+expiresAt 校验）、ProviderConfigure/ConnectionTester（runCatching）、AppEventBus（buffer 16+tryEmit 丢弃策略，7 文件消费方无孤儿）、PreferencesStore update（dummy 防护）、NotificationUtil、SettingPage（赞助弹窗）
+
+## v1.7.4-turbo 发布（2026-08-04，2.5.0/179）
+- 包含 3 个修复（v1.7.3 后）：04bbb45 搜索响应 2MB 限量（19 服务）/ 15e37df 翻译输入 200K 截断 / 5f53f30 GitHub API 4MB 限量
+- 双绿验证：9e78b88（Unit Tests + Build APK success）
