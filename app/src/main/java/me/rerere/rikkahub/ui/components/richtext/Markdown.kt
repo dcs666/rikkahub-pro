@@ -192,46 +192,128 @@ private fun stripStreamingMarkdown(content: String): String {
     return r
 }
 
-/**
- * [TURBO R3.1] 流式块级拆分：把生成中的内容按 ``` 围栏快速切分为 代码块/文本段。
- * - 奇数索引段 = 代码块：保留原始内容（换行/缩进），流式渲染为 monospace 容器。
- *   注意：围栏数为奇数时尾段（未闭合代码块，模型仍在写代码）同样落在奇数索引 → 按代码块
- *   渲染——这正是"生成中代码可见可读"的预期行为；生成结束 streaming=false 切完整渲染。
- * - 偶数索引段 = 普通文本：走 stripStreamingMarkdown 轻量擦除
- * 每帧成本 = 一次 split + 逐段 strip（O(n)），与 R3 纯文本方案同级；收益 = 代码块可见可读。
- */
-private data class StreamingBlock(val isCode: Boolean, val text: String)
+// ==================== R3.2 块级结构化流式渲染 ====================
+// 流式内容按行分类为 代码块/标题/引用/列表/段落。markdown 是追加式的：
+// 已完成的块不再变化，新内容只追加在尾部 → 每帧只需一次 O(n) 行扫描，已渲染块参数不变，
+// Compose 智能跳过不重组；生成结束 streaming=false 切完整渲染（data 已后台预热，零解析）。
+// 行内格式（加粗/行内代码/链接）仍走 stripStreamingMarkdown 擦除兜底（跨行标记不做行内
+// 解析，避免"闪现又消失"）；结束切完整渲染后仅行内格式的细微变化。
+private enum class StreamBlockKind { CODE, HEADING, QUOTE, LIST, PARAGRAPH }
 
-private fun splitStreamingBlocks(content: String): List<StreamingBlock> {
+private class StreamBlock(
+    val kind: StreamBlockKind,
+    val text: String,
+    val headingLevel: Int = 1,
+    val listOrdered: Boolean = false,
+    val listIndex: Int = 0,
+)
+
+// 分类规则与完整解析器（intellij markdown）对齐，避免结束时块类型跳变：
+// - ATX 标题：行首 1-6 个 # 后必须跟空格（"#x" 不是标题，保持段落）
+// - 引用：> 后可选一个空格（">text" 也是引用；">> " 嵌套退化为单级，内层 > 由 strip 擦除）
+// - 无序列表：- * + 后必须跟空格（"-x" 不是列表，保持段落）
+// - 有序列表：1-9 位数字 + . 或 ) + 空格
+private val STREAM_HEADING_RE = Regex("^(#{1,6}) ")
+private val STREAM_QUOTE_RE = Regex("^> ?")
+private val STREAM_UNORDERED_RE = Regex("^[-*+] ")
+private val STREAM_ORDERED_RE = Regex("^(\\d{1,9})[.)] ")
+
+private fun splitStreamingBlocks(content: String): List<StreamBlock> {
     if (content.isEmpty()) return emptyList()
-    val parts = content.split("```")
-    val blocks = mutableListOf<StreamingBlock>()
-    parts.forEachIndexed { index, part ->
-        val isCode = index % 2 == 1 // 围栏之间 = 代码
-        if (part.isEmpty()) return@forEachIndexed
-        if (isCode) {
-            // 剥离围栏后的首个换行与尾部换行；围栏语言标记（```kotlin 行）不渲染进代码体：
-            // 否则流式代码块首行会出现 "kotlin"，且生成结束切完整渲染时该行消失（跳变）。
-            // 保守判定：紧贴围栏的单 token（字母数字 _ - +，≤20 字符）且后面还有换行才算标记；
-            // shebang（#!/bin/bash）、含空格行、单行代码（无换行）都不会误删。
-            val text = part
-                .let { raw ->
-                    val firstLine = raw.substringBefore('\n')
-                    if (firstLine.isNotEmpty() &&
-                        firstLine.length <= 20 &&
-                        firstLine.all { it.isLetterOrDigit() || it == '_' || it == '-' || it == '+' } &&
-                        raw.contains('\n')
-                    ) {
-                        raw.substringAfter('\n')
-                    } else raw
-                }
-                .removePrefix("\n")
-                .trimEnd('\n')
-            if (text.isNotEmpty()) blocks.add(StreamingBlock(true, text))
-        } else {
-            val text = stripStreamingMarkdown(part)
-            if (text.isNotEmpty()) blocks.add(StreamingBlock(false, text))
+    val blocks = mutableListOf<StreamBlock>()
+    val lines = content.split('\n')
+    var inCode = false
+    val codeBuf = StringBuilder()
+    var paraBuf = StringBuilder()
+    var paraDirty = false
+
+    fun flushParagraph() {
+        if (!paraDirty) return
+        val text = stripStreamingMarkdown(paraBuf.toString()).trim()
+        if (text.isNotEmpty()) blocks.add(StreamBlock(StreamBlockKind.PARAGRAPH, text))
+        paraBuf = StringBuilder()
+        paraDirty = false
+    }
+
+    for (line in lines) {
+        val lt = line.trimStart()
+        if (inCode) {
+            if (lt.startsWith("```")) {
+                // 闭合围栏：围栏行本身（含语言标记）不渲染进代码体
+                inCode = false
+                val text = codeBuf.toString().trimEnd('\n')
+                if (text.isNotEmpty()) blocks.add(StreamBlock(StreamBlockKind.CODE, text))
+                codeBuf = StringBuilder()
+            } else {
+                codeBuf.append(line).append('\n')
+            }
+            continue
         }
+        if (lt.startsWith("```")) {
+            // 开启围栏（``` 后的语言标记随围栏行丢弃）
+            flushParagraph()
+            inCode = true
+            continue
+        }
+        if (line.isBlank()) {
+            flushParagraph()
+            continue
+        }
+        val heading = STREAM_HEADING_RE.find(lt)
+        if (heading != null) {
+            flushParagraph()
+            val text = stripStreamingMarkdown(lt.substring(heading.value.length)).trim()
+            if (text.isNotEmpty()) {
+                blocks.add(
+                    StreamBlock(
+                        kind = StreamBlockKind.HEADING,
+                        text = text,
+                        headingLevel = heading.groupValues[1].length,
+                    )
+                )
+            }
+            continue
+        }
+        val quote = STREAM_QUOTE_RE.find(lt)
+        if (quote != null) {
+            flushParagraph()
+            val text = stripStreamingMarkdown(lt.substring(quote.value.length)).trim()
+            if (text.isNotEmpty()) blocks.add(StreamBlock(StreamBlockKind.QUOTE, text))
+            continue
+        }
+        val unordered = STREAM_UNORDERED_RE.find(lt)
+        if (unordered != null) {
+            flushParagraph()
+            val text = stripStreamingMarkdown(lt.substring(unordered.value.length)).trim()
+            if (text.isNotEmpty()) blocks.add(StreamBlock(StreamBlockKind.LIST, text))
+            continue
+        }
+        val ordered = STREAM_ORDERED_RE.find(lt)
+        if (ordered != null) {
+            flushParagraph()
+            val text = stripStreamingMarkdown(lt.substring(ordered.value.length)).trim()
+            if (text.isNotEmpty()) {
+                blocks.add(
+                    StreamBlock(
+                        kind = StreamBlockKind.LIST,
+                        text = text,
+                        listOrdered = true,
+                        listIndex = ordered.groupValues[1].toIntOrNull() ?: 1,
+                    )
+                )
+            }
+            continue
+        }
+        // 普通段落行：累积（markdown soft line break 语义，段落内换行不新开块）
+        paraDirty = true
+        if (paraBuf.isNotEmpty()) paraBuf.append('\n')
+        paraBuf.append(stripStreamingMarkdown(line))
+    }
+    flushParagraph()
+    // 未闭合代码块（生成中尾巴）：按代码块渲染，代码生成中可见；结束切完整渲染恢复
+    if (inCode) {
+        val text = codeBuf.toString().trimEnd('\n')
+        if (text.isNotEmpty()) blocks.add(StreamBlock(StreamBlockKind.CODE, text))
     }
     return blocks
 }
@@ -371,29 +453,68 @@ fun MarkdownBlock(
         // 不降单帧成本）。降级渲染成本比几百节点的 markdown 树低一个数量级。
         // 上方后台 LaunchedEffect 仍 parse 预热 data，故 streaming→false 切完整分支时
         // data 已就绪，零 parse 零跳变卡顿。
-        // [TURBO R3.1] 块级降级：按 ``` 切分，代码块（含未闭合尾段）用 monospace 容器真渲染
-        // （代码阅读体验恢复），普通段 stripStreamingMarkdown 纯文本；每帧成本与
-        // R3 同级（O(n) split + strip，几个文本节点）。生成结束 streaming=false
-        // 切完整渲染分支，显示真正格式化的 markdown。
+        // [TURBO R3.2] 块级结构化降级：按行分类 代码块/标题/引用/列表/段落，样式与最终
+        // 渲染对齐（HeaderStyle.fromLevel / 引用左线+斜体 / "• " 前缀 / monospace 容器）。
+        // markdown 追加式 → 已渲染块参数不变，Compose 智能跳过重组；每帧成本 O(n) 行扫描。
+        // 行内格式仍 stripStreamingMarkdown 擦除兜底；生成结束 streaming=false 切完整渲染
+        // 分支（data 已后台预热），只剩行内格式的细微变化。
+        val fontSizeRatio = LocalSettings.current.displaySetting.fontSizeRatio
         ProvideTextStyle(style) {
-            Column(modifier = modifier.padding(horizontal = 4.dp)) {
+            Column(
+                modifier = modifier.padding(horizontal = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
                 remember(content) { splitStreamingBlocks(content) }.forEach { block ->
-                    if (block.isCode) {
-                        Surface(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                        ) {
+                    when (block.kind) {
+                        StreamBlockKind.CODE -> {
+                            Surface(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                            ) {
+                                Text(
+                                    text = block.text,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = (style.fontSize * 0.9f).let { if (it.isUnspecified) 13.sp else it },
+                                    lineHeight = if (style.lineHeight.isUnspecified) 18.sp else style.lineHeight,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                )
+                            }
+                        }
+
+                        StreamBlockKind.HEADING -> {
                             Text(
                                 text = block.text,
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = (style.fontSize * 0.9f).let { if (it.isUnspecified) 13.sp else it },
-                                lineHeight = if (style.lineHeight.isUnspecified) 18.sp else style.lineHeight,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                style = HeaderStyle.fromLevel(block.headingLevel, fontSizeRatio),
                             )
                         }
-                    } else {
-                        Text(text = block.text)
+
+                        StreamBlockKind.QUOTE -> {
+                            // 与最终 BLOCK_QUOTE 对齐：斜体 + 左侧竖线 + 浅背景（单级简化）
+                            val borderColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                            val bgColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .drawWithContent {
+                                        drawContent()
+                                        drawRect(color = bgColor, size = size)
+                                        drawRect(color = borderColor, size = Size(10f, size.height))
+                                    }
+                                    .padding(8.dp),
+                            ) {
+                                Text(text = block.text, fontStyle = FontStyle.Italic)
+                            }
+                        }
+
+                        StreamBlockKind.LIST -> {
+                            val prefix = if (block.listOrdered) "${block.listIndex}. " else "• "
+                            Text(text = "$prefix${block.text}")
+                        }
+
+                        StreamBlockKind.PARAGRAPH -> {
+                            Text(text = block.text)
+                        }
                     }
                 }
             }
