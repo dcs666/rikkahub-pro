@@ -924,8 +924,15 @@ class ChatService(
             }
             addAll(messagesToKeep.map { it.toMessageNode() })
         }
-        val newConversation = conversation.copy(
-            messageNodes = newMessageNodes,
+        // [FIX] 合并最新状态而非整体覆盖：压缩要跑多个 LLM 请求（大对话可达数十秒~数分钟），
+        // 期间用户可能继续发消息/生成回复（追加在会话末尾）。旧实现用压缩开始时的快照
+        // copy 后整体 saveConversation，会把压缩期间的新消息连内存带库一起覆盖丢失。
+        // 现改为：保留快照之后追加的新节点；同时基于 latest 而非快照做 copy，
+        // 避免把期间更新的 title/folderId 等字段回滚成旧值。
+        val latest = getConversationFlow(conversationId).value
+        val appendedNodes = latest.messageNodes.drop(conversation.messageNodes.size)
+        val newConversation = latest.copy(
+            messageNodes = newMessageNodes + appendedNodes,
             chatSuggestions = emptyList(),
         )
 
