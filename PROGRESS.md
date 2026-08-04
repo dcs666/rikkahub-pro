@@ -135,3 +135,11 @@
   - webhook 未配 token 时不校验签名（局域网暴露场景低危）
   - WebServerManager.restart 未使用（stop 异步 + start early-return 竞态，无调用方）
   - FilesRoutes canonicalPath.startsWith 缺分隔符边界（已被 ".." 检查前置拦截）
+
+## 持续逐行审查批次 2（2026-08-04，v1.7-turbo 发布后）
+- **新修复**：
+  1. **web-ui workbench 预览 XSS 加固**（9a15eab/5757477/7f4431b）：iframe sandbox 去掉 allow-same-origin（srcDoc iframe 继承父 origin，allow-scripts+allow-same-origin 组合可读写父页面 localStorage 里的 JWT）；mermaid securityLevel loose→strict（禁点击回调脚本）
+  2. **ChatList.kt 括号修复**（6af5d66）：并行 edit 竞态残留的多余闭括号
+- **确认无问题**：ai 模块全量（Provider 流式/KeyRoulette LRU/SSE/工具调用聚合/无界缓冲）、common（LruCache/QuickJSFetch 未用）、document、search（19 服务）、speech（TTS/ASR）、highlight（纯 Kotlin 引擎）、前端 api.ts（JWT 生命周期/401 处理/SSE）
+- **记录不修**：QuickJSFetch 死代码（无调用方）、JSON 深层渲染无限制（acyclic）、McpOAuth deep link 无 state 时被忽略（随机 state 防护）
+- **教训 3**：JSX 属性间不能写 // 注释（esbuild 报错）；同文件 edit 串行是硬约束（本轮 4 次竞态：ChatList 括号、sandbox 注释、文件尾部三重重复）
