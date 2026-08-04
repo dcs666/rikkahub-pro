@@ -266,6 +266,26 @@
 - 批 321 activity/theme/杂项：干净（均已覆盖）
 - 批 322 TextArea 等收尾：**修复 35** TextArea 文件导入无上限 → 输入框渲染卡死 + system prompt 膨胀 413；200K 截断（b6a3599）
 
+
+## 深挖第十三轮（批 323-334，12 轮，2 新修复）
+- 批 323 PreferencesStore/CoroutineUtils：干净（Mutex 串行化 + dummy 防护 + halt(1) 防损坏设计）
+- 批 324 data/model + db/entity：干净（纯数据类）
+- 批 325 data/files/favorite/export/api：**修复 36** ExportSerializer.readUri 无大小限制 → 导入 JSON OOM；5MB 上限（1130ba8）
+- 批 326 TaskValidation/TaskDao：干净（REPO_PATTERN + 条件 UPDATE 防终态覆盖）
+- 批 327 DAO 批量：干净（全参数化无 SQL 注入）
+- 批 328 transformers：**修复 37** 模型输出 base64 图片无限制（超大 base64 decode OOM + 超大尺寸无采样 bitmap OOM）；base64 20MB 上限 + inSampleSize 4K 采样 RGB_565（0b2fdd8）
+- 批 329 PromptInjectionTransformer：干净（用户自配注入 + findSafeInsertIndex 防 USER→ASSISTANT(tools) 间隙）
+- 批 330 transformers 剩余 + prompts：干净（静态 prompt、占位符替换轻微记录）
+- 批 331 tools：干净（shell 超时 600s + 读文件 8MB 限量）
+- 批 332 tools/local + AppDatabase：干净（迁移链最终确认 version 25 完整）
+- 批 333 GenerationPrompts/WebServerManager：干净（记忆注入 60/100K 确认；restart 竞态在未调用路径记录）
+- 批 334 NsdServiceRegistrar/web 剩余：干净（jmdns runCatching 兜底）
+
 ## v1.7.4-turbo 发布（2026-08-04，2.5.0/179）
 - 包含 3 个修复（v1.7.3 后）：04bbb45 搜索响应 2MB 限量（19 服务）/ 15e37df 翻译输入 200K 截断 / 5f53f30 GitHub API 4MB 限量
 - 双绿验证：9e78b88（Unit Tests + Build APK success）
+
+## v1.7.5-turbo 发布（2026-08-04，2.5.1/180，3d71c62 + tag）
+- 包含 8 个修复：fde8a25 定时器注入重试 / 0e6432f 用户消息 200K / 2b3574d 撤销恢复附件 / 8425679 图片文件名清洗 / a038e62 JSON 深嵌套 SOE / 2c8487c 导入 5MB / 25bfbdc 悬浮窗权限 / b6a3599 TextArea 200K
+- 双绿依据 669c9d1；Release run 30900213796 success（Release #25）；3 个 profileable APK
+
