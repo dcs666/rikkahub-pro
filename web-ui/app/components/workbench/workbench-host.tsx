@@ -104,8 +104,6 @@ function CodePreviewPanel({ panel }: { panel: WorkbenchPanel }) {
 
       mermaid.initialize({
         startOnLoad: false,
-        // [FIX] strict 模式：禁用 mermaid 的点击回调/HTML 标签等可执行语法，
-        // 防止 AI 生成的 mermaid 代码在预览 iframe 内触发脚本。
         securityLevel: "strict",
       });
 
@@ -218,14 +216,6 @@ export function WorkbenchHost({ panel, onClose, className }: WorkbenchHostProps)
           <X className="size-4" />
         </Button>
       </div>
-
-      <div className="flex-1 min-h-0">
-        {renderer ? renderer.render(panel) : <UnknownPanel panel={panel} />}
-      </div>
-    </section>
-  );
-}
-   </div>
 
       <div className="flex-1 min-h-0">
         {renderer ? renderer.render(panel) : <UnknownPanel panel={panel} />}
