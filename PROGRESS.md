@@ -348,8 +348,8 @@
 
 ## 自动进度同步（判定驱动机制）
 
-> 时间：2026-08-04 19:56 (UTC+8) | 判定脚本：scripts/progress_check.sh v3（API 重试/cancelled 忽略/进度快照）
-> 最新提交：0c67a28（44-48 修复 + 编译修复 + 回归测试 + ci tag + docs + 判定脚本）
-> 版本：2.5.3/182（v1.7.7-turbo 已发布）｜v1.7.8 候选 CI 验证中（Unit Tests + Build APK）
-> 判定：[INCOMPLETE] next=wait（CI 运行中）→ 双绿后自动执行 v1.7.8 发布链（bump 2.5.4/183）
-> 修复总数：48 | 活跃任务：33f34b18（5min×∞）+ ci_monitor 8601a5f2
+> 时间：2026-08-04 20:00 (UTC+8) | 最新提交：328b62b（WebDAV 编码测试 + 48 修复全量）
+> 版本：2.5.3/182（v1.7.7 已发布）｜v1.7.8 候选 CI 验证中（328b62b Unit Tests + Build APK in_progress）
+> 判定：[INCOMPLETE] next=wait → 双绿后自动 v1.7.8 发布链（bump 2.5.4/183）
+> 修复总数：48 | 活跃：33f34b18（5min×∞）+ ci_monitor 8601a5f2
+
