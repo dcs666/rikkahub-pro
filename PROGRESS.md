@@ -305,6 +305,18 @@
 - 批 351 ui/theme + ui/context：干净（ChatFont canonical 逃逸检查在案；15 主题纯 UI）
 - 覆盖确认：399 文件全量（ui/pages 96 + components 92 + data/ai 46 + db 29 + theme 15 + hooks 14 + routes 9 + sync 8 + model 8 + repository 7 + datastore 7 + context 6 + task 5 + files 5 + activity 3 + modifier 2 + favorite 2 + export 2 + event 2 + api 2）
 
+
+## 深挖第十六轮（批 353-360，8 批，收尾全仓库非 Kotlin 面）
+- 批 353 AndroidManifest 全量：干净（WorkspaceDocumentsProvider 有 MANAGE_DOCUMENTS 系统级权限保护；RouteActivity SEND/PROCESS_TEXT 预期；McpOAuth deep link state 校验在案；记录：usesCleartextTraffic=true 本地服务设计 + largeHeap）
+- 批 354 res/xml：file_paths 已收窄（cache 全目录 + files 仅 upload/images/tool_outputs）；记录：data_extraction_rules 默认全备份（DataStore 含 API key 会上云备份，用户可关 allowBackup）
+- 批 355 .github/workflows 全量（5 个）：干净（release.yml 最小权限 contents:write + timeout 40min；记录：workflow_dispatch 默认 tag v1.1.5-turbo 陈旧）
+- 批 356 gradle 全量：干净（gradle 9.5 + toolchain 21；记录：sqlite-android -SNAPSHOT 依赖 + mavenLocal + jitpack）
+- 批 357 测试代码 8954 行：干净（无真实凭据泄漏，敏感词仅命中测试 fixture 假数据）
+- 批 358 skills/docs/package/skills-lock：干净（computedHash 哈希锁定校验在案）
+- 批 359 res 资源：干净（strings 纯文案，drawable 矢量）
+- 批 360 全仓库文件清单终确认：64 java = MuPDF fitz JNI 第三方绑定（vendored）；43 tokens = highlight 测试 fixture；19 pro = proguard 规则（-dontobfuscate 已知设计 + JWT/serializable keep 合理）；web-ui 前端 113 个 ts/tsx 已全审
+- **结论：全仓库代码面（Kotlin 399 + Java 64 + TS/TSX 113 + XML 38 + 构建配置 + 测试）全部深挖完毕，剩余均为记录项（设计选择/隐私选项）**
+
 ## v1.7.4-turbo 发布（2026-08-04，2.5.0/179）
 - 包含 3 个修复（v1.7.3 后）：04bbb45 搜索响应 2MB 限量（19 服务）/ 15e37df 翻译输入 200K 截断 / 5f53f30 GitHub API 4MB 限量
 - 双绿验证：9e78b88（Unit Tests + Build APK success）
