@@ -46,7 +46,7 @@ import json,sys
 d=json.load(sys.stdin)
 for r in d.get('workflow_runs',[])[:4]:
     print(r['head_sha'][:7], r['name'], r['status'], r.get('conclusion'))
-")
+" 2>/dev/null) || CI_SUMMARY=""
 echo "$CI_SUMMARY"
 
 echo "=== 3. 版本状态 ==="
@@ -61,7 +61,7 @@ rels=[r for r in d.get('workflow_runs',[]) if r['name']=='Release Turbo'][:2]
 for r in rels:
     print(r['id'], r['status'], r.get('conclusion'), r['head_sha'][:7])
 if not rels: print('(none in last 12 push-triggered runs)')
-")
+" 2>/dev/null) || RL_SUMMARY=""
 echo "$RL_SUMMARY"
 
 echo "=== 4.5 进度快照（同步用）==="
