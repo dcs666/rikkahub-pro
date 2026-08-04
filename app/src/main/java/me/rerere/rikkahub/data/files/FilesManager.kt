@@ -20,6 +20,7 @@ import me.rerere.common.android.Logging
 import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.data.db.entity.ManagedFileEntity
 import me.rerere.rikkahub.data.repository.FilesRepository
+import me.rerere.rikkahub.utils.ImageUtils
 import me.rerere.rikkahub.utils.exportImage
 import me.rerere.rikkahub.utils.exportImageFile
 import me.rerere.rikkahub.utils.getActivity
@@ -33,6 +34,10 @@ class FilesManager(
 ) {
     companion object {
         private const val TAG = "FilesManager"
+        // [FIX] 模型输出 base64 图片防护：base64 长度上限（约 15MB 图片）+
+        // 解码尺寸上限（4K，聊天图片足够）
+        private const val MAX_BASE64_IMAGE_CHARS = 20_000_000
+        private const val MAX_IMAGE_DIMENSION = 4096
     }
 
     suspend fun saveManagedFromUri(
@@ -189,27 +194,53 @@ class FilesManager(
                 when (part) {
                     is UIMessagePart.Image -> {
                         if (part.url.startsWith("data:image")) {
-                            val sourceByteArray = Base64.decode(part.url.substringAfter("base64,").toByteArray())
-                            val bitmap = BitmapFactory.decodeByteArray(sourceByteArray, 0, sourceByteArray.size)
-                            // [FIX] 解码失败（损坏/伪造的 base64）时 Bitmap 为 null，
-                            // 直接 compress 会 NPE 崩溃整条生成链；保留原 part 降级，
-                            // 保存侧 require 会给出用户可见错误而非进程崩溃。
-                            if (bitmap == null) {
+                            val base64Data = part.url.substringAfter("base64,")
+                            // [FIX] 模型输出的 base64 图片无大小限制：超大 base64 → decode 全量
+                            // 进内存 OOM；超大尺寸（万级像素）无采样解码 → bitmap OOM。
+                            // 限制 base64 长度 + 采样解码（与 ImageUtils.loadOptimizedBitmap 一致）。
+                            if (base64Data.length > MAX_BASE64_IMAGE_CHARS) {
                                 Log.w(
                                     TAG,
-                                    "convertBase64ImagePartToLocalFile: failed to decode data:image, keep original part"
+                                    "convertBase64ImagePartToLocalFile: base64 image too large (${base64Data.length} chars), keep original part"
                                 )
                                 part
                             } else {
-                                val byteArray = FileUtils.compressBitmapToPng(bitmap)
-                                val urls = createChatFilesByByteArrays(listOf(byteArray))
-                                Log.i(
-                                    TAG,
-                                    "convertBase64ImagePartToLocalFile: convert base64 img to ${urls.joinToString(", ")}"
+                                val sourceByteArray = Base64.decode(base64Data.toByteArray())
+                                val bounds = BitmapFactory.Options().apply {
+                                    inJustDecodeBounds = true
+                                }
+                                BitmapFactory.decodeByteArray(
+                                    sourceByteArray, 0, sourceByteArray.size, bounds
                                 )
-                                part.copy(
-                                    url = urls.first().toString(),
+                                val decodeOptions = BitmapFactory.Options().apply {
+                                    inSampleSize = ImageUtils.calculateInSampleSize(
+                                        bounds, MAX_IMAGE_DIMENSION, MAX_IMAGE_DIMENSION
+                                    )
+                                    inPreferredConfig = Bitmap.Config.RGB_565
+                                }
+                                val bitmap = BitmapFactory.decodeByteArray(
+                                    sourceByteArray, 0, sourceByteArray.size, decodeOptions
                                 )
+                                // [FIX] 解码失败（损坏/伪造的 base64）时 Bitmap 为 null，
+                                // 直接 compress 会 NPE 崩溃整条生成链；保留原 part 降级，
+                                // 保存侧 require 会给出用户可见错误而非进程崩溃。
+                                if (bitmap == null) {
+                                    Log.w(
+                                        TAG,
+                                        "convertBase64ImagePartToLocalFile: failed to decode data:image, keep original part"
+                                    )
+                                    part
+                                } else {
+                                    val byteArray = FileUtils.compressBitmapToPng(bitmap)
+                                    val urls = createChatFilesByByteArrays(listOf(byteArray))
+                                    Log.i(
+                                        TAG,
+                                        "convertBase64ImagePartToLocalFile: convert base64 img to ${urls.joinToString(", ")}"
+                                    )
+                                    part.copy(
+                                        url = urls.first().toString(),
+                                    )
+                                }
                             }
                         } else {
                             part
