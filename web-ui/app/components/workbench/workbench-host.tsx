@@ -104,7 +104,9 @@ function CodePreviewPanel({ panel }: { panel: WorkbenchPanel }) {
 
       mermaid.initialize({
         startOnLoad: false,
-        securityLevel: "loose",
+        // [FIX] strict 模式：禁用 mermaid 的点击回调/HTML 标签等可执行语法，
+        // 防止 AI 生成的 mermaid 代码在预览 iframe 内触发脚本。
+        securityLevel: "strict",
       });
 
       try {
@@ -162,7 +164,11 @@ function CodePreviewPanel({ panel }: { panel: WorkbenchPanel }) {
           ) : (
             <iframe
               title={panel.title}
-              sandbox="allow-scripts allow-same-origin"
+              // [FIX] 去掉 allow-same-origin：srcDoc iframe 继承父页面 origin，
+              // allow-scripts + allow-same-origin 组合会让 AI 生成的预览代码
+              // 直接读写父页面（web 会话 localStorage/token）。仅 allow-scripts
+              // 时脚本在无 origin 沙箱运行，无法访问父页面数据。
+              sandbox="allow-scripts"
               srcDoc={iframeDoc}
               className="h-full w-full border-0"
             />
@@ -216,6 +222,14 @@ export function WorkbenchHost({ panel, onClose, className }: WorkbenchHostProps)
           <X className="size-4" />
         </Button>
       </div>
+
+      <div className="flex-1 min-h-0">
+        {renderer ? renderer.render(panel) : <UnknownPanel panel={panel} />}
+      </div>
+    </section>
+  );
+}
+   </div>
 
       <div className="flex-1 min-h-0">
         {renderer ? renderer.render(panel) : <UnknownPanel panel={panel} />}
