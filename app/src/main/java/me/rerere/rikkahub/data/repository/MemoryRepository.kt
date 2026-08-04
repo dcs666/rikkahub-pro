@@ -9,6 +9,7 @@ import me.rerere.rikkahub.data.model.AssistantMemory
 class MemoryRepository(private val memoryDAO: MemoryDAO) {
     companion object {
         const val GLOBAL_MEMORY_ID = "__global__"
+        private const val MAX_MEMORY_COUNT = 200
     }
 
     fun getMemoriesOfAssistantFlow(assistantId: String): Flow<List<AssistantMemory>> =
@@ -50,6 +51,14 @@ class MemoryRepository(private val memoryDAO: MemoryDAO) {
     }
 
     suspend fun addMemory(assistantId: String, content: String): AssistantMemory {
+        // [FIX] 记忆条数上限：单条 20K 已有，但条数无上限时模型可反复 create 累积
+        // 数百条 → 每次生成全量注入 prompt（token 爆炸/API 413/超时）。超限淘汰最旧。
+        val existing = memoryDAO.getMemoriesOfAssistant(assistantId)
+        if (existing.size >= MAX_MEMORY_COUNT) {
+            existing.sortedBy { it.id }
+                .take(existing.size - MAX_MEMORY_COUNT + 1)
+                .forEach { memoryDAO.deleteMemory(it.id) }
+        }
         val memory = AssistantMemory(
             id = 0,
             content = content,
