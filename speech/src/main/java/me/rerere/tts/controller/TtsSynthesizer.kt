@@ -30,9 +30,16 @@ class TtsSynthesizer(
         var format: AudioFormat? = null
         var sampleRate: Int? = null
         val output = ByteArrayOutputStream()
+        // [FIX] 音频流上限防护：异常 provider 响应（超大/无限流）此前全量收集 → OOM。
+        // 超限抛 IllegalStateException（TTS 链路捕获后按失败处理，不崩溃）。
+        var totalBytes = 0L
         flow.collect { chunk ->
             if (format == null) format = chunk.format
             if (sampleRate == null) sampleRate = chunk.sampleRate
+            totalBytes += chunk.data.size
+            if (totalBytes > MAX_AUDIO_BYTES) {
+                throw IllegalStateException("TTS audio exceeds ${MAX_AUDIO_BYTES / (1024 * 1024)}MB limit")
+            }
             output.write(chunk.data)
         }
         return TTSResponse(
@@ -40,6 +47,11 @@ class TtsSynthesizer(
             format = format ?: AudioFormat.MP3,
             sampleRate = sampleRate
         )
+    }
+
+    private companion object {
+        // 单次 TTS 合成音频上限：150 字符 chunk 的 MP3 通常 < 1MB，8MB 已远超正常值
+        const val MAX_AUDIO_BYTES = 8L * 1024 * 1024
     }
 }
 
