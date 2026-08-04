@@ -34,15 +34,16 @@ grep -E "versionCode|versionName" app/build.gradle.kts | head -2 | sed 's/^[[:sp
 git tag --sort=-creatordate 2>/dev/null | head -3 | sed 's/^/TAG: /'
 
 echo "=== 4. 活跃 Release run ==="
-RL_JSON=$(api "https://api.github.com/repos/$REPO/actions/runs?event=push&per_page=6")
-python3 -c "
-import json,sys
-d=json.loads('''$RL_JSON''')
-rels=[r for r in d.get('workflow_runs',[]) if r['name']=='Release Turbo'][:2]
+RL_JSON=$(api "https://api.github.com/repos/$REPO/actions/runs?event=push&per_page=12")
+python3 - "$RL_JSON" << 'PYEOF'
+import json, sys
+d = json.loads(sys.argv[1])
+rels = [r for r in d.get('workflow_runs', []) if r['name'] == 'Release Turbo'][:2]
 for r in rels:
     print(r['id'], r['status'], r.get('conclusion'), r['head_sha'][:7])
-if not rels: print('(none)')
-" 2>/dev/null
+if not rels:
+    print('(none in last 12 push-triggered runs)')
+PYEOF
 
 echo "=== 5. 完成度判定 ==="
 # 自动判定：本地同步 + CI 全绿 + 无活跃 Release + 最新提交已发布 = COMPLETE
