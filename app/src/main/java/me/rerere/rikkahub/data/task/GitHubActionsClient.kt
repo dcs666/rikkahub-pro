@@ -207,7 +207,11 @@ class GitHubActionsClient(
                 }
                 throw IOException("GitHub API error: ${response.code} ${response.message}")
             }
-            return response.body?.string() ?: throw IOException("Empty response body")
+            // [FIX] 限量读取：与 getJobLogSummary 的 4MB 上限保持一致，异常响应
+            // （代理拦截页等）不会被全量读入内存。
+            val source = response.body?.source() ?: throw IOException("Empty response body")
+            source.request(4L * 1024 * 1024)
+            return source.buffer.snapshot().utf8()
         }
     }
 
