@@ -289,3 +289,7 @@
 - 包含 8 个修复：fde8a25 定时器注入重试 / 0e6432f 用户消息 200K / 2b3574d 撤销恢复附件 / 8425679 图片文件名清洗 / a038e62 JSON 深嵌套 SOE / 2c8487c 导入 5MB / 25bfbdc 悬浮窗权限 / b6a3599 TextArea 200K
 - 双绿依据 669c9d1；Release run 30900213796 success（Release #25）；3 个 profileable APK
 
+## v1.7.6-turbo 发布（2026-08-04，2.5.2/181，b491d4c + tag）
+- 包含 3 个修复：1130ba8 导出导入 5MB（OOM）/ 0b2fdd8 模型 base64 图片 20MB+4K 采样 / 1ad406a Bitmap import 修复
+- 双绿依据 1ad406a；Release run 30902103140 success（Release #26）；3 个 profileable APK
+
