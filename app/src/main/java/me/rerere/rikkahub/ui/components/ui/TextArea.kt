@@ -50,6 +50,9 @@ import me.rerere.rikkahub.R
 import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.ui.modifier.onClick
 
+// [FIX] TextArea 文件导入字符上限（与文档注入/翻译/用户消息 200K 一致）
+private const val MAX_TEXTAREA_IMPORT_CHARS = 200_000
+
 /**
  * A multi-line text input component with a header and file import functionality.
  *
@@ -92,7 +95,12 @@ fun TextArea(
                 try {
                     val content = withContext(Dispatchers.IO) {
                         context.contentResolver.openInputStream(uri)?.bufferedReader()
-                            ?.use { reader -> reader.readText() }
+                            ?.use { reader ->
+                                // [FIX] 导入无大小限制：超大文件全量进输入框 → 渲染卡死，
+                                // 且内容（如 system prompt）会随每次请求膨胀 → API 413。
+                                // 与文档注入/翻译/用户消息的 200K 约定保持一致。
+                                reader.readText().take(MAX_TEXTAREA_IMPORT_CHARS)
+                            }
                             ?: error("Failed to read file")
                     }
                     state.setTextAndPlaceCursorAtEnd(content)
