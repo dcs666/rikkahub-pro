@@ -34,8 +34,10 @@ class TaskConfigTest {
 
     @Test
     fun `timer config defaults autoAi to false when field absent`() {
+        // [FIX] sealed class 解码必须带 "type" 判别字段（@SerialName("timer")），
+        // 缺失会抛 SerializationException 导致 :app:testDebugUnitTest 失败
         val encoded = buildString {
-            append("{\"delayMs\":60000,\"message\":\"hello\",\"repeatIntervalMs\":0,\"repeatCount\":0}")
+            append("{\"type\":\"timer\",\"delayMs\":60000,\"message\":\"hello\",\"repeatIntervalMs\":0,\"repeatCount\":0}")
         }
         val decoded = json.decodeFromString(TaskConfig.serializer(), encoded) as TaskConfig.Timer
         assertFalse(decoded.autoAi)
@@ -61,9 +63,11 @@ class TaskConfigTest {
     }
 
     // 存储格式兼容：数据库里旧格式（无 autoAi 字段）也能解析
+    // [FIX] 旧格式同样带 "type" 判别字段（sealed class 序列化必需），
+    // 这里缺 autoAi 但保留 type，模拟的是 autoAi 字段引入前的存储格式
     @Test
     fun `legacy timer json without autoAi field parses`() {
-        val legacy = """{"delayMs":300000,"message":"old format","repeatIntervalMs":0,"repeatCount":0}"""
+        val legacy = """{"type":"timer","delayMs":300000,"message":"old format","repeatIntervalMs":0,"repeatCount":0}"""
         val decoded = json.decodeFromString(TaskConfig.serializer(), legacy) as TaskConfig.Timer
         assertEquals("old format", decoded.message)
         assertFalse(decoded.autoAi)
