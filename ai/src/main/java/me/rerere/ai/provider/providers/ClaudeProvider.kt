@@ -545,8 +545,14 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
     private fun UIMessagePart.Tool.toToolResultBlock() = buildJsonObject {
         put("type", "tool_result")
         put("tool_use_id", toolCallId)
-        putJsonArray("content") {
-            output.mapNotNull { it.toContentBlock() }.forEach { add(it) }
+        val contentBlocks = output.mapNotNull { it.toContentBlock() }
+        if (contentBlocks.isEmpty()) {
+            // [FIX] Anthropic API 不接受空 content 数组，空输出给占位文本
+            put("content", "[Tool returned no output]")
+        } else {
+            putJsonArray("content") {
+                contentBlocks.forEach { add(it) }
+            }
         }
     }
 

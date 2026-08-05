@@ -417,11 +417,10 @@ class ResponseAPI(
                                     }
                                 }
                             } else {
-                                put(
-                                    "output",
-                                    tool.output.filterIsInstance<UIMessagePart.Text>()
-                                        .joinToString("\n") { it.text }
-                                )
+                                // [FIX] 空输出时给占位文本，避免提供商拒绝空 output
+                                val text = tool.output.filterIsInstance<UIMessagePart.Text>()
+                                    .joinToString("\n") { it.text }
+                                put("output", text.ifBlank { "[Tool returned no output]" })
                             }
                         })
                     }
