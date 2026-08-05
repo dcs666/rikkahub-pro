@@ -14,7 +14,6 @@ import kotlinx.serialization.json.Json
 import me.rerere.ai.provider.ProviderManager
 import me.rerere.common.http.AcceptLanguageBuilder
 import me.rerere.rikkahub.BuildConfig
-import me.rerere.rikkahub.data.ai.AIRequestInterceptor
 import me.rerere.rikkahub.data.ai.RequestLoggingInterceptor
 import me.rerere.rikkahub.data.ai.transformers.AssistantTemplateLoader
 import me.rerere.rikkahub.data.ai.GenerationHandler
@@ -204,9 +203,16 @@ val dataSourceModule = module {
                 }
             }
             .addNetworkInterceptor(RequestLoggingInterceptor())
-            .addInterceptor(AIRequestInterceptor())
+            // [FIX] HttpLoggingInterceptor 只在 DEBUG 构建启用：
+            // HEADERS 级别会打印 Authorization: Bearer <apiKey> 到 logcat，
+            // 生产环境任何可读 logcat 的应用都能拿到用户的 API Key。
+            // （RequestLoggingInterceptor 有独立开关，用户主动开启才记录）
             .addInterceptor(HttpLoggingInterceptor().apply {
-                level = HttpLoggingInterceptor.Level.HEADERS
+                level = if (BuildConfig.DEBUG) {
+                    HttpLoggingInterceptor.Level.HEADERS
+                } else {
+                    HttpLoggingInterceptor.Level.NONE
+                }
             })
             .build().also { SearchService.init(it, get()) }
     }
