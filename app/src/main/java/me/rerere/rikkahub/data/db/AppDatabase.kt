@@ -62,8 +62,9 @@ import me.rerere.rikkahub.utils.JsonInstant
         AutoMigration(from = 21, to = 22),
         AutoMigration(from = 22, to = 23, spec = Migration_22_23::class),
         AutoMigration(from = 23, to = 24),
-        AutoMigration(from = 24, to = 25),
-        // 25→26 为手写迁移（补索引），已在 DataSourceModule.addMigrations 注册
+        // 24→25 / 25→26 为手写迁移（建表/补索引），已在 DataSourceModule.addMigrations 注册。
+        // 说明：24→25 原为 AutoMigration，但 Room 编译期要求 25.json 存在
+        //（仓库未提交该 schema），版本升到 26 后中间版本缺失 → KSP 编译失败，故改手写。
     ]
 )
 @TypeConverters(TokenUsageConverter::class)
