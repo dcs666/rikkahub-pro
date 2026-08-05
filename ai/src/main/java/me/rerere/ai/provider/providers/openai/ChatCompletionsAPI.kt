@@ -175,6 +175,7 @@ class ChatCompletionsAPI(
                     .forEach {
                         if (it["error"] != null) {
                             val error = it["error"]!!.parseErrorDetail()
+                            Log.e(TAG, "Provider returned error in stream: ${error.message}")
                             throw error
                         }
                         val id = it["id"]?.jsonPrimitive?.contentOrNull ?: ""
@@ -692,13 +693,16 @@ class ChatCompletionsAPI(
         val supportsImageInput = Modality.IMAGE in supportInputModalities
         val hasImageToSend = output.any { it is UIMessagePart.Image && supportsImageInput }
         return if (!hasImageToSend) {
-            JsonPrimitive(output.mapNotNull { part ->
+            val text = output.mapNotNull { part ->
                 when (part) {
                     is UIMessagePart.Text -> part.text
                     is UIMessagePart.Image -> "[Image output omitted: current model does not support image input]"
                     else -> null
                 }
-            }.joinToString("\n"))
+            }.joinToString("\n")
+            // [FIX] DeepSeek 等部分提供商不接受空的 tool_result content，
+            // 空输出时给一个占位文本避免 API 400。
+            JsonPrimitive(text.ifBlank { "[Tool returned no output]" })
         } else {
             buildJsonArray {
                 output.forEach { part ->

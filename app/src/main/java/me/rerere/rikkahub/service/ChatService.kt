@@ -635,7 +635,10 @@ class ChatService(
             appEventBus.tryEmit(AppEvent.ChatGenerationEnded(conversationId, senderName, null))
 
             it.printStackTrace()
-            addError(it, conversationId, title = context.getString(R.string.error_title_generation))
+            // [FIX] 错误信息中包含实际原因，帮助诊断问题
+            val errorMessage = it.message ?: it.javaClass.name
+            val enhancedTitle = context.getString(R.string.error_title_generation) + ": $errorMessage"
+            addError(it, conversationId, title = enhancedTitle)
             Logging.log(TAG, "handleMessageComplete: $it")
             Logging.log(TAG, it.stackTraceToString())
         }.onSuccess {
