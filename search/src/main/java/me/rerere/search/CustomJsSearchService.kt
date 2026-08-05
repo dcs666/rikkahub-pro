@@ -6,6 +6,7 @@ import androidx.compose.ui.res.stringResource
 import com.whl.quickjs.wrapper.QuickJSContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -89,6 +90,7 @@ object CustomJsSearchService : SearchService<SearchServiceOptions.CustomJsOption
 
     private suspend fun executeScript(userScript: String, invocation: String): String {
         val context = QuickJSContext.create()
+        var timedOut = false
         try {
             // [FIX] 限制脚本资源：用户自定义脚本可能分配爆炸（内存）或死循环（永不返回）。
             // 内存上限防止脚本一次性申请 GB 级；withTimeout 保证调用方不被永久挂起
@@ -96,13 +98,23 @@ object CustomJsSearchService : SearchService<SearchServiceOptions.CustomJsOption
             // 但调用方会及时收到超时错误而非无限等待）。
             context.setMemoryLimit(64 * 1024 * 1024)
             context.injectFetch(httpClient)
-            return withTimeout(20_000) {
-                context.evaluate(userScript)
-                val result = context.evaluate("JSON.stringify($invocation)")
-                result as? String ?: error("Function returned null or undefined")
+            return try {
+                withTimeout(20_000) {
+                    context.evaluate(userScript)
+                    val result = context.evaluate("JSON.stringify($invocation)")
+                    result as? String ?: error("Function returned null or undefined")
+                }
+            } catch (e: TimeoutCancellationException) {
+                timedOut = true
+                throw e
             }
         } finally {
-            context.destroy()
+            // [FIX] 超时时脚本可能仍在执行 native 代码：destroy 正在使用的 context
+            // 是 use-after-free，会 SIGSEGV 崩溃整个 app。超时路径跳过销毁
+            // （context 泄漏到进程结束，用户重启后恢复；死循环属罕见输入）。
+            if (!timedOut) {
+                context.destroy()
+            }
         }
     }
 
