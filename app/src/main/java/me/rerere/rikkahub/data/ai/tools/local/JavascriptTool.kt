@@ -73,7 +73,7 @@ internal fun buildJavascriptTool(): Tool = Tool(
             //   线程/context 泄漏到进程结束，但 app 不崩溃；死循环属罕见输入，可接受。
             val resultHolder = java.util.concurrent.atomic.AtomicReference<Any?>()
             val errorHolder = java.util.concurrent.atomic.AtomicReference<Throwable?>()
-            thread = Thread {
+            val execThread = Thread {
                 try {
                     resultHolder.set(context.evaluate(code))
                 } catch (t: Throwable) {
@@ -83,9 +83,10 @@ internal fun buildJavascriptTool(): Tool = Tool(
                 isDaemon = true
                 start()
             }
-            thread.join(JS_EXECUTION_TIMEOUT_MS)
+            thread = execThread
+            execThread.join(JS_EXECUTION_TIMEOUT_MS)
 
-            if (thread.isAlive) {
+            if (execThread.isAlive) {
                 listOf(
                     UIMessagePart.Text(
                         """{"error":"JavaScript execution timed out after ${JS_EXECUTION_TIMEOUT_MS / 1000}s (possible infinite loop)"}"""
@@ -120,5 +121,6 @@ internal fun buildJavascriptTool(): Tool = Tool(
 )
 
 private const val JS_EXECUTION_TIMEOUT_MS = 10_000L
+// [FIX] setMemoryLimit/setMaxStackSize 签名均为 long（class 文件描述符 (J)V 确认）
 private const val JS_MEMORY_LIMIT_BYTES = 64L * 1024 * 1024
-private const val JS_MAX_STACK_BYTES = 1024 * 1024
+private const val JS_MAX_STACK_BYTES = 1L * 1024 * 1024
