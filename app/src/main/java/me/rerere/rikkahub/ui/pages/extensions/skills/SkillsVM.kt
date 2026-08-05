@@ -341,8 +341,13 @@ class SkillsVM(
         connection.readTimeout = 30_000
         connection.setRequestProperty("Accept", "application/vnd.github+json")
         return try {
-            if (connection.responseCode == 200) connection.inputStream.bufferedReader().readText()
-            else null
+            if (connection.responseCode == 200) {
+                // [FIX] bufferedReader 显式关闭：虽然 finally disconnect() 会释放连接，
+                // 显式 close 确保 reader/流立即释放，避免 fd 延迟回收
+                connection.inputStream.bufferedReader().use { it.readText() }
+            } else {
+                null
+            }
         } finally {
             connection.disconnect()
         }
