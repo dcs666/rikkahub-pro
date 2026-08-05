@@ -39,6 +39,7 @@ internal fun buildJavascriptTool(): Tool = Tool(
         // [FIX] QuickJS 上下文持有原生内存，执行完必须 destroy()，
         // 否则每次工具调用泄漏一份 native heap（长会话反复调用会 OOM）。
         val context = QuickJSContext.create()
+        var thread: Thread? = null
         try {
             context.setConsole(object : QuickJSContext.Console {
                 override fun log(info: String?) {
@@ -57,24 +58,67 @@ internal fun buildJavascriptTool(): Tool = Tool(
                     logs.add("[ERROR] $info")
                 }
             })
+            // [FIX] 内存炸弹防护：模型生成的代码可能 new 超大数组/疯狂拼接字符串
+            // （如 new Array(1e9)），无限制时 native 堆被撑爆 → OOM 崩溃。64MB 上限。
+            context.setMemoryLimit(JS_MEMORY_LIMIT_BYTES)
+            // [FIX] 深递归防护：超出栈上限的递归会抛 JS 异常（可捕获），而非 native 栈溢出
+            context.setMaxStackSize(JS_MAX_STACK_BYTES)
+
             val code = it.jsonObject["code"]?.jsonPrimitive?.contentOrNull
-            val result = context.evaluate(code)
-            val payload = buildJsonObject {
-                if (logs.isNotEmpty()) {
-                    put("logs", JsonPrimitive(logs.joinToString("\n")))
+            // [FIX] QuickJS evaluate 是同步执行且 wrapper 无中断 API：死循环代码
+            // （while(true){}）会永久阻塞调用线程。在独立线程执行 + 超时放弃：
+            // - 正常结束 → 收集结果，destroy context 释放 native 内存
+            // - 超时 → 放弃执行线程（不 destroy context——正在执行的 native 代码
+            //   访问已释放的 runtime 是 use-after-free，会 SIGSEGV 崩溃整个 app）。
+            //   线程/context 泄漏到进程结束，但 app 不崩溃；死循环属罕见输入，可接受。
+            val resultHolder = java.util.concurrent.atomic.AtomicReference<Any?>()
+            val errorHolder = java.util.concurrent.atomic.AtomicReference<Throwable?>()
+            thread = Thread {
+                try {
+                    resultHolder.set(context.evaluate(code))
+                } catch (t: Throwable) {
+                    errorHolder.set(t)
                 }
-                put(
-                    key = "result",
-                    element = when (result) {
-                        null -> JsonNull
-                        is QuickJSObject -> JsonPrimitive(result.stringify())
-                        else -> JsonPrimitive(result.toString())
-                    }
-                )
+            }.apply {
+                isDaemon = true
+                start()
             }
-            listOf(UIMessagePart.Text(payload.toString()))
+            thread.join(JS_EXECUTION_TIMEOUT_MS)
+
+            if (thread.isAlive) {
+                listOf(
+                    UIMessagePart.Text(
+                        """{"error":"JavaScript execution timed out after ${JS_EXECUTION_TIMEOUT_MS / 1000}s (possible infinite loop)"}"""
+                    )
+                )
+            } else {
+                errorHolder.get()?.let { throw it }
+                val result = resultHolder.get()
+                val payload = buildJsonObject {
+                    if (logs.isNotEmpty()) {
+                        put("logs", JsonPrimitive(logs.joinToString("\n")))
+                    }
+                    put(
+                        key = "result",
+                        element = when (result) {
+                            null -> JsonNull
+                            is QuickJSObject -> JsonPrimitive(result.stringify())
+                            else -> JsonPrimitive(result.toString())
+                        }
+                    )
+                }
+                listOf(UIMessagePart.Text(payload.toString()))
+            }
         } finally {
-            context.destroy()
+            // 仅正常结束（非超时）时销毁；超时路径线程可能仍在执行 native 代码，
+            // destroy 会触发 use-after-free 崩溃，故此时故意跳过（泄漏到进程结束）。
+            if (thread?.isAlive != true) {
+                context.destroy()
+            }
         }
     }
 )
+
+private const val JS_EXECUTION_TIMEOUT_MS = 10_000L
+private const val JS_MEMORY_LIMIT_BYTES = 64L * 1024 * 1024
+private const val JS_MAX_STACK_BYTES = 1024 * 1024
