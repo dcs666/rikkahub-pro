@@ -195,7 +195,9 @@ class ProotShellRunner(
             // proot 重写 argv 时字符串池尾指针在边界未重置, 多余位置参数会被错位/截断,
             // 导致 $2 取不到完整命令、元字符解析全乱; 内联后命令文本完整位于单个 -c argv 内,
             // 由 bash 自行解析, 规避该问题。cwd 用单引号包裹防注入。
-            "cd -- ${context.prootCwd().shellQuote()} && ${context.command}",
+            // [FIX] 命令也用 shellQuote 包裹，防止注入（与 PersistentShellSession 一致）。
+            // 用 bash -c 间接执行，确保管道/重定向等元字符被正确解析。
+            "cd -- ${context.prootCwd().shellQuote()} && bash -c ${context.command.shellQuote()}",
         )
         return command
     }

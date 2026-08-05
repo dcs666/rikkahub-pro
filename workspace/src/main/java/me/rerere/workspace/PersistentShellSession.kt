@@ -199,7 +199,11 @@ class PersistentShellSession(
         val sb = StringBuilder()
         // [FIX] 尾部缓冲：主 sb 满后仍需检测 sentinel（sentinel 在输出末尾），
         // 否则 sb 截断后永远找不到 sentinel → 读到超时。保留最后 64 字符足够覆盖 sentinel 长度。
+        // [FIX2] tail 窗口太小：sentinel 跨两次 read 时（前缀在旧数据、后缀在新数据），
+        // 旧数据被 delete 后前后缀分离，sentinel 永远检测不到 → 大输出命令假超时。
+        // 窗口扩大到 4096+128，保证跨 read 的 sentinel 完整保留。
         val tail = StringBuilder()
+        val tailKeep = 4096 + 128
         // [FIX] 截断标记：用 AtomicBoolean 保证跨线程可见（readThread 写、主线程读）
         val truncatedFlag = java.util.concurrent.atomic.AtomicBoolean(false)
         val readThread = Thread {
@@ -218,13 +222,17 @@ class PersistentShellSession(
                     }
                     // 尾部缓冲：始终追加（用于 sentinel 检测），保持小尺寸
                     tail.append(buf, 0, n)
-                    if (tail.length > 128) {
-                        tail.delete(0, tail.length - 64)
+                    if (tail.length > tailKeep * 2) {
+                        tail.delete(0, tail.length - tailKeep)
                     }
-                    // sentinel 检测：先查主 sb，再查 tail（覆盖截断边界）
-                    val searchTarget = if (sb.length < MAX_OUTPUT_CHARS) sb else tail
-                    val prefixIdx = searchTarget.indexOf(SENTINEL_PREFIX)
-                    if (prefixIdx >= 0 && searchTarget.indexOf(SENTINEL_SUFFIX, prefixIdx) >= 0) break
+                    // sentinel 检测：同时查 sb 和 tail（覆盖截断边界 + 跨 read 边界）
+                    val sbPrefixIdx = sb.indexOf(SENTINEL_PREFIX)
+                    val sbComplete = sbPrefixIdx >= 0 &&
+                        sb.indexOf(SENTINEL_SUFFIX, sbPrefixIdx) >= 0
+                    val tailPrefixIdx = tail.indexOf(SENTINEL_PREFIX)
+                    val tailComplete = tailPrefixIdx >= 0 &&
+                        tail.indexOf(SENTINEL_SUFFIX, tailPrefixIdx) >= 0
+                    if (sbComplete || tailComplete) break
                 }
             } catch (_: Exception) {
                 // 进程被杀/流关闭时 read 抛异常，保留已读内容即可
@@ -245,38 +253,44 @@ class PersistentShellSession(
 
         val all = sb.toString()
         val prefixIdx = all.indexOf(SENTINEL_PREFIX)
-        if (prefixIdx < 0) {
-            // sb 中没有 sentinel：可能是输出超限被截断，sentinel 只在 tail 中。
-            // 此时输出 = sb 全量（已截断），退出码从 tail 提取。
-            val tailAll = tail.toString()
-            val tailPrefixIdx = tailAll.indexOf(SENTINEL_PREFIX)
-            if (tailPrefixIdx < 0) {
-                // 真没读到 sentinel：进程可能已死，销毁让调用方 fallback
-                destroy()
-                error("persistent shell: sentinel not found (session likely dead)")
+        if (prefixIdx >= 0) {
+            val codeStart = prefixIdx + SENTINEL_PREFIX.length
+            val codeEnd = all.indexOf(SENTINEL_SUFFIX, codeStart)
+            if (codeEnd >= 0) {
+                val output = all.substring(0, prefixIdx)
+                val exitCode = all.substring(codeStart, codeEnd).toIntOrNull() ?: -1
+                return WorkspaceCommandResult(
+                    exitCode = exitCode,
+                    stdout = output,
+                    stderr = "",
+                    timedOut = false,
+                    truncated = truncatedFlag.get(),
+                )
             }
-            val tailCodeStart = tailPrefixIdx + SENTINEL_PREFIX.length
-            val tailCodeEnd = tailAll.indexOf(SENTINEL_SUFFIX, tailCodeStart)
-            val tailExitCode = tailAll.substring(tailCodeStart, tailCodeEnd).toIntOrNull() ?: -1
-            return WorkspaceCommandResult(
-                exitCode = tailExitCode,
-                stdout = sb.toString(),
-                stderr = "",
-                timedOut = false,
-                truncated = true,
-            )
+            // sentinel 前缀在 sb 但后缀在 tail（截断边界）：回退到 tail 提取
         }
-        val output = all.substring(0, prefixIdx)
-        val codeStart = prefixIdx + SENTINEL_PREFIX.length
-        val codeEnd = all.indexOf(SENTINEL_SUFFIX, codeStart)
-        val exitCode = all.substring(codeStart, codeEnd).toIntOrNull() ?: -1
-
+        // sb 中没有完整 sentinel：可能是输出超限被截断，sentinel 只在 tail 中。
+        // 此时输出 = sb 全量（已截断），退出码从 tail 提取。
+        val tailAll = tail.toString()
+        val tailPrefixIdx = tailAll.indexOf(SENTINEL_PREFIX)
+        if (tailPrefixIdx < 0) {
+            // 真没读到 sentinel：进程可能已死，销毁让调用方 fallback
+            destroy()
+            error("persistent shell: sentinel not found (session likely dead)")
+        }
+        val tailCodeStart = tailPrefixIdx + SENTINEL_PREFIX.length
+        val tailCodeEnd = tailAll.indexOf(SENTINEL_SUFFIX, tailCodeStart)
+        val tailExitCode = if (tailCodeEnd >= 0) {
+            tailAll.substring(tailCodeStart, tailCodeEnd).toIntOrNull() ?: -1
+        } else {
+            -1
+        }
         return WorkspaceCommandResult(
-            exitCode = exitCode,
-            stdout = output,
+            exitCode = tailExitCode,
+            stdout = sb.toString(),
             stderr = "",
             timedOut = false,
-            truncated = truncatedFlag.get(),
+            truncated = true,
         )
     }
 
