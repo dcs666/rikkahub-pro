@@ -93,7 +93,8 @@ private class StreamCollector(
     stream: InputStream,
     private val maxChars: Int = MAX_OUTPUT_CHARS,
 ) {
-    private val builder = StringBuilder()
+    // [PERF] 预分配容量，避免从默认 16 扩容到 128KB 的多次数组复制
+    private val builder = StringBuilder(maxChars.coerceAtMost(64 * 1024))
 
     @Volatile
     var truncated = false
@@ -102,7 +103,8 @@ private class StreamCollector(
     private val thread = Thread {
         try {
             stream.bufferedReader().use { reader ->
-                val buffer = CharArray(4096)
+                // [PERF] 16KB 缓冲：减少管道读的系统调用次数
+                val buffer = CharArray(16 * 1024)
                 while (true) {
                     val read = reader.read(buffer)
                     if (read < 0) break

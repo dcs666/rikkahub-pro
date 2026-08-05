@@ -196,19 +196,25 @@ class PersistentShellSession(
     }
 
     private fun readUntilSentinel(r: BufferedReader, timeoutMillis: Long): WorkspaceCommandResult {
-        val sb = StringBuilder()
-        // [FIX] 尾部缓冲：主 sb 满后仍需检测 sentinel（sentinel 在输出末尾），
-        // 否则 sb 截断后永远找不到 sentinel → 读到超时。保留最后 64 字符足够覆盖 sentinel 长度。
-        // [FIX2] tail 窗口太小：sentinel 跨两次 read 时（前缀在旧数据、后缀在新数据），
-        // 旧数据被 delete 后前后缀分离，sentinel 永远检测不到 → 大输出命令假超时。
-        // 窗口扩大到 4096+128，保证跨 read 的 sentinel 完整保留。
-        val tail = StringBuilder()
-        val tailKeep = 4096 + 128
+        // [PERF] 预分配主缓冲容量，避免 StringBuilder 从 16 扩容到 128KB 的 ~13 次复制
+        val sb = StringBuilder(MAX_OUTPUT_CHARS.coerceAtMost(64 * 1024))
+        // [FIX] 尾部缓冲：主 sb 满后仍需检测 sentinel（sentinel 在输出末尾）。
+        // [FIX2] 窗口太小会让跨 read 的 sentinel 前后缀分离而漏检。
+        // [PERF] sentinel 必然在输出末尾（bash 执行完最后一条命令后打印），
+        // tail 是最后 tailKeep 字符的滑动窗口，始终包含 sentinel → 只检测 tail，
+        // 省去每次循环对主 sb 全量 indexOf（O(n²) → O(n)）。
+        // [FIX3] tailKeep 必须 >= 单次 read 缓冲(16KB) + sentinel 长度：
+        // sentinel 前缀在 read N 末尾、后缀在 read N+1 开头时，
+        // 若窗口小于 read 大小，追加后删除头部会把前缀一起删掉 → 漏检假超时。
+        val tailKeep = 16 * 1024 + 128
+        val tail = StringBuilder(tailKeep)
         // [FIX] 截断标记：用 AtomicBoolean 保证跨线程可见（readThread 写、主线程读）
         val truncatedFlag = java.util.concurrent.atomic.AtomicBoolean(false)
         val readThread = Thread {
             try {
-                val buf = CharArray(4096)
+                // [PERF] 16KB 缓冲：管道读一次 4096 太小，系统调用次数多；
+                // 16KB 是 pipe 默认容量，一次最多取满
+                val buf = CharArray(16 * 1024)
                 while (true) {
                     val n = r.read(buf)
                     if (n < 0) break
@@ -225,14 +231,11 @@ class PersistentShellSession(
                     if (tail.length > tailKeep * 2) {
                         tail.delete(0, tail.length - tailKeep)
                     }
-                    // sentinel 检测：同时查 sb 和 tail（覆盖截断边界 + 跨 read 边界）
-                    val sbPrefixIdx = sb.indexOf(SENTINEL_PREFIX)
-                    val sbComplete = sbPrefixIdx >= 0 &&
-                        sb.indexOf(SENTINEL_SUFFIX, sbPrefixIdx) >= 0
+                    // sentinel 检测：只查 tail（含 NUL 的 sentinel 几乎不可能被正常输出误匹配）
                     val tailPrefixIdx = tail.indexOf(SENTINEL_PREFIX)
-                    val tailComplete = tailPrefixIdx >= 0 &&
+                    if (tailPrefixIdx >= 0 &&
                         tail.indexOf(SENTINEL_SUFFIX, tailPrefixIdx) >= 0
-                    if (sbComplete || tailComplete) break
+                    ) break
                 }
             } catch (_: Exception) {
                 // 进程被杀/流关闭时 read 抛异常，保留已读内容即可
@@ -245,7 +248,8 @@ class PersistentShellSession(
             destroy()
             return WorkspaceCommandResult(
                 exitCode = -1,
-                stdout = "",
+                // [OPT] 返回超时前已读到的部分输出，AI 可据此判断命令卡在哪一步
+                stdout = sb.toString(),
                 stderr = "persistent shell command timed out",
                 timedOut = true,
             )
