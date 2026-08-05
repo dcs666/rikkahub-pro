@@ -1,5 +1,8 @@
 package me.rerere.tts.controller
 
+// [PERF] 固定正则编译一次复用：每次朗读都调用 split()，原实现每次编译
+private val PUNCTUATION_BOUNDARY = Regex("(?<=[。！？，、：;.!?:,\\n])")
+
 /**
  * Split long text into speakable chunks with basic punctuation-aware grouping.
  */
@@ -10,12 +13,11 @@ class TextChunker(
         if (text.isBlank()) return emptyList()
 
         val paragraphs = text.split("\n\n")
-        val punctuationRegex = "(?<=[。！？，、：;.!?:,\n])".toRegex()
 
         val chunks = paragraphs.flatMap { paragraph ->
             if (paragraph.isBlank()) emptyList() else {
                 paragraph
-                    .split(punctuationRegex)
+                    .split(PUNCTUATION_BOUNDARY)
                     .asSequence()
                     .map { it.trim() }
                     .filter { it.isNotEmpty() }
