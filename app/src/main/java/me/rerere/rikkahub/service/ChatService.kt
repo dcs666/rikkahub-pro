@@ -967,8 +967,20 @@ class ChatService(
     }
 
     fun updateConversationState(conversationId: Uuid, update: (Conversation) -> Conversation) {
-        val current = getConversationFlow(conversationId).value
-        updateConversation(conversationId, update(current))
+        // [FIX] 原子读-改-写：原实现基于快照计算新值，UI（主线程）与 web 路由
+        // （Ktor IO 线程）并发调用时后写覆盖先写（lost update）。
+        // StateFlow.update 用 CAS 循环保证原子性；update lambda 需纯函数
+        // （调用方都是 copy 操作，幂等）。
+        val session = getOrCreateSession(conversationId)
+        var previous: Conversation? = null
+        session.state.update { current ->
+            previous = current
+            update(current)
+        }
+        // checkFilesDelete 需要新旧对比，移出 CAS lambda（其副作用在重试时会重复执行）
+        previous?.let { old ->
+            checkFilesDelete(session.state.value, old)
+        }
     }
 
     /**
