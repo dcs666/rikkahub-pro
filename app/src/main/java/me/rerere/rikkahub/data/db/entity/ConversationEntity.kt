@@ -4,7 +4,12 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
-@Entity
+@Entity(
+    indices = [
+        androidx.room.Index(value = ["assistant_id"]),
+        androidx.room.Index(value = ["folder_id"]),
+    ]
+)
 data class ConversationEntity(
     @PrimaryKey
     val id: String,
