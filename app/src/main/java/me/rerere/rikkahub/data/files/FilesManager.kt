@@ -127,7 +127,7 @@ class FilesManager(
                     ?: error("Failed to open input stream for $uri")
                 inputStream.use { input ->
                     file.outputStream().use { output ->
-                        input.copyTo(output)
+                        input.copyTo(output, 64 * 1024)
                     }
                 }
                 val guessedMime = sourceMime ?: guessMimeType(file, sourceName)

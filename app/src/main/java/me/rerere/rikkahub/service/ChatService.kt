@@ -497,9 +497,12 @@ class ChatService(
             // reset suggestions
             updateConversation(conversationId, initialConversation.copy(chatSuggestions = emptyList()))
 
+            // [PERF] MCP 工具列表只取一次（下方两处复用，避免重复遍历 settings）
+            val allMcpTools = mcpManager.getAllAvailableTools(assistant)
+
             // memory tool
             if (!model.abilities.contains(ModelAbility.TOOL)) {
-                if (assistant.enableWebSearch || mcpManager.getAllAvailableTools(assistant).isNotEmpty()) {
+                if (assistant.enableWebSearch || allMcpTools.isNotEmpty()) {
                     addError(
                         IllegalStateException(context.getString(R.string.tools_warning)),
                         conversationId,
@@ -558,7 +561,7 @@ class ChatService(
                             )
                         )
                     }
-                    mcpManager.getAllAvailableTools(assistant).also { allTools ->
+                    allMcpTools.also { allTools ->
                         val invalidNames = allTools
                             .map { it.second }
                             .distinct()
