@@ -202,7 +202,7 @@ fun Route.assetsRoutes(context: Context) {
                 val inputStream = context.assets.open(relativePath)
                 call.response.header("Content-Type", contentType.toString())
                 call.respondOutputStream {
-                    inputStream.use { it.copyTo(this) }
+                    inputStream.use { it.copyTo(this, 64 * 1024) }
                 }
             } catch (_: Exception) {
                 throw NotFoundException("Asset not found: $relativePath")

@@ -133,7 +133,7 @@ fun UIAvatar(
             val tempFile = File(context.appTempFolder, "avatar_pick_${System.currentTimeMillis()}.jpg")
             runCatching {
                 context.contentResolver.openInputStream(selectedUri)?.use { input ->
-                    tempFile.outputStream().use { output -> input.copyTo(output) }
+                    tempFile.outputStream().use { output -> input.copyTo(output, 64 * 1024) }
                 } ?: error("Failed to open input stream for $selectedUri")
                 preCropTempFile?.delete()
                 preCropTempFile = tempFile

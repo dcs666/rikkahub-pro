@@ -179,7 +179,7 @@ class S3Client(
 
                 response.bodyAsChannel().toInputStream().use { input ->
                     targetFile.outputStream().use { output ->
-                        input.copyTo(output)
+                        input.copyTo(output, 64 * 1024)
                     }
                 }
                 Log.d(TAG, "downloadObjectToFile success: downloaded ${targetFile.length()} bytes")

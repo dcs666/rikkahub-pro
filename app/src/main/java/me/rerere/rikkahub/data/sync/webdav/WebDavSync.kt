@@ -261,7 +261,7 @@ class WebDavSync(
                                     )
                                     targetFile.parentFile?.mkdirs()
                                     FileOutputStream(targetFile).use { outputStream ->
-                                        zipIn.copyTo(outputStream)
+                                        zipIn.copyTo(outputStream, 64 * 1024)
                                     }
                                     Log.i(
                                         TAG,
@@ -302,7 +302,7 @@ class WebDavSync(
 
                                     try {
                                         FileOutputStream(targetFile).use { outputStream ->
-                                            zipIn.copyTo(outputStream)
+                                            zipIn.copyTo(outputStream, 64 * 1024)
                                         }
                                         Log.i(
                                             TAG,
@@ -325,7 +325,7 @@ class WebDavSync(
                                     val fontsFolder = File(context.filesDir, FileFolders.FONTS).apply { mkdirs() }
                                     val targetFile = File(fontsFolder, fileName)
                                     FileOutputStream(targetFile).use { outputStream ->
-                                        zipIn.copyTo(outputStream)
+                                        zipIn.copyTo(outputStream, 64 * 1024)
                                     }
                                     Log.i(
                                         TAG,
@@ -350,7 +350,8 @@ class WebDavSync(
         FileInputStream(file).use { fis ->
             val zipEntry = ZipEntry(entryName)
             zipOut.putNextEntry(zipEntry)
-            fis.copyTo(zipOut)
+            // [PERF] 64KB 缓冲：备份大文件（DB/图片）时减少系统调用
+            fis.copyTo(zipOut, 64 * 1024)
             zipOut.closeEntry()
             Log.d(TAG, "addFileToZip: Added $entryName (${file.length()} bytes) to zip")
         }
@@ -398,7 +399,7 @@ class WebDavSync(
 
         try {
             FileOutputStream(targetFile).use { outputStream ->
-                zipIn.copyTo(outputStream)
+                zipIn.copyTo(outputStream, 64 * 1024)
             }
             Log.i(TAG, "restoreFromBackupFile: Restored skill file $entryName (${targetFile.length()} bytes)")
         } catch (e: Exception) {

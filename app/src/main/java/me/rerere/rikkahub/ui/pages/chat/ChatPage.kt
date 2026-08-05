@@ -598,7 +598,7 @@ private fun ChatFilesPickerSheet(
                             ImageUtils.convertHeifToJpeg(context, source, tempFile)
                         if (!converted) {
                             context.contentResolver.openInputStream(source)?.use { input ->
-                                tempFile.outputStream().use { output -> input.copyTo(output) }
+                                tempFile.outputStream().use { output -> input.copyTo(output, 64 * 1024) }
                             }
                         }
                         preCropTempFile = tempFile

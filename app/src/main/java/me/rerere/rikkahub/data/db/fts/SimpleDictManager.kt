@@ -43,7 +43,7 @@ object SimpleDictManager {
             } else {
                 context.assets.open(childAsset).use { input ->
                     destFile.outputStream().use { output ->
-                        input.copyTo(output)
+                        input.copyTo(output, 64 * 1024)
                     }
                 }
             }

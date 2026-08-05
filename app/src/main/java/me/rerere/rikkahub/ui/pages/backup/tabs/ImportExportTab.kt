@@ -64,7 +64,7 @@ fun ImportExportTab(
                     // 复制到用户选择的位置
                     context.contentResolver.openOutputStream(targetUri)?.use { outputStream ->
                         FileInputStream(exportFile).use { inputStream ->
-                            inputStream.copyTo(outputStream)
+                            inputStream.copyTo(outputStream, 64 * 1024)
                         }
                     }
 
@@ -103,7 +103,7 @@ fun ImportExportTab(
 
                             context.contentResolver.openInputStream(sourceUri)?.use { inputStream ->
                                 FileOutputStream(tempFile).use { outputStream ->
-                                    inputStream.copyTo(outputStream)
+                                    inputStream.copyTo(outputStream, 64 * 1024)
                                 }
                             }
 
@@ -121,7 +121,7 @@ fun ImportExportTab(
 
                             context.contentResolver.openInputStream(sourceUri)?.use { inputStream ->
                                 FileOutputStream(tempFile).use { outputStream ->
-                                    inputStream.copyTo(outputStream)
+                                    inputStream.copyTo(outputStream, 64 * 1024)
                                 }
                             }
 
@@ -139,7 +139,7 @@ fun ImportExportTab(
 
                             context.contentResolver.openInputStream(sourceUri)?.use { inputStream ->
                                 FileOutputStream(tempFile).use { outputStream ->
-                                    inputStream.copyTo(outputStream)
+                                    inputStream.copyTo(outputStream, 64 * 1024)
                                 }
                             }
 

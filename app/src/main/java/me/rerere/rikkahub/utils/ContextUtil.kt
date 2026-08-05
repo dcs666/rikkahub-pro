@@ -239,7 +239,7 @@ fun Context.exportImageFile(
                 if (outputStream != null) {
                     file.inputStream().use { input ->
                         outputStream.use { output ->
-                            input.copyTo(output)
+                            input.copyTo(output, 64 * 1024)
                         }
                     }
                 }

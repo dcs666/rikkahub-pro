@@ -455,7 +455,7 @@ private fun importCustomChatFontInternal(context: Context, uri: Uri): ImportedCh
         tempFile.delete()
         context.contentResolver.openInputStream(uri)?.use { input ->
             tempFile.outputStream().use { output ->
-                input.copyTo(output)
+                input.copyTo(output, 64 * 1024)
             }
         } ?: error("Unable to open selected font")
 

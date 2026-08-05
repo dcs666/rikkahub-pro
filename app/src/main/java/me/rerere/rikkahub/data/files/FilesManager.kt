@@ -52,7 +52,7 @@ class FilesManager(
         val target = createTargetFile(folder, resolvedName, resolvedMime)
         context.contentResolver.openInputStream(uri)?.use { input ->
             target.outputStream().use { output ->
-                input.copyTo(output)
+                input.copyTo(output, 64 * 1024)
             }
         }
         createManagedFileEntity(

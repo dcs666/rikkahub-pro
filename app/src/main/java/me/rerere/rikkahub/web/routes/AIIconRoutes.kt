@@ -29,7 +29,7 @@ fun Route.aiIconRoutes(context: Context) {
                         call.response.header(HttpHeaders.CacheControl, "public, max-age=86400")
                         call.response.header(HttpHeaders.ContentType, resolveContentType(iconPath).toString())
                         call.respondOutputStream {
-                            input.copyTo(this)
+                            input.copyTo(this, 64 * 1024)
                         }
                     }
                 }.onSuccess {
