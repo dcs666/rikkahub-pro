@@ -104,19 +104,22 @@ fun Double.toFixed(digits: Int = 0) = "%.${digits}f".format(this)
  * 支持多种引号类型：英文双引号 "..."、英文单引号 '...'、中文双引号 "..."、中文单引号 '...'、直角引号「…」、白直角引号『…』
  * @return 所有引号内内容的列表
  */
+// [PERF] 固定正则编译一次复用：TTS 朗读路径（extractQuotedContent/removeBracketedContent）
+// 原实现每次调用都重新编译 6+1 个 Regex
+private val QUOTE_CONTENT_PATTERNS = listOf(
+    Regex("\u201C([^\u201D]*?)\u201D"),  // 中文双引号
+    Regex("\u2018([^\u2019]*?)\u2019"),  // 中文单引号
+    Regex("\"([^\"]*?)\""),                 // 英文双引号
+    Regex("'([^']*?)'"),                    // 英文单引号
+    Regex("「([^」]*?)」"),                   // 直角引号
+    Regex("『([^』]*?)』"),                   // 白直角引号
+)
+
+private val BRACKETED_CONTENT_PATTERN = Regex("\\([^)]*?\\)|（[^）]*?）")
+
 fun String.extractQuotedContent(): List<String> {
     val result = mutableListOf<String>()
-    // 匹配多种引号类型
-    val patterns = listOf(
-        "\u201C([^\u201D]*?)\u201D",  // 中文双引号
-        "\u2018([^\u2019]*?)\u2019",  // 中文单引号
-        """"([^"]*?)"""",  // 英文双引号
-        """'([^']*?)'""",  // 英文单引号
-        """「([^」]*?)」""",           // 直角引号
-        """『([^』]*?)』""",           // 白直角引号
-    )
-    for (pattern in patterns) {
-        val regex = Regex(pattern)
+    for (regex in QUOTE_CONTENT_PATTERNS) {
         regex.findAll(this).forEach { matchResult ->
             val content = matchResult.groupValues[1]
             if (content.isNotBlank()) {
@@ -147,7 +150,6 @@ fun String.extractQuotedContentAsText(separator: String = "\n"): String? {
  * @return 移除括号内容后的字符串，如果全被移除则返回 null
  */
 fun String.removeBracketedContent(): String? {
-    val pattern = """\([^)]*?\)|（[^）]*?）""".toRegex()
-    val result = pattern.replace(this, "").trim()
+    val result = BRACKETED_CONTENT_PATTERN.replace(this, "").trim()
     return result.ifBlank { null }
 }
