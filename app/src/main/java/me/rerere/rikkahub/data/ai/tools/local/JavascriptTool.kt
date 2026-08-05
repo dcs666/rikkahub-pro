@@ -121,6 +121,7 @@ internal fun buildJavascriptTool(): Tool = Tool(
 )
 
 private const val JS_EXECUTION_TIMEOUT_MS = 10_000L
-// [FIX] setMemoryLimit/setMaxStackSize 签名均为 long（class 文件描述符 (J)V 确认）
-private const val JS_MEMORY_LIMIT_BYTES = 64L * 1024 * 1024
-private const val JS_MAX_STACK_BYTES = 1L * 1024 * 1024
+// [FIX] javap 确认 setMemoryLimit(int)/setMaxStackSize(int) 是 int 参数
+// （64MB 和 1MB 都在 Int.MAX 范围内）
+private const val JS_MEMORY_LIMIT_BYTES = 64 * 1024 * 1024
+private const val JS_MAX_STACK_BYTES = 1024 * 1024
