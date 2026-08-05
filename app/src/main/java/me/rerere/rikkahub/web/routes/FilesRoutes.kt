@@ -214,7 +214,8 @@ fun Route.assetsRoutes(context: Context) {
 private suspend fun readPartBytes(part: PartData.FileItem, maxBytes: Int): ByteArray {
     val input = part.provider()
     val output = ByteArrayOutputStream()
-    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+    // [PERF] 64KB 缓冲：默认 8KB 对 20MB 大文件上传系统调用过多
+    val buffer = ByteArray(64 * 1024)
     var totalBytes = 0
 
     while (true) {
