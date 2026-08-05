@@ -97,7 +97,7 @@ class WorkspaceManager(
         val file = fileSystem.resolve(areaDir(root, area), path)
         require(file.exists()) { "File does not exist: $path" }
         require(file.isFile) { "Path is not a file: $path" }
-        outputStream.use { out -> file.inputStream().use { it.copyTo(out) } }
+        outputStream.use { out -> file.inputStream().use { it.copyTo(out, DEFAULT_COPY_BUFFER) } }
     }
 
     /**
@@ -175,7 +175,7 @@ class WorkspaceManager(
     fun exportRootfsFile(root: String, path: String, outputStream: OutputStream) {
         val file = resolveRootfsFile(root, path)
         file.requireReadableFile(path)
-        outputStream.use { out -> file.inputStream().use { it.copyTo(out) } }
+        outputStream.use { out -> file.inputStream().use { it.copyTo(out, DEFAULT_COPY_BUFFER) } }
     }
 
     private fun resolveRootfsFile(root: String, path: String): File {

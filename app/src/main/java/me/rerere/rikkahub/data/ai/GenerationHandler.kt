@@ -112,32 +112,33 @@ class GenerationHandler(
 
         var messages: List<UIMessage> = messages
 
+        // [PERF] 工具集在生成循环中不变（只依赖 assistant/tools，均为循环外常量），
+        // 原实现每次 step 迭代都重建（含 buildMemoryTools 的对象/lambda 创建）→ 移出循环构建一次
+        val toolsInternal = buildList {
+            if (assistant?.enableMemory == true) {
+                val memoryAssistantId = if (assistant.useGlobalMemory) {
+                    MemoryRepository.GLOBAL_MEMORY_ID
+                } else {
+                    assistant.id.toString()
+                }
+                buildMemoryTools(
+                    json = json,
+                    onCreation = { content ->
+                        memoryRepo.addMemory(memoryAssistantId, content)
+                    },
+                    onUpdate = { id, content ->
+                        memoryRepo.updateContent(id, content)
+                    },
+                    onDelete = { id ->
+                        memoryRepo.deleteMemory(id)
+                    }
+                ).let(this::addAll)
+            }
+            addAll(tools)
+        }
+
         for (stepIndex in 0 until maxSteps) {
             Log.i(TAG, "streamText: start step #$stepIndex (${model.id})")
-
-            val toolsInternal = buildList {
-                Log.i(TAG, "generateInternal: build tools($assistant)")
-                if (assistant?.enableMemory == true) {
-                    val memoryAssistantId = if (assistant.useGlobalMemory) {
-                        MemoryRepository.GLOBAL_MEMORY_ID
-                    } else {
-                        assistant.id.toString()
-                    }
-                    buildMemoryTools(
-                        json = json,
-                        onCreation = { content ->
-                            memoryRepo.addMemory(memoryAssistantId, content)
-                        },
-                        onUpdate = { id, content ->
-                            memoryRepo.updateContent(id, content)
-                        },
-                        onDelete = { id ->
-                            memoryRepo.deleteMemory(id)
-                        }
-                    ).let(this::addAll)
-                }
-                addAll(tools)
-            }
 
             // Check if we have tool calls ready to continue after user interaction.
             val pendingTools = messages.lastOrNull()?.getTools()?.filter {

@@ -564,13 +564,6 @@ fun MarkdownBlock(
 }
 
 // for debug
-private fun dumpAst(node: ASTNode, text: String, indent: String = "") {
-    println("$indent${node.type} ${if (node.children.isEmpty()) node.getTextInNode(text) else ""} | ${node.javaClass.simpleName}")
-    node.children.fastForEach {
-        dumpAst(it, text, "$indent  ")
-    }
-}
-
 object HeaderStyle {
     private const val LINE_HEIGHT_RATIO = 1.25f
 

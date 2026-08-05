@@ -589,7 +589,7 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
 
                 "redacted_thinking" -> {
                     val data = block["data"]?.jsonPrimitiveOrNull?.contentOrNull
-                    println(data)
+                    Log.d(TAG, "redacted_thinking data: $data")
                 }
 
                 "tool_use" -> {

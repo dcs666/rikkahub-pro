@@ -58,7 +58,7 @@ class WorkspaceFileSystem(
         val file = resolvePath(root, path)
         file.parentFile?.mkdirs()
         val target = if (!file.exists()) file else resolveConflict(file)
-        inputStream.use { input -> target.outputStream().use { input.copyTo(it) } }
+        inputStream.use { input -> target.outputStream().use { input.copyTo(it, DEFAULT_COPY_BUFFER) } }
         return target.toEntry(root)
     }
 
@@ -114,15 +114,26 @@ class WorkspaceFileSystem(
         val start = resolvePath(root, path)
         require(start.exists()) { "Path does not exist: $path" }
         val matcher = globMatcher(pattern)
-        return walk(start) { paths ->
-            paths
-                .filter { Files.isRegularFile(it) || Files.isDirectory(it) }
-                .filter { !it.toFile().name.startsWith(".l2s.") }
-                .filter { matcher.matches(root.toPath().relativize(it).normalizeForMatch()) }
-                .take(config.maxListEntries)
-                .map { it.toFile().toEntry(root) }
-                .toList()
+        val results = mutableListOf<WorkspaceFileEntry>()
+        // [FIX] 达到上限提前终止遍历（与 grep 的 SearchLimitReached 一致）：
+        // 原实现 .take(maxListEntries) 只截断结果，Files.walk 仍扫完整棵树。
+        try {
+            Files.walk(start.toPath()).use { stream ->
+                val paths = stream.iterator().asSequence()
+                paths
+                    .filter { Files.isRegularFile(it) || Files.isDirectory(it) }
+                    .filter { !it.toFile().name.startsWith(".l2s.") }
+                    .forEach { path ->
+                        if (results.size >= config.maxListEntries) throw SearchLimitReached()
+                        if (matcher.matches(root.toPath().relativize(path).normalizeForMatch())) {
+                            results += path.toFile().toEntry(root)
+                        }
+                    }
+            }
+        } catch (_: SearchLimitReached) {
+            // 已达上限，正常结束
         }
+        return results
     }
 
     fun grep(
@@ -179,11 +190,6 @@ class WorkspaceFileSystem(
         }
         return results
     }
-
-    private fun <T> walk(start: File, block: (Sequence<Path>) -> T): T =
-        Files.walk(start.toPath()).use { stream ->
-            block(stream.iterator().asSequence())
-        }
 
     /** [FIX] glob 模式编译失败时转为带清晰信息的 IllegalArgumentException（调用方按 400 处理）。 */
     private fun globMatcher(pattern: String): PathMatcher =

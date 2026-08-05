@@ -1,5 +1,8 @@
 package me.rerere.workspace
 
+/** [PERF] 文件流拷贝缓冲：Kotlin copyTo 默认 8KB，64KB 减少大文件 IO 系统调用 */
+internal const val DEFAULT_COPY_BUFFER = 64 * 1024
+
 data class Workspace(
     val id: String,
     val name: String,
