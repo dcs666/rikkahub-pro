@@ -357,16 +357,24 @@ class FilesManager(
                 runCatching {
                     val url = URL(image)
                     val connection = url.openConnection() as HttpURLConnection
-                    connection.connect()
+                    // [FIX] 无超时：网络挂起时 IO 线程无限阻塞（协程取消也无法打断阻塞的 connect）
+                    // 无 disconnect：连接不释放。补超时 + finally disconnect。
+                    connection.connectTimeout = 15_000
+                    connection.readTimeout = 30_000
+                    try {
+                        connection.connect()
 
-                    if (connection.responseCode == HttpURLConnection.HTTP_OK) {
-                        val bitmap = BitmapFactory.decodeStream(connection.inputStream)
-                        activityContext.exportImage(activity, bitmap)
-                    } else {
-                        Log.e(
-                            TAG,
-                            "saveMessageImage: Failed to download image from $image, response code: ${connection.responseCode}"
-                        )
+                        if (connection.responseCode == HttpURLConnection.HTTP_OK) {
+                            val bitmap = BitmapFactory.decodeStream(connection.inputStream)
+                            activityContext.exportImage(activity, bitmap)
+                        } else {
+                            Log.e(
+                                TAG,
+                                "saveMessageImage: Failed to download image from $image, response code: ${connection.responseCode}"
+                            )
+                        }
+                    } finally {
+                        connection.disconnect()
                     }
                 }.getOrNull()
             }
