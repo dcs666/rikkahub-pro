@@ -63,12 +63,28 @@ class WebServerManager(
         }
 
         appScope.launch {
+            // [SECURITY] fail-closed 护栏：请求监听所有接口（局域网访问）时，
+            // 必须已启用 JWT 且设置了密码；否则强制绑定回环地址（仅本机可访问）。
+            // 背景：webServerJwtEnabled 默认 false，若直接 0.0.0.0 监听，
+            // 局域网内任何设备都能无认证读取全部对话/文件（Android 12- 无
+            // ACCESS_LOCAL_NETWORK 权限保护）。无密码无 JWT = 只允许本机使用。
+            val settings = settingsStore.settingsFlow.value
+            val jwtSecured = settings.webServerJwtEnabled &&
+                settings.webServerAccessPassword.isNotBlank()
+            val effectiveLocalhostOnly = localhostOnly || !jwtSecured
+            if (!localhostOnly && !jwtSecured) {
+                Log.w(
+                    TAG,
+                    "WebServer: JWT not enabled, forcing loopback binding (LAN access requires password + JWT)"
+                )
+            }
             // 仅本机模式绑定回环地址
-            val host = if (localhostOnly) HOST_LOOPBACK else HOST_ALL_INTERFACES
+            val host = if (effectiveLocalhostOnly) HOST_LOOPBACK else HOST_ALL_INTERFACES
             val baseState = WebServerState(
                 port = port,
                 serviceName = serviceName,
-                localhostOnly = localhostOnly
+                // [SECURITY] 展示实际生效的绑定（被强制回环时如实反映）
+                localhostOnly = effectiveLocalhostOnly
             )
             try {
                 _state.value = _state.value.copy(isLoading = true)
@@ -92,8 +108,8 @@ class WebServerManager(
                 }.start(wait = false)
 
                 _state.value = baseState.copy(isRunning = true)
-                // 仅局域网模式注册 mDNS
-                if (!localhostOnly) {
+                // 仅局域网模式注册 mDNS（实际绑定所有接口时）
+                if (!effectiveLocalhostOnly) {
                     runCatching {
                         nsdRegistrar.register(
                             port = port,
