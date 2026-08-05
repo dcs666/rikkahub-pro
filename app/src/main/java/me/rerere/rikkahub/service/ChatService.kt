@@ -286,7 +286,12 @@ class ChatService(
     // ---- 初始化对话 ----
 
     suspend fun initializeConversation(conversationId: Uuid) {
-        getOrCreateSession(conversationId) // 确保 session 存在
+        val session = getOrCreateSession(conversationId)
+        // [FIX] 竞态：生成期间内存态是最新权威（DB 仅在生成完成时落库），
+        // 无条件用 DB 数据覆盖内存会丢失正在生成的消息（典型场景：手机生成中，
+        // 电脑 web 打开同一会话触发 initialize → 内存回退 → 完成时基于旧内存落库丢数据）。
+        // 仅当内存态为空（新会话）时从 DB 加载；内存已有内容则保持内存优先。
+        if (session.state.value.messageNodes.isNotEmpty()) return
         val conversation = conversationRepo.getConversationById(conversationId)
         if (conversation != null) {
             updateConversation(conversationId, conversation)
