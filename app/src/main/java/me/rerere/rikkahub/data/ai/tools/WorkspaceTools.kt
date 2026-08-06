@@ -49,6 +49,9 @@ suspend fun createWorkspaceTools(
         createWriteFileTool(workspaceId, ::needsApproval, workspaceRepository),
         createEditFileTool(workspaceId, ::needsApproval, workspaceRepository),
         createShellTool(workspaceId, ::needsApproval, workspaceRepository, shellCwd),
+        // 设备公共存储只读访问 (Download/Documents 白名单)
+        createDeviceReadFileTool(),
+        createDeviceListFilesTool(),
     )
 }
 
