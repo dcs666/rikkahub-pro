@@ -348,10 +348,11 @@
 
 ## 自动进度同步（判定驱动机制）
 
-> 时间：2026-08-07 20:25 (UTC+8) | 最新提交：e4d1a83（CI 双绿：Unit Tests #226 + Build APK 均 success）
-> 版本：2.5.3/182（v1.7.7 已发布）｜远程 5a85c23 起 92 文件新功能已拉取（workspace 只读工具 / mimo v3 / qwen-3.8-max / UIMessagePart 拆分 / MCP header 开关等）
-> 判定：[COMPLETE] 代码同步、CI 全绿（e4d1a83）、无活跃 Release
-> 修复总数：48 | 活跃：64293a4e（5min×∞）+ ci_monitor e9a0fd14
-> 新任务：/workspace/rikkahub-mcp-server 22 工具版（stdio 32/32 + HTTP 8/8 全绿）；turbo 远程新提交（5a85c23..e4d1a83）待深审
+> 时间：2026-08-07 21:05 (UTC+8) | 最新提交：91ab838（深审批次修复）
+> 版本：2.5.3/182（v1.7.7 已发布）｜深审 5a85c23..91ab838 全批次 94 文件完成
+> 判定：[COMPLETE] 代码同步、CI 运行中（91ab838 monitor 0ee5ea9b）、无活跃 Release
+> 修复总数：48 + 深审新发现 3（① 3d89348 WebServer 关 JWT 后 fail-open 窗口→看门狗自动降级回环；② provider 14 处请求体/响应体日志泄漏对话内容→删除；③ CustomJs 死循环 withTimeout 无效→独立线程方案）
+> 活跃：64293a4e（5min×∞）
+> 其他：25/26.json schema 缺失已通过 CI artifact 上传补救；52b698b 泄漏计数上限、device_list_files 条目上限、device_read_file 8MB 文本截断为低优先改进点
 
 
