@@ -6,8 +6,6 @@ import androidx.compose.ui.res.stringResource
 import com.whl.quickjs.wrapper.QuickJSContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -89,33 +87,41 @@ object CustomJsSearchService : SearchService<SearchServiceOptions.CustomJsOption
     }
 
     private suspend fun executeScript(userScript: String, invocation: String): String {
-        val context = QuickJSContext.create()
-        var timedOut = false
-        try {
-            // [FIX] 限制脚本资源：用户自定义脚本可能分配爆炸（内存）或死循环（永不返回）。
-            // 内存上限防止脚本一次性申请 GB 级；withTimeout 保证调用方不被永久挂起
-            // （注意：QuickJS 为同步执行，超时后 IO 线程仍被脚本占住直到脚本返回，
-            // 但调用方会及时收到超时错误而非无限等待）。
-            context.setMemoryLimit(64 * 1024 * 1024)
-            context.injectFetch(httpClient)
-            return try {
-                withTimeout(20_000) {
-                    context.evaluate(userScript)
-                    val result = context.evaluate("JSON.stringify($invocation)")
-                    result as? String ?: error("Function returned null or undefined")
-                }
-            } catch (e: TimeoutCancellationException) {
-                timedOut = true
-                throw e
-            }
-        } finally {
-            // [FIX] 超时时脚本可能仍在执行 native 代码：destroy 正在使用的 context
-            // 是 use-after-free，会 SIGSEGV 崩溃整个 app。超时路径跳过销毁
-            // （context 泄漏到进程结束，用户重启后恢复；死循环属罕见输入）。
-            if (!timedOut) {
+        // [FIX2] withTimeout 对同步 QuickJS evaluate 无效：evaluate/injectFetch 均为
+        // 同步阻塞（无协程挂起点），死循环脚本永不返回 → 超时永不触发 → 调用方永久挂起。
+        // 且 fetch 也是同步 OkHttp execute（无挂起点），同样无法被协作式取消。
+        // 改为独立线程 + join 超时（与 eval_javascript 工具方案一致）：
+        // - 正常/异常结束 → 线程内自行 destroy context（脚本已不在执行，销毁安全）
+        // - 超时 → 放弃线程（不 destroy——正在执行的 native 代码访问已释放的
+        //   runtime 是 use-after-free，会 SIGSEGV；线程/context 泄漏到进程结束）。
+        // QuickJSContext 非线程安全：创建/注入/执行/销毁全部在子线程完成（单线程访问）。
+        val resultHolder = java.util.concurrent.atomic.AtomicReference<String?>()
+        val errorHolder = java.util.concurrent.atomic.AtomicReference<Throwable?>()
+        val thread = Thread {
+            val context = QuickJSContext.create()
+            try {
+                // [FIX] 内存炸弹防护：脚本可能 new 超大数组/疯狂拼接（OOM 崩溃面）
+                context.setMemoryLimit(64 * 1024 * 1024)
+                context.injectFetch(httpClient)
+                context.evaluate(userScript)
+                val result = context.evaluate("JSON.stringify($invocation)")
+                resultHolder.set(result as? String ?: error("Function returned null or undefined"))
+                context.destroy()
+            } catch (t: Throwable) {
+                errorHolder.set(t)
+                // 异常已从 evaluate 抛出（native 调用已返回），此时销毁安全
                 context.destroy()
             }
+        }.apply {
+            isDaemon = true
+            start()
         }
+        thread.join(20_000)
+        if (thread.isAlive) {
+            error("JavaScript execution timed out after 20s (possible infinite loop)")
+        }
+        errorHolder.get()?.let { throw it }
+        return resultHolder.get() ?: error("No result")
     }
 
     private fun quoteJsString(s: String): String {
