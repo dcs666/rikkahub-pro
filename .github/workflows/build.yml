@@ -108,3 +108,14 @@ jobs:
           name: rikkahub-turbo-profileable
           path: app/build/outputs/apk/profileable/*.apk
           retention-days: 7
+
+      - name: Upload Room schemas
+        # [FIX] 仓库 schemas 目录只提交到 24.json（25/26 由 CI 生成但从未入库），
+        # 导致 24→25/25→26 迁移无法用 MigrationTestHelper 验证（需对应 schema）。
+        # 每次构建上传生成的 schema，人工定期提交回仓库。
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: room-schemas
+          path: app/schemas/me.rerere.rikkahub.data.db.AppDatabase/*.json
+          retention-days: 14
