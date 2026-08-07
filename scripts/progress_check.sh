@@ -14,13 +14,13 @@ TOKEN=$(grep -o 'ghp_[A-Za-z0-9]*' ~/.git-credentials | head -1)
 
 api() {
     # [FIX] API 失败重试（网络抖动常见）：3 次尝试，失败返回空并标记
+    # 首字符探测用纯 bash（管道 + grep -q 提前退出会 SIGPIPE 报 Broken pipe）
     local out=""
     for i in 1 2 3; do
         out=$(curl -sS --max-time 25 -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" "$1" 2>/dev/null)
-        if [ -n "$out" ] && echo "$out" | head -c 1 | grep -q '[{["]'; then
-            echo "$out"
-            return 0
-        fi
+        case "${out:0:1}" in
+            "{"|"["|"\"" ) echo "$out"; return 0 ;;
+        esac
         sleep 3
     done
     echo ""
@@ -31,13 +31,25 @@ echo "=== 1. 本地/远程同步 ==="
 LOCAL_HEAD=$(git rev-parse HEAD 2>/dev/null)
 REMOTE_HEAD=$(api "https://api.github.com/repos/$REPO/commits/$BRANCH" | python3 -c "import json,sys; print(json.load(sys.stdin).get('sha',''))" 2>/dev/null)
 # 1. 同步状态（remote 为空 = API 失败，不能误判为 DESYNC）
+# 祖先关系判定：SHA 不等 ≠ 需要 push（可能本地落后或分叉）
 if [ -z "$REMOTE_HEAD" ]; then
     echo "API-ERROR: remote head fetch failed"
     API_FAILED=1
+    SYNC_STATE="API-ERROR"
 elif [ "$LOCAL_HEAD" != "$REMOTE_HEAD" ]; then
-    echo "DESYNC: local=$(echo $LOCAL_HEAD | cut -c1-7) remote=$(echo $REMOTE_HEAD | cut -c1-7)"
+    if git merge-base --is-ancestor "$REMOTE_HEAD" HEAD 2>/dev/null; then
+        echo "AHEAD: local=$(echo $LOCAL_HEAD | cut -c1-7) remote=$(echo $REMOTE_HEAD | cut -c1-7)（本地领先，需 push）"
+        SYNC_STATE="AHEAD"
+    elif git merge-base --is-ancestor HEAD "$REMOTE_HEAD" 2>/dev/null; then
+        echo "BEHIND: local=$(echo $LOCAL_HEAD | cut -c1-7) remote=$(echo $REMOTE_HEAD | cut -c1-7)（远程领先，需 fetch）"
+        SYNC_STATE="BEHIND"
+    else
+        echo "DIVERGED: local=$(echo $LOCAL_HEAD | cut -c1-7) remote=$(echo $REMOTE_HEAD | cut -c1-7)（分叉，需 rebase）"
+        SYNC_STATE="DIVERGED"
+    fi
 else
     echo "SYNC OK"
+    SYNC_STATE="SYNC"
 fi
 
 echo "=== 2. 最新 CI（perf 分支）==="
@@ -71,18 +83,22 @@ echo "LATEST: $(echo $REMOTE_HEAD | cut -c1-7)"
 
 echo "=== 5. 完成度判定 ==="# 自动判定：本地同步 + CI 全绿 + 无活跃 Release = COMPLETE
 # 摘要都是小文本，经 argv 传入（heredoc 与管道冲突会吞掉 stdin，不可用管道）
-python3 - "$LOCAL_HEAD" "$REMOTE_HEAD" "$RL_SUMMARY" "$CI_SUMMARY" << 'PYEOF'
+python3 - "$SYNC_STATE" "$RL_SUMMARY" "$CI_SUMMARY" << 'PYEOF'
 import sys
-local_head, remote_head, rl_summary, ci_summary = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+sync_state, rl_summary, ci_summary = sys.argv[1], sys.argv[2], sys.argv[3]
 ci_lines = [l for l in ci_summary.splitlines() if l.strip()]
 
 next_actions = []
 
-# 1. 同步状态（remote 为空 = API 失败，重试而不是误判 push）
-if not remote_head:
+# 1. 同步状态（API 失败 = 重试；AHEAD = push；BEHIND = fetch；DIVERGED = rebase）
+if sync_state == 'API-ERROR':
     next_actions.append("api_retry（GitHub API 请求失败）")
-elif local_head != remote_head:
+elif sync_state == 'AHEAD':
     next_actions.append("push（本地有未推送提交）")
+elif sync_state == 'BEHIND':
+    next_actions.append("fetch（远程领先，拉取后复查）")
+elif sync_state == 'DIVERGED':
+    next_actions.append("rebase（本地与远程分叉）")
 else:
     print("SYNC OK")
 
