@@ -122,7 +122,6 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
             .configureReferHeaders(providerSetting.baseUrl)
             .build()
 
-        Log.i(TAG, "generateText: ${json.encodeToString(requestBody)}")
 
         val response = client.newCall(request).await()
         if (!response.isSuccessful) {
@@ -170,11 +169,7 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
             .configureReferHeaders(providerSetting.baseUrl)
             .build()
 
-        Log.i(TAG, "streamText: ${json.encodeToString(requestBody)}")
 
-        requestBody["messages"]!!.jsonArray.forEach {
-            Log.i(TAG, "streamText: $it")
-        }
 
         val listener = object : EventSourceListener() {
             override fun onEvent(
@@ -183,7 +178,6 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
                 type: String?,
                 data: String
             ) {
-                Log.d(TAG, "onEvent: type=$type, data=$data")
                 if (data == "[DONE]") {
                     return
                 }
@@ -242,11 +236,9 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
                 try {
                     if (!bodyRaw.isNullOrBlank()) {
                         val bodyElement = Json.parseToJsonElement(bodyRaw)
-                        Log.i(TAG, "Error response: $bodyElement")
                         exception = bodyElement.parseErrorDetail()
                     }
                 } catch (e: Throwable) {
-                    Log.w(TAG, "onFailure: failed to parse from $bodyRaw")
                     e.printStackTrace()
                 } finally {
                     close(exception)
@@ -589,7 +581,6 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
 
                 "redacted_thinking" -> {
                     val data = block["data"]?.jsonPrimitiveOrNull?.contentOrNull
-                    Log.d(TAG, "redacted_thinking data: $data")
                 }
 
                 "tool_use" -> {
