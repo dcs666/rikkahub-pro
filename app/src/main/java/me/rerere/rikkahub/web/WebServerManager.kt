@@ -6,10 +6,14 @@ import io.ktor.server.cio.CIOApplicationEngine
 import io.ktor.server.engine.EmbeddedServer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.data.datastore.SettingsStore
@@ -48,6 +52,10 @@ class WebServerManager(
 ) {
     private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
     private val nsdRegistrar = NsdServiceRegistrar(context)
+    // [SECURITY] 局域网绑定期间的设置看门狗：JWT 被关闭或密码被清空时
+    // 自动降级为回环绑定（Authentication 模块 install 不可逆，旧 token 在
+    // TTL 内仍可被验证，只能从绑定层止损）。
+    private var securityWatchdog: Job? = null
 
     private val _state = MutableStateFlow(WebServerState())
     val state: StateFlow<WebServerState> = _state.asStateFlow()
@@ -125,6 +133,32 @@ class WebServerManager(
                     }.onFailure {
                         Log.w(TAG, "NSD register failed", it)
                     }
+                    // [SECURITY] 局域网绑定（0.0.0.0）时启动设置看门狗：
+                    // configureWebApi 的 Authentication 是否安装取决于启动时快照
+                    // （install 不可逆），且已签发 token 在 TTL 内仍可被验证 ——
+                    // 用户关闭 JWT 或清空密码后若不处理，服务器继续暴露在局域网。
+                    // 检测到安全条件失效立即降级为回环绑定并注销 mDNS。
+                    securityWatchdog?.cancel()
+                    securityWatchdog = appScope.launch {
+                        settingsStore.settingsFlow
+                            .map { it.webServerJwtEnabled && it.webServerAccessPassword.isNotBlank() }
+                            .distinctUntilChanged()
+                            .collect { secured ->
+                                val s = _state.value
+                                if (s.isRunning && !s.localhostOnly && !secured) {
+                                    Log.w(
+                                        TAG,
+                                        "WebServer: JWT/password disabled while LAN-bound → downgrading to loopback-only"
+                                    )
+                                    runCatching {
+                                        nsdRegistrar.unregister()
+                                    }.onFailure {
+                                        Log.w(TAG, "NSD unregister failed", it)
+                                    }
+                                    restart(localhostOnly = true)
+                                }
+                            }
+                    }
                 }
                 Log.i(TAG, "Web server started successfully on $host:$port")
             } catch (e: Exception) {
@@ -139,6 +173,9 @@ class WebServerManager(
     }
 
     fun stop() {
+        // [SECURITY] 取消看门狗：服务器停止后不再响应设置变化
+        securityWatchdog?.cancel()
+        securityWatchdog = null
         _state.value =
             _state.value.copy(isRunning = false, isLoading = true, hostname = null, address = null, error = null)
         appScope.launch {
