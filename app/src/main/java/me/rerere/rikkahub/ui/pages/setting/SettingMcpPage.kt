@@ -1011,7 +1011,11 @@ private fun McpToolCard(
 }
 
 private fun isValidMcpName(name: String): Boolean {
-    return name.isEmpty() || name.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' }
+    // [FIX] 与 ChatService 工具名校验一致：放行 - 和 _（OpenAI/Anthropic 工具名
+    // 规范 ^[a-zA-Z0-9_-]+$），否则 my-server 之类的合法服务器名无法保存
+    return name.isEmpty() || name.all {
+        it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '-' || it == '_'
+    }
 }
 
 private fun parseMcpServersFromJson(json: String): List<McpServerConfig> {
