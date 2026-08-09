@@ -87,16 +87,19 @@ jobs:
             if (!artifact) {
               throw new Error(`Artifact rikkahub-turbo-profileable not found in run ${runId}`);
             }
-            const resp = await fetch(artifact.archive_download_url, {
-              headers: { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` },
-              redirect: 'follow',
+            // 用 octokit 的 downloadArtifact 端点下载（认证自动处理；直接 fetch
+            // archive_download_url 会 401——环境里没有可靠的 token header）
+            const resp = await github.rest.actions.downloadArtifact({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              artifact_id: artifact.id,
+              archive_format: 'zip',
             });
-            if (!resp.ok) {
-              throw new Error(`Artifact download failed: HTTP ${resp.status}`);
+            if (!resp.data) {
+              throw new Error('Artifact download returned empty response');
             }
-            const buf = Buffer.from(await resp.arrayBuffer());
             fs.mkdirSync('app/build/outputs/apk/profileable', { recursive: true });
-            fs.writeFileSync('/tmp/profileable.zip', buf);
+            fs.writeFileSync('/tmp/profileable.zip', Buffer.from(resp.data));
             execSync('unzip -o /tmp/profileable.zip -d app/build/outputs/apk/profileable');
             console.log(
               `Downloaded ${artifact.name} (${(artifact.size_in_bytes / 1024 / 1024).toFixed(1)} MB)`
