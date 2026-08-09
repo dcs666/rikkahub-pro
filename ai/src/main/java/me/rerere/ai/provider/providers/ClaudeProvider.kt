@@ -182,47 +182,54 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
                     return
                 }
 
-                val dataJson = json.parseToJsonElement(data).jsonObject
-                val deltaMessage = parseMessage(buildJsonArray {
-                    val contentBlockObj = dataJson["content_block"]?.jsonObject
-                    val deltaObj = dataJson["delta"]?.jsonObject
-                    if (contentBlockObj != null) {
-                        add(contentBlockObj)
-                    }
-                    if (deltaObj != null) {
-                        add(deltaObj)
-                    }
-                })
-                val tokenUsage = parseTokenUsage(dataJson)
-                val messageChunk = MessageChunk(
-                    id = id ?: "",
-                    model = "",
-                    choices = listOf(
-                        UIMessageChoice(
-                            index = 0,
-                            delta = deltaMessage,
-                            message = null,
-                            finishReason = null
-                        )
-                    ),
-                    usage = tokenUsage
-                )
+                try {
+                    val dataJson = json.parseToJsonElement(data).jsonObject
+                    val deltaMessage = parseMessage(buildJsonArray {
+                        val contentBlockObj = dataJson["content_block"]?.jsonObject
+                        val deltaObj = dataJson["delta"]?.jsonObject
+                        if (contentBlockObj != null) {
+                            add(contentBlockObj)
+                        }
+                        if (deltaObj != null) {
+                            add(deltaObj)
+                        }
+                    })
+                    val tokenUsage = parseTokenUsage(dataJson)
+                    val messageChunk = MessageChunk(
+                        id = id ?: "",
+                        model = "",
+                        choices = listOf(
+                            UIMessageChoice(
+                                index = 0,
+                                delta = deltaMessage,
+                                message = null,
+                                finishReason = null
+                            )
+                        ),
+                        usage = tokenUsage
+                    )
 
-                trySend(messageChunk).onFailure { e ->
-                    Log.w(TAG, "onEvent: chunk dropped (${e?.message})")
-                }
-
-                when (type) {
-                    "message_stop" -> {
-                        Log.d(TAG, "Stream ended")
-                        close()
+                    trySend(messageChunk).onFailure { e ->
+                        Log.w(TAG, "onEvent: chunk dropped (${e?.message})")
                     }
 
-                    "error" -> {
-                        val eventData = json.parseToJsonElement(data).jsonObject
-                        val error = eventData["error"]?.parseErrorDetail()
-                        close(error)
+                    when (type) {
+                        "message_stop" -> {
+                            Log.d(TAG, "Stream ended")
+                            close()
+                        }
+
+                        "error" -> {
+                            val eventData = json.parseToJsonElement(data).jsonObject
+                            val error = eventData["error"]?.parseErrorDetail()
+                            close(error)
+                        }
                     }
+                } catch (e: Throwable) {
+                    // 事件数据非法（非 JSON/未知事件）时不能悬挂：
+                    // 以异常结束 flow，让调用方收到错误提示
+                    Log.w(TAG, "onEvent: failed to process event data: $data", e)
+                    close(e)
                 }
             }
 
