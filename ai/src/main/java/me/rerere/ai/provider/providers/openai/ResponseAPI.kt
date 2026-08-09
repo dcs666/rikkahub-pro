@@ -515,7 +515,7 @@ class ResponseAPI(
         })
     }
 
-    private fun parseResponseDelta(jsonObject: JsonObject): MessageChunk? {
+    internal fun parseResponseDelta(jsonObject: JsonObject): MessageChunk? {
         val chunkType = jsonObject["type"]?.jsonPrimitive?.content ?: error("chunk type not found")
 
         when (chunkType) {
@@ -725,6 +725,33 @@ class ResponseAPI(
                     usage = parseTokenUsage(jsonObject["response"]?.jsonObject?.get("usage")?.jsonObject)
                 )
             }
+
+            "response.incomplete" -> {
+                // DeepSeek / OpenAI 官方：响应被截断（如达到 max_output_tokens）时
+                // 流的最后一个事件（文档：没有 data: [DONE]，以 completed/incomplete/failed
+                // 结束）。携带 finishReason 让 #51 的截断提示生效。
+                return MessageChunk(
+                    id = jsonObject["item_id"]?.jsonPrimitive?.contentOrNull ?: "",
+                    model = "",
+                    choices = listOf(
+                        UIMessageChoice(
+                            index = 0,
+                            delta = null,
+                            message = null,
+                            finishReason = "length"
+                        )
+                    ),
+                    usage = parseTokenUsage(jsonObject["response"]?.jsonObject?.get("usage")?.jsonObject)
+                )
+            }
+
+            "response.failed" -> {
+                // DeepSeek / OpenAI 官方：响应失败时最后一个事件，携带含 error 详情的
+                // response 对象。抛异常由 onEvent 的 try-catch 以 close(e) 结束 flow。
+                val error = jsonObject["response"]?.jsonObject?.get("error")
+                    ?.parseErrorDetail() ?: RuntimeException("Response failed")
+                throw error
+            }
         }
 
         return null
@@ -733,6 +760,17 @@ class ResponseAPI(
     internal fun parseResponseOutput(jsonObject: JsonObject): MessageChunk {
         val outputs = jsonObject["output"]?.jsonArray ?: error("output not found")
         val parts = arrayListOf<UIMessagePart>()
+
+        // 非流式截断/失败：DeepSeek / OpenAI 官方在响应对象顶层返回 status
+        // （completed / incomplete / failed）。incomplete 时携带 finishReason 让
+        // #51 的截断提示生效；failed 时抛出携带的 error 详情。
+        val status = jsonObject["status"]?.jsonPrimitive?.contentOrNull
+        if (status == "failed") {
+            val error = jsonObject["error"]?.parseErrorDetail()
+                ?: RuntimeException("Response failed")
+            throw error
+        }
+        val finishReason = if (status == "incomplete") "length" else null
 
         outputs.forEach { outputItem ->
             val output = outputItem.jsonObject
@@ -850,7 +888,7 @@ class ResponseAPI(
                         role = MessageRole.ASSISTANT,
                         parts = parts,
                     ),
-                    finishReason = null,
+                    finishReason = finishReason,
                     delta = null
                 )
             ),

@@ -237,4 +237,54 @@ class ResponseAPIDeepSeekTest {
         val chunk = api.parseResponseOutput(response)
         assertTrue(reasoningParts(chunk).isEmpty())
     }
+
+    // ---- 截断 / 失败事件（DeepSeek 官方：流无 [DONE]，以 completed/incomplete/failed 结束）----
+
+    @Test
+    fun `stream incomplete event carries length finish reason`() {
+        // response.incomplete：达到 max_output_tokens 截断时的最后一个事件
+        val event = Json.parseToJsonElement(
+            """{"type":"response.incomplete","item_id":"evt_1","response":{"status":"incomplete"}}"""
+        ).jsonObject
+        val chunk = api.parseResponseDelta(event)
+        assertEquals("length", chunk?.choices?.getOrNull(0)?.finishReason)
+    }
+
+    @Test(expected = RuntimeException::class)
+    fun `stream failed event throws`() {
+        // response.failed：响应失败时的最后一个事件，携带 error 详情 → 抛给调用方
+        val event = Json.parseToJsonElement(
+            """{"type":"response.failed","response":{"error":{"type":"server_error","message":"boom"}}}"""
+        ).jsonObject
+        api.parseResponseDelta(event)
+    }
+
+    @Test
+    fun `non-stream incomplete status carries length finish reason`() {
+        // 非流式响应 status=incomplete（截断）→ finishReason=length → #51 截断提示生效
+        val response = responseWithReasoningAndMessage(
+            """{"type":"reasoning","id":"rs_1","content":"thinking trace"}"""
+        )
+        val body = buildJsonObject {
+            put("status", "incomplete")
+            put("output", response["output"])
+        }
+        val chunk = api.parseResponseOutput(body)
+        assertEquals("length", chunk.choices[0].finishReason)
+        assertEquals("thinking trace", reasoningParts(chunk)[0].reasoning)
+    }
+
+    @Test(expected = RuntimeException::class)
+    fun `non-stream failed status throws`() {
+        // 非流式响应 status=failed → 抛出 error 详情
+        val response = buildJsonObject {
+            put("status", "failed")
+            put("output", buildJsonArray { })
+            put("error", buildJsonObject {
+                put("type", "server_error")
+                put("message", "boom")
+            })
+        }
+        api.parseResponseOutput(response)
+    }
 }
