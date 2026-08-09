@@ -348,11 +348,11 @@
 
 ## 自动进度同步（判定驱动机制）
 
-> 时间：2026-08-09 12:13 (UTC+8) | 最新提交：e2d0768（v1.7.8-turbo 已发布）
+> 时间：2026-08-09 12:28 (UTC+8) | 最新提交：6854ad5（fix #52 throttleLatest）+ 140c5c9（feat #51 截断提示），已 push
 > 版本：2.5.4/183（v1.7.8-turbo，Release #28 31293664450 success）｜3 个 profileable APK 已上传
-> 判定：[COMPLETE] 代码已同步、CI 全绿、无活跃 Release
-> 修复总数：50（49: content part 数组正文丢失；50: opencode.ai reasoning_effort XHIGH→max 映射）
-> 活跃：c3596e36（5min×∞，auto_ai=true）
-> 其他：v1.7.8 发布完成（arm64-v8a 38.7MB / universal 48.8MB / x86_64 39.4MB）；待办：finish_reason=length 无 UI 提示
+> 判定：[INCOMPLETE] CI 运行中（6854ad5 Unit Tests + Build APK，monitor c6dd088a）——本轮执行：遗留工作区代码收尾提交（见下）
+> 修复总数：52（51: finish_reason=length/max_tokens 截断无 UI 提示 → 追加 ⚠️ 提示块；52: 官方 sample 窗口内最后值被静默丢弃 → 流式尾部 chunk 丢失，throttleLatest 替代）
+> 活跃：71f9f7a1（5min×∞，auto_ai=true）｜ci_monitor c6dd088a（6854ad5，运行中）
+> 其他：本轮收尾了上轮遗留的 2 处工作区代码（截断提示功能 + 流式尾部丢失修复，均审查通过后提交）；Message.kt 格式事故（签名与 require 挤一行）已还原；v1.7.8 发布完成（arm64-v8a 38.7MB / universal 48.8MB / x86_64 39.4MB）
 
 
