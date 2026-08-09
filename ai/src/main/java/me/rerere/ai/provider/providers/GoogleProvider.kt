@@ -190,8 +190,14 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
         val bodyStr = response.body?.string() ?: ""
         val bodyJson = json.parseToJsonElement(bodyStr).jsonObject
 
-        val candidates = bodyJson["candidates"]!!.jsonArray
-        val usage = bodyJson["usageMetadata"]!!.jsonObject
+        // [FIX] 内容被安全过滤时 Google 返回 promptFeedback 而无 candidates 字段：
+        // 原 `!!` 硬解直接 NPE，错误信息不可读。与流式路径一致地先报 blockReason。
+        bodyJson["promptFeedback"]?.jsonObject?.get("blockReason")?.jsonPrimitiveOrNull
+            ?.contentOrNull?.let { reason ->
+                throw Exception("Prompt feedback: $reason")
+            }
+        val candidates = bodyJson["candidates"]?.jsonArray ?: JsonArray(emptyList())
+        val usage = bodyJson["usageMetadata"]?.jsonObject
 
         val messageChunk = MessageChunk(
             id = Uuid.random().toString(),
