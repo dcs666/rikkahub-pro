@@ -367,3 +367,10 @@
 - ⑤ gradle/actions/setup-gradle@v3 替代手写 actions/cache（依赖 + 构建缓存 + daemon）
 - test.yml 加 paths-ignore .github/**；release.yml 补 Gradle 缓存
 - 8e70885：ndk abiFilters 跟随 singleAbi（修复 AGP 冲突配置错误）
+
+## Bug #56：Console Go thinking mode 工具消息缺 reasoning 回传 400（2026-08-09）
+- 现象：App 报 `Error from provider (Console Go): The reasoning_text in the thinking mode must be passed back to the API`（ChatService rd5，16:06）
+- 复现（curl 实测 /zen/go/v1）：chat/completions 带工具调用的 assistant 消息缺 reasoning_content → 400「reasoning_content must be passed back」（空字符串可接受）；responses 缺 reasoning item → 400「reasoning_text must be passed back」（空文本拒绝、非空即可、id 可选）；无工具消息不校验
+- 根因：网关校验只认结构——思考模式下带 tool_calls 的 assistant 消息必须回传思维链；历史消息若未捕获 Reasoning part（如开启思考前产生的工具消息），App 就不回传 → 网关 400
+- 修复：opencode.ai host + thinking 开启时，工具消息兜底——chat/completions 补 `reasoning_content:""`（buildAssistantMessageJson else-if）；responses 补占位 reasoning item（text="…"，非空必需）；useReasoningTextArray 分支思维链为空时也换占位符；新增 3 测试（ResponseAPI 占位 item 顺序/空思维链占位 + ChatCompletions 空 reasoning_content）
+- 未推送，待 CI 验证

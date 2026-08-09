@@ -262,6 +262,7 @@ class ChatCompletionsAPI(
                     messages = messages,
                     includeHistoryReasoning = providerSetting.includeHistoryReasoning,
                     supportInputModalities = params.model.inputModalities,
+                    forcePlaceholderReasoning = host == "opencode.ai" && params.reasoningLevel.isEnabled,
                 )
             )
 
@@ -487,6 +488,7 @@ class ChatCompletionsAPI(
         messages: List<UIMessage>,
         includeHistoryReasoning: Boolean = true,
         supportInputModalities: List<Modality> = listOf(Modality.TEXT, Modality.IMAGE),
+        forcePlaceholderReasoning: Boolean = false,
     ) = buildJsonArray {
         val filteredMessages = messages.filter { it.isValidToUpload() }
 
@@ -496,6 +498,7 @@ class ChatCompletionsAPI(
                     message = message,
                     includeReasoning = includeHistoryReasoning,
                     supportInputModalities = supportInputModalities,
+                    forcePlaceholderReasoning = forcePlaceholderReasoning,
                 )
             } else {
                 addNonAssistantMessage(message)
@@ -507,6 +510,7 @@ class ChatCompletionsAPI(
         message: UIMessage,
         includeReasoning: Boolean,
         supportInputModalities: List<Modality>,
+        forcePlaceholderReasoning: Boolean = false,
     ) {
         val groups = groupPartsByToolBoundary(message.parts)
         val contentBuffer = mutableListOf<UIMessagePart>()
@@ -537,7 +541,8 @@ class ChatCompletionsAPI(
                     buildAssistantMessageJson(
                         contentParts = contentBuffer,
                         tools = group.tools,
-                        reasoningPart = reasoningPart
+                        reasoningPart = reasoningPart,
+                        forcePlaceholderReasoning = forcePlaceholderReasoning,
                     )?.let { assistantMessage ->
                         add(assistantMessage)
                     }
@@ -562,7 +567,8 @@ class ChatCompletionsAPI(
             buildAssistantMessageJson(
                 contentParts = contentBuffer,
                 tools = emptyList(),
-                reasoningPart = reasoningPart
+                reasoningPart = reasoningPart,
+                forcePlaceholderReasoning = forcePlaceholderReasoning,
             )?.let { assistantMessage ->
                 add(assistantMessage)
             }
@@ -572,7 +578,8 @@ class ChatCompletionsAPI(
     private fun buildAssistantMessageJson(
         contentParts: List<UIMessagePart>,
         tools: List<UIMessagePart.Tool>,
-        reasoningPart: UIMessagePart.Reasoning?
+        reasoningPart: UIMessagePart.Reasoning?,
+        forcePlaceholderReasoning: Boolean = false,
     ): JsonObject? {
         val hasUsableContent = contentParts.any { part ->
             when (part) {
@@ -592,6 +599,12 @@ class ChatCompletionsAPI(
             // reasoning_content
             if (hasReasoning) {
                 put("reasoning_content", reasoningPart.reasoning)
+            } else if (forcePlaceholderReasoning && tools.isNotEmpty()) {
+                // Console Go 网关（opencode.ai）thinking mode：带工具调用的 assistant 消息
+                // 必须携带 reasoning_content（实测空字符串可接受）。历史消息未捕获思维链时
+                // 补空字符串占位，否则网关 400（错误：The reasoning_content in the thinking
+                // mode must be passed back to the API）
+                put("reasoning_content", "")
             }
 
             // content

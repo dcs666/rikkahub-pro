@@ -134,4 +134,67 @@ class ResponseAPIOpenCodeTest {
         assertEquals("reasoning_text", content!![0].jsonObject["type"]?.jsonPrimitive?.content)
         assertNull(reasoningItem.jsonObject["summary"])
     }
+
+    @Test
+    fun `opencode tool message without captured reasoning gets placeholder reasoning item`() {
+        // Console Go 网关 thinking mode：带工具调用的 assistant 消息必须回传非空 reasoning_text
+        // （错误：The reasoning_text in the thinking mode must be passed back to the API）。
+        // 历史消息未捕获思维链时用占位符补上，且 reasoning item 必须在 function_call 之前。
+        val assistant = UIMessage(
+            role = MessageRole.ASSISTANT,
+            parts = listOf(
+                UIMessagePart.Text(""),
+                UIMessagePart.Tool(
+                    toolCallId = "call_1",
+                    toolName = "add",
+                    input = "{}",
+                    output = listOf(UIMessagePart.Text("2")),
+                )
+            )
+        )
+        val body = api.buildRequestBody(
+            openCodeSetting(),
+            listOf(UIMessage.user("1+1=?"), assistant),
+            reasoningParams(ReasoningLevel.XHIGH),
+            stream = false
+        )
+        val input = body["input"]?.jsonArray!!
+        val reasoningIdx = input.indexOfFirst { it.jsonObject["type"]?.jsonPrimitive?.content == "reasoning" }
+        val fcIdx = input.indexOfFirst { it.jsonObject["type"]?.jsonPrimitive?.content == "function_call" }
+        assertTrue(reasoningIdx >= 0)
+        assertTrue(reasoningIdx < fcIdx)
+        val text = input[reasoningIdx].jsonObject["content"]?.jsonArray
+            ?.getOrNull(0)?.jsonObject?.get("text")?.jsonPrimitive?.content
+        assertEquals("…", text)
+    }
+
+    @Test
+    fun `opencode blank reasoning part is replaced by placeholder`() {
+        // 思维链 part 存在但文本为空时，网关同样拒绝（空 reasoning_text 实测 400），
+        // useReasoningTextArray 分支必须用占位符兜底
+        val assistant = UIMessage(
+            role = MessageRole.ASSISTANT,
+            parts = listOf(
+                UIMessagePart.Reasoning(reasoning = ""),
+                UIMessagePart.Text("answer"),
+                UIMessagePart.Tool(
+                    toolCallId = "call_1",
+                    toolName = "add",
+                    input = "{}",
+                    output = listOf(UIMessagePart.Text("2")),
+                )
+            )
+        )
+        val body = api.buildRequestBody(
+            openCodeSetting(),
+            listOf(UIMessage.user("1+1=?"), assistant),
+            reasoningParams(ReasoningLevel.HIGH),
+            stream = false
+        )
+        val input = body["input"]?.jsonArray!!
+        val reasoningItem = input.first { it.jsonObject["type"]?.jsonPrimitive?.content == "reasoning" }
+        val text = reasoningItem.jsonObject["content"]?.jsonArray
+            ?.getOrNull(0)?.jsonObject?.get("text")?.jsonPrimitive?.content
+        assertEquals("…", text)
+    }
 }

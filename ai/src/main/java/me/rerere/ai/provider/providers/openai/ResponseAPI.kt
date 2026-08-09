@@ -65,6 +65,14 @@ import kotlin.time.Clock
 
 private const val TAG = "ResponseAPI"
 
+/**
+ * Console Go 网关（opencode.ai）thinking mode 要求带工具调用的 assistant 消息必须回传
+ * 非空 reasoning_text（实测空字符串会被拒绝，非空即可、id 可选）。历史消息若未捕获到
+ * 思维链（如开启思考模式前产生的消息），用占位符补上，否则网关 400：
+ * The `reasoning_text` in the thinking mode must be passed back to the API
+ */
+private const val REASONING_PLACEHOLDER = "…"
+
 class ResponseAPI(
     private val client: OkHttpClient,
     private val keyRoulette: KeyRoulette = KeyRoulette.default()
@@ -233,6 +241,7 @@ class ResponseAPI(
                     messages,
                     usePlainReasoningContent = host == "api.deepseek.com",
                     useReasoningTextArray = host == "opencode.ai",
+                    forcePlaceholderReasoning = host == "opencode.ai" && params.reasoningLevel.isEnabled,
                 )
             )
 
@@ -316,12 +325,18 @@ class ResponseAPI(
         messages: List<UIMessage>,
         usePlainReasoningContent: Boolean = false,
         useReasoningTextArray: Boolean = false,
+        forcePlaceholderReasoning: Boolean = false,
     ) = buildJsonArray {
         messages
             .filter { it.isValidToUpload() && it.role != MessageRole.SYSTEM }
             .forEach { message ->
                 if (message.role == MessageRole.ASSISTANT) {
-                    addAssistantItems(message, usePlainReasoningContent, useReasoningTextArray)
+                    addAssistantItems(
+                        message,
+                        usePlainReasoningContent,
+                        useReasoningTextArray,
+                        forcePlaceholderReasoning,
+                    )
                 } else {
                     addUserItems(message)
                 }
@@ -332,9 +347,13 @@ class ResponseAPI(
         message: UIMessage,
         usePlainReasoningContent: Boolean = false,
         useReasoningTextArray: Boolean = false,
+        forcePlaceholderReasoning: Boolean = false,
     ) {
         val groups = groupPartsByToolBoundary(message.parts)
         val contentBuffer = mutableListOf<UIMessagePart>()
+        // Console Go 网关（opencode.ai）thinking mode：带工具调用的 assistant 消息必须
+        // 回传非空 reasoning_text；历史消息未捕获思维链时用占位符补上
+        var reasoningEmitted = false
 
         for (group in groups) {
             when (group) {
@@ -362,11 +381,13 @@ class ResponseAPI(
 
                                         useReasoningTextArray -> {
                                             // OpenCode Zen 网关（Console provider）thinking mode 要求
-                                            // content 数组的 reasoning_text 类型回传
+                                            // content 数组的 reasoning_text 类型回传；思维链为空时用
+                                            // 占位符（实测空字符串会被网关拒绝）
+                                            val text = part.reasoning.ifBlank { REASONING_PLACEHOLDER }
                                             put("content", buildJsonArray {
                                                 add(buildJsonObject {
                                                     put("type", "reasoning_text")
-                                                    put("text", part.reasoning)
+                                                    put("text", text)
                                                 })
                                             })
                                         }
@@ -389,6 +410,9 @@ class ResponseAPI(
                                         }
                                     }
                                 })
+                                // 无论用哪种格式回传，只要 reasoning item 已输出（且文本非空，
+                                // useReasoningTextArray 分支已用占位符兜底），标记本消息已带思维链
+                                reasoningEmitted = true
                             }
 
                             is UIMessagePart.Image -> {
@@ -413,6 +437,23 @@ class ResponseAPI(
                     if (contentBuffer.isNotEmpty()) {
                         addContentItem(MessageRole.ASSISTANT, contentBuffer)
                         contentBuffer.clear()
+                    }
+
+                    // Console Go 网关（opencode.ai）thinking mode：带工具调用的 assistant 消息
+                    // 必须回传非空 reasoning_text。历史消息若未捕获到思维链（如开启思考模式前
+                    // 产生的工具消息），补占位符 reasoning item，否则网关 400（错误：The
+                    // reasoning_text in the thinking mode must be passed back to the API）
+                    if (forcePlaceholderReasoning && !reasoningEmitted) {
+                        add(buildJsonObject {
+                            put("type", "reasoning")
+                            put("content", buildJsonArray {
+                                add(buildJsonObject {
+                                    put("type", "reasoning_text")
+                                    put("text", REASONING_PLACEHOLDER)
+                                })
+                            })
+                        })
+                        reasoningEmitted = true
                     }
 
                     // 输出 function_call + function_call_output
