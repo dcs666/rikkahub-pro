@@ -43,10 +43,10 @@ import me.rerere.hugeicons.stroke.ArrowDown01
 import me.rerere.hugeicons.stroke.ArrowRight01
 import me.rerere.rikkahub.ui.theme.JetbrainsMono
 
-@Composable
 /** JSON 树渲染的最大递归深度（超过的子树降级为文本，防 StackOverflowError） */
 private const val MAX_JSON_TREE_DEPTH = 12
 
+@Composable
 fun JsonTree(
     json: JsonElement,
     modifier: Modifier = Modifier,
