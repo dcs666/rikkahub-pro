@@ -3,9 +3,9 @@ name: Build APK
 on:
   push:
     branches: [ master, main, 'perf/**' ]
-    # [OPT] 仅修改 .github/（workflow 配置）不触发构建——app 代码没变时
+    # [OPT] 仅修改 .github/（workflow 配置）或文档（PROGRESS.md）不触发构建——app 代码没变时
     # 不必重跑 30-60 分钟的 assembleProfileable
-    paths-ignore: ['.github/**']
+    paths-ignore: ['.github/**', 'PROGRESS.md', '*.md']
   pull_request:
     branches: [ master, main ]
   workflow_dispatch:

@@ -354,3 +354,16 @@
 > 修复总数：52（#51 finish_reason 截断提示；#52 流式尾部丢失 throttleLatest + channelFlow 修正 + FlowThrottleTest 7 用例）
 > 活跃：5332a4cd（5min×∞，auto_ai=true）
 > 其他：progress_check.sh 判定修复——run 名含 SHA 前缀导致历史失败 run 永远计入判定（已修复的旧失败阻塞 INCOMPLETE），改为只检查最新提交（REMOTE_HEAD）的 run，最新提交尚无 run 时 wait；FIXES 计数 48→52；已 push
+
+## v1.8.1-turbo 发布（2026-08-09，2.5.7/186，99b577f + tag）
+- 累计修复 55 个真实 bug（a610224 #55 非流式 reasoning 三格式兼容 + 流式 onEvent 防悬挂 / 8b79263 编译修复 / 96feda5 Claude 流式防悬挂 / d2afd23 response.incomplete+failed 事件处理（DeepSeek 文档驱动，#51 截断提示在 Responses 上真正生效）/ 7e638da Google 非流式 blockReason / c5a2388 测试修复）
+- 双绿依据 c5a2388（Unit Tests + Build APK 双 success）；Release run 31302055027 success；3 个 profileable APK（arm64 38.7MB / universal 48.8MB / x86_64 39.4MB）
+- DeepSeek Responses API 文档核对：reasoning 明文 content 回传 ✓ / effort low/high/max ✓ / 流无 [DONE] ✓ / OpenCode Zen 端点矩阵（GPT→responses、Claude→messages、DeepSeek 等→chat/completions）
+
+## CI 提速（2026-08-09，dba888d + 8e70885）
+- ① 普通 push 只出 arm64（-PsingleAbi，splits + ndk abiFilters 双开关）；发布出全 ABI
+- ② 项目级 .gradle 独立缓存（gradle-project- key + restore-keys 前缀命中）
+- ③ 三 workflow JDK 17 → 21
+- ⑤ gradle/actions/setup-gradle@v3 替代手写 actions/cache（依赖 + 构建缓存 + daemon）
+- test.yml 加 paths-ignore .github/**；release.yml 补 Gradle 缓存
+- 8e70885：ndk abiFilters 跟随 singleAbi（修复 AGP 冲突配置错误）

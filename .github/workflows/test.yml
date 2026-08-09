@@ -3,8 +3,8 @@ name: Unit Tests
 on:
   push:
     branches: [ master, main, 'perf/**' ]
-    # [TURBO] 仅修改 .github/（workflow 配置）不触发测试——与 build.yml 对齐
-    paths-ignore: ['.github/**']
+    # [TURBO] 仅修改 .github/（workflow 配置）或文档（*.md）不触发测试——与 build.yml 对齐
+    paths-ignore: ['.github/**', '*.md']
   pull_request:
     branches: [ master, main ]
   workflow_dispatch:
