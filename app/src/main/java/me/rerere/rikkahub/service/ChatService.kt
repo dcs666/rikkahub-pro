@@ -570,7 +570,14 @@ class ChatService(
                         val invalidNames = allTools
                             .map { it.second }
                             .distinct()
-                            .filter { name -> name.isEmpty() || !name.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' } }
+                            // [FIX] 工具名规范允许 - 和 _（OpenAI/Anthropic 均按
+                            // ^[a-zA-Z0-9_-]+$ 校验）：只查字母数字会把 my-server 之类的
+                            // 合法 MCP 服务器名误判为 invalid → 工具整体不可用
+                            .filter { name ->
+                                name.isEmpty() || !name.all {
+                                    it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '-' || it == '_'
+                                }
+                            }
                         if (invalidNames.isNotEmpty()) {
                             addError(
                                 error = IllegalStateException(
