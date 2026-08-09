@@ -78,7 +78,7 @@ echo "$RL_SUMMARY"
 
 echo "=== 4.5 进度快照（同步用）==="
 echo "TIME: $(date '+%Y-%m-%d %H:%M:%S %Z')"
-echo "FIXES: 56（累计真实 bug 修复）"
+echo "FIXES: 64（累计真实 bug 修复，含 #57 系列 8 个）"
 echo "LATEST: $(echo $REMOTE_HEAD | cut -c1-7)"
 
 echo "=== 5. 完成度判定 ==="# 自动判定：本地同步 + CI 全绿 + 无活跃 Release = COMPLETE
