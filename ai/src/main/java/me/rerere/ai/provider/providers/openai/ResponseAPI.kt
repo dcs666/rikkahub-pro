@@ -68,6 +68,49 @@ import kotlin.time.Clock
 private const val TAG = "ResponseAPI"
 
 /**
+ * 诊断：把 responses 请求的 input 结构摘要化输出（每个 item 的类型/id/名称/内容长度+开头），
+ * 不截断 item 条数，便于定位网关 400（如 thinking mode reasoning_text 校验失败）的确切消息形状。
+ */
+private fun summarizeInput(input: JsonElement?): String {
+    if (input == null) return "null"
+    val arr = input as? JsonArray
+    if (arr == null) return input.toString().take(2000)
+    return arr.mapIndexed { index, item ->
+        val o = item as? JsonObject
+        val type = o?.get("type")?.jsonPrimitiveOrNull?.contentOrNull
+            ?: o?.get("role")?.jsonPrimitiveOrNull?.contentOrNull
+            ?: "?"
+        val id = o?.get("id")?.jsonPrimitiveOrNull?.contentOrNull
+        val name = o?.get("name")?.jsonPrimitiveOrNull?.contentOrNull
+        val callId = o?.get("call_id")?.jsonPrimitiveOrNull?.contentOrNull
+        val content = o?.get("content")
+        val contentInfo = when {
+            content == null -> ""
+            content is JsonPrimitive -> " content=[str ${content.contentOrNull?.length}ch]"
+            content is JsonArray -> " content=[arr ${content.size}]"
+            else -> ""
+        }
+        val textHead = when {
+            content == null -> ""
+            content is JsonPrimitive -> content.contentOrNull?.take(150)?.let { " head=${it}" } ?: ""
+            content is JsonArray ->
+                (content.firstOrNull() as? JsonObject)?.get("text")?.jsonPrimitiveOrNull?.contentOrNull
+                    ?.take(150)?.let { " head=${it}" } ?: ""
+            else -> ""
+        }
+        val output = o?.get("output")
+        val outputInfo = when {
+            output == null -> ""
+            output is JsonPrimitive ->
+                " out=[str ${output.contentOrNull?.length}ch ${output.contentOrNull?.take(80)}]"
+            output is JsonArray -> " out=[arr ${output.size}]"
+            else -> ""
+        }
+        "#$index {$type${id?.let { " id=$it" } ?: ""}${name?.let { " name=$it" } ?: ""}${callId?.let { " call=$it" } ?: ""}$contentInfo$outputInfo$textHead"
+    }.joinToString("\n")
+}
+
+/**
  * Console Go 网关（opencode.ai）thinking mode 要求带工具调用的 assistant 消息必须回传
  * 非空 reasoning_text（实测空字符串会被拒绝，非空即可、id 可选）。历史消息若未捕获到
  * 思维链（如开启思考模式前产生的消息），用占位符补上，否则网关 400：
@@ -181,10 +224,10 @@ class ResponseAPI(
 
                 val bodyRaw = response?.body?.stringSafe()
                 // 诊断：流式 400（如 thinking mode reasoning_text 校验失败）时把响应体 + 请求
-                // input 形状打进 App 内存日志（Logging.log），Log.w 只进 logcat 无法远程查看
+                // input 结构摘要打进 App 内存日志（Logging.log），Log.w 只进 logcat 无法远程查看
                 if ((bodyRaw?.contains("reasoning") == true) || response?.code == 400) {
-                    Logging.log(TAG, "onFailure code=${response?.code} body=${bodyRaw?.take(4000)}")
-                    Logging.log(TAG, "onFailure request input=${requestBody["input"]?.toString()?.take(4000)}")
+                    Logging.log(TAG, "onFailure code=${response?.code} body=${bodyRaw?.take(2000)}")
+                    Logging.log(TAG, "onFailure request input-structure:\n${summarizeInput(requestBody["input"])}")
                 }
                 try {
                     if (!bodyRaw.isNullOrBlank()) {
