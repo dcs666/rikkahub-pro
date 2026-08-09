@@ -66,11 +66,41 @@ jobs:
             core.setOutput('run_url', run.html_url);
 
       - name: Download profileable APK artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/github-script@v7
         with:
-          name: rikkahub-turbo-profileable
-          run-id: ${{ steps.find.outputs.run_id }}
-          path: app/build/outputs/apk/profileable
+          script: |
+            // [FIX] download-artifact@v4 跨 workflow run 下载有兼容问题
+            // （run-id 指向其他 workflow 的 run 时报 Artifact not found，即使
+            // artifact 存在）。改用 REST API + fetch 直接下载并解压，行为可预期。
+            const fs = require('fs');
+            const { execSync } = require('child_process');
+            const runId = Number('${{ steps.find.outputs.run_id }}');
+            const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: runId,
+              per_page: 30,
+            });
+            const artifact = artifacts.data.artifacts.find(
+              a => a.name === 'rikkahub-turbo-profileable'
+            );
+            if (!artifact) {
+              throw new Error(`Artifact rikkahub-turbo-profileable not found in run ${runId}`);
+            }
+            const resp = await fetch(artifact.archive_download_url, {
+              headers: { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` },
+              redirect: 'follow',
+            });
+            if (!resp.ok) {
+              throw new Error(`Artifact download failed: HTTP ${resp.status}`);
+            }
+            const buf = Buffer.from(await resp.arrayBuffer());
+            fs.mkdirSync('app/build/outputs/apk/profileable', { recursive: true });
+            fs.writeFileSync('/tmp/profileable.zip', buf);
+            execSync('unzip -o /tmp/profileable.zip -d app/build/outputs/apk/profileable');
+            console.log(
+              `Downloaded ${artifact.name} (${(artifact.size_in_bytes / 1024 / 1024).toFixed(1)} MB)`
+            );
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
