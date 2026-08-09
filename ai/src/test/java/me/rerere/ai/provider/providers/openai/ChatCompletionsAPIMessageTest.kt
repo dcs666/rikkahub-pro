@@ -40,14 +40,16 @@ class ChatCompletionsAPIMessageTest {
             "buildMessages",
             List::class.java,
             Boolean::class.javaPrimitiveType,
-            List::class.java
+            List::class.java,
+            Boolean::class.javaPrimitiveType
         )
         method.isAccessible = true
         return method.invoke(
             api,
             messages,
             includeHistoryReasoning,
-            listOf(Modality.TEXT, Modality.IMAGE)
+            listOf(Modality.TEXT, Modality.IMAGE),
+            false
         ) as JsonArray
     }
 
