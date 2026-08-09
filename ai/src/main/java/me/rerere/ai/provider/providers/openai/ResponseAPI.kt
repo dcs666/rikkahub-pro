@@ -435,9 +435,10 @@ class ResponseAPI(
                                 val reasoningMetadata = part.metadataAs<OpenAIReasoningMetadata>()
                                 add(buildJsonObject {
                                     put("type", "reasoning")
-                                    reasoningMetadata?.reasoningId?.let {
-                                        put("id", it)
-                                    }
+                                    // [codex 经验] 回传 input 时不带服务端生成的 item id：
+                                    // openai/codex 的 prepare_response_items_for_request 发送前
+                                    // 清除所有非 prefixed id（服务端按位置/内容重建关联），
+                                    // 避免网关对已过期 id 做状态校验。OpenAI 官方同样接受无 id。
                                     when {
                                         usePlainReasoningContent -> {
                                             // DeepSeek Responses API 不支持 summary 字段，用明文 content 回传思维链
