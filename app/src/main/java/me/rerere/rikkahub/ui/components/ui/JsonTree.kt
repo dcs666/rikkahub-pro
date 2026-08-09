@@ -44,6 +44,9 @@ import me.rerere.hugeicons.stroke.ArrowRight01
 import me.rerere.rikkahub.ui.theme.JetbrainsMono
 
 @Composable
+/** JSON 树渲染的最大递归深度（超过的子树降级为文本，防 StackOverflowError） */
+private const val MAX_JSON_TREE_DEPTH = 12
+
 fun JsonTree(
     json: JsonElement,
     modifier: Modifier = Modifier,
@@ -87,11 +90,41 @@ private fun JsonNode(
     initialExpandLevel: Int,
     onStringClick: (String) -> Unit
 ) {
+    // [FIX] 递归深度上限：AI 工具输出/异常数据可含超深嵌套 JSON（几十~上百层），
+    // 递归组合渲染 → StackOverflowError（Error 不捕获）→ App 崩溃。超过上限的
+    // 子树降级为单行文本（内容仍是完整 JSON 字符串，可选中复制）。
+    if (depth > MAX_JSON_TREE_DEPTH) {
+        JsonTruncatedNode(key = key, depth = depth, raw = element.toString())
+        return
+    }
     when (element) {
         is JsonObject -> JsonObjectNode(element, key, depth, initialExpandLevel, onStringClick)
         is JsonArray -> JsonArrayNode(element, key, depth, initialExpandLevel, onStringClick)
         is JsonPrimitive -> JsonPrimitiveNode(element, key, depth, onStringClick)
         is JsonNull -> JsonNullNode(key, depth)
+    }
+}
+
+@Composable
+private fun JsonTruncatedNode(
+    key: String?,
+    depth: Int,
+    raw: String,
+) {
+    Row(
+        modifier = Modifier
+            .padding(start = (depth * 16).dp)
+            .padding(vertical = 2.dp),
+    ) {
+        if (key != null) {
+            KeyText(key)
+            Text(": ", fontFamily = JetbrainsMono)
+        }
+        Text(
+            text = "[deep nested, ${raw.length} chars]",
+            fontFamily = JetbrainsMono,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
