@@ -157,6 +157,9 @@ class ResponseAPI(
         val response = client.newCall(request).await()
         val bodyStr = response.body?.string() ?: ""
         if (!response.isSuccessful) {
+            // 增量请求失败（如服务端 previous_response_id 过期）→ 使会话失效，
+            // 下次请求自动回退全量，防止持续用无效 id 重试
+            invalidateIncremental(fullRequestBody)
             if (response.code == 400 && bodyStr.contains("reasoning")) {
                 // 诊断：Console Go 网关 thinking mode 校验失败时记录完整错误 + input 形状，
                 // 便于复现（错误：The reasoning_text in the thinking mode must be passed back）
@@ -246,6 +249,10 @@ class ResponseAPI(
             }
 
             override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
+                // 增量请求失败 → 使会话失效，下次请求自动回退全量
+                if (response?.code == 400) {
+                    invalidateIncremental(fullRequestBody)
+                }
                 var exception = t
 
                 val bodyRaw = response?.body?.stringSafe()
@@ -291,7 +298,7 @@ class ResponseAPI(
     private fun applyIncremental(fullRequestBody: JsonObject): JsonObject {
         val input = fullRequestBody["input"] as? JsonArray ?: return fullRequestBody
         val items = input.toList()
-        val (previousResponseId, deltaItems) = incrementalSessions.resolve(items)
+        val (previousResponseId, deltaItems) = incrementalSessions.resolve(items, fullRequestBody)
         if (previousResponseId == null || deltaItems == null) return fullRequestBody
         val newBody = fullRequestBody.toMutableMap().apply {
             put("previous_response_id", JsonPrimitive(previousResponseId))
@@ -310,7 +317,13 @@ class ResponseAPI(
     ) {
         if (responseId.isNullOrBlank()) return
         val input = fullRequestBody["input"] as? JsonArray ?: return
-        incrementalSessions.update(input.toList(), responseId, responseItems)
+        incrementalSessions.update(fullRequestBody, responseId, responseItems)
+    }
+
+    /** 增量请求失败时使当前会话失效（防持续用无效 previous_response_id 重试） */
+    private fun invalidateIncremental(fullRequestBody: JsonObject) {
+        val input = fullRequestBody["input"] as? JsonArray ?: return
+        incrementalSessions.invalidate(input.toList())
     }
 
     internal fun buildRequestBody(
@@ -324,7 +337,10 @@ class ResponseAPI(
         return buildJsonObject {
             put("model", params.model.modelId)
             put("stream", stream)
-            put("store", false)
+            // [增量] opencode.ai 网关支持 previous_response_id（实测消息追加）：
+            // 全量请求也 store=true（服务端保存 response，后续请求才能增量）。
+            // 其他 host 保持 store=false（无增量能力，避免服务端存储开销/兼容风险）。
+            put("store", host == "opencode.ai")
 
             // DeepSeek 思考模式下 temperature/top_p 不生效（官方文档：不报错但无效），不发送避免误导
             val deepSeekThinking = host == "api.deepseek.com" && params.reasoningLevel.isEnabled

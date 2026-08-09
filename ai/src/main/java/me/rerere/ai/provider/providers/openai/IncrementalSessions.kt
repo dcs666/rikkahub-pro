@@ -1,5 +1,6 @@
 package me.rerere.ai.provider.providers.openai
 
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -12,7 +13,9 @@ import java.util.concurrent.ConcurrentHashMap
  * 与 openai/codex 的 get_incremental_items / prepare_websocket_request 设计一致：
  * - 服务端已知状态 = 上次发送的 input + 上次响应的 output items（服务端保存）
  * - 本次请求的 input 前缀必须与已知状态逐项相等，才可增量发送
- *   （历史被编辑/删除/重试时前缀不匹配 → 自动 fallback 全量，正确性不受影响）
+ * - 非 input 请求属性（model/instructions/tools/reasoning/store/stream 等）必须
+ *   与上次一致（对齐 codex responses_request_properties_match）——切换模型/
+ *   修改思考档位/启用搜索等场景自动回退全量
  * - 增量 = input 的剩余部分 + previous_response_id
  *
  * 收益：历史消息（含超长 thinking 思维链）不再每轮全量重传——input 体积从
@@ -32,6 +35,8 @@ internal class IncrementalSessions {
         val sentInput: List<JsonElement>,
         /** 上次响应的 output items（服务端已保存，无需重发） */
         val responseItems: List<JsonElement>,
+        /** 非 input 请求属性签名（对齐 codex responses_request_properties_match） */
+        val requestSignature: String,
         val lastUsedAt: Long,
     )
 
@@ -41,35 +46,49 @@ internal class IncrementalSessions {
     /**
      * 尝试解析增量：返回 (previousResponseId, 增量 items)；无法增量时返回 (null, null)。
      */
-    fun resolve(input: List<JsonElement>): Pair<String?, List<JsonElement>?> {
+    fun resolve(input: List<JsonElement>, requestBody: JsonObject): Pair<String?, List<JsonElement>?> {
         if (input.isEmpty()) return null to null
         val bucket = bucketKey(input)
-        val known = sessions[bucket] ?: return null to null
-        val prefix = known.sentInput + known.responseItems
+        val session = sessions[bucket] ?: return null to null
+        // [codex 对齐] 非 input 请求属性必须与上次一致（model/instructions/tools/
+        // reasoning/store/stream 等），否则 previous_response_id 会沿用旧参数
+        if (session.requestSignature != requestSignature(requestBody)) return null to null
+        val prefix = session.sentInput + session.responseItems
         // [实测] opencode.ai 网关的 previous_response_id 只支持消息追加，
         // 不支持工具输出关联：增量里带 function_call_output 会报
         // "No tool call found for tool output with call_id ..."。
         // 已知状态含 function_call 时禁用增量（回退全量，工具循环不受影响）。
-        if (known.responseItems.any { it.isFunctionCallItem() }) return null to null
+        if (session.responseItems.any { it.isFunctionCallItem() }) return null to null
         if (input.size <= prefix.size) return null to null
         if (!itemsEqual(input.take(prefix.size), prefix)) return null to null
-        return known.previousResponseId to input.drop(prefix.size)
+        return session.previousResponseId to input.drop(prefix.size)
     }
 
     /**
      * 记录一次成功响应：sentInput = 本次完整 input，responseItems = 本次输出 items。
      */
-    fun update(input: List<JsonElement>, responseId: String, responseItems: List<JsonElement>) {
-        if (input.isEmpty() || responseId.isBlank()) return
+    fun update(requestBody: JsonObject, responseId: String, responseItems: List<JsonElement>) {
+        val input = requestBody["input"] as? JsonArray ?: return
+        val items = input.toList()
+        if (items.isEmpty() || responseId.isBlank()) return
         if (sessions.size >= maxSessions) {
             sessions.clear()
         }
-        sessions[bucketKey(input)] = Session(
+        sessions[bucketKey(items)] = Session(
             previousResponseId = responseId,
-            sentInput = input,
+            sentInput = items,
             responseItems = responseItems,
+            requestSignature = requestSignature(requestBody),
             lastUsedAt = System.currentTimeMillis(),
         )
+    }
+
+    /**
+     * 使指定会话失效（增量请求失败时调用，防止持续用无效 previous_response_id 重试）。
+     */
+    fun invalidate(input: List<JsonElement>) {
+        if (input.isEmpty()) return
+        sessions.remove(bucketKey(input))
     }
 
     /** 会话数量（测试用） */
@@ -97,6 +116,20 @@ internal class IncrementalSessions {
         return obj["type"]?.let { type ->
             (type as? JsonPrimitive)?.contentOrNull == "function_call"
         } ?: false
+    }
+
+    /**
+     * [codex 对齐] 非 input 请求属性签名：与 responses_request_properties_match
+     * 比较的字段一致（model/instructions/tools/tool_choice/parallel_tool_calls/
+     * reasoning/store/stream/include，另加 App 实际使用的 temperature/max_output_tokens；
+     * stream_options/client_metadata 是传输细节不影响上下文，忽略）。
+     */
+    private fun requestSignature(requestBody: JsonObject): String {
+        val keys = listOf(
+            "model", "instructions", "tools", "tool_choice", "parallel_tool_calls",
+            "reasoning", "store", "stream", "include", "temperature", "max_output_tokens",
+        )
+        return keys.joinToString("|") { key -> requestBody[key]?.toString() ?: "" }
     }
 }
 

@@ -1,6 +1,7 @@
 package me.rerere.ai.provider.providers.openai
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -17,6 +18,12 @@ class IncrementalSessionsTest {
 
     private val json = Json
 
+    private fun body(input: List<JsonElement>): kotlinx.serialization.json.JsonObject =
+        kotlinx.serialization.json.buildJsonObject {
+            put("model", "test-model")
+            put("input", kotlinx.serialization.json.JsonArray(input))
+        }
+
     private fun userMsg(text: String) = buildJsonObject {
         put("role", "user")
         put("content", text)
@@ -29,7 +36,7 @@ class IncrementalSessionsTest {
     fun `first request has no increment`() {
         val sessions = IncrementalSessions()
         val input = listOf(userMsg("你好"))
-        val (prevId, delta) = sessions.resolve(input)
+        val (prevId, delta) = sessions.resolve(input, body(input))
         assertNull(prevId)
         assertNull(delta)
     }
@@ -39,14 +46,14 @@ class IncrementalSessionsTest {
         val sessions = IncrementalSessions()
         val firstInput = listOf(userMsg("你好"))
         // 首次请求：记录会话（模拟服务端返回 output item）
-        sessions.update(firstInput, "resp_1", listOf(parse("""{"type":"message","role":"assistant","content":[]}""")[0]))
+        sessions.update(body(firstInput), "resp_1", listOf(parse("""{"type":"message","role":"assistant","content":[]}""")[0]))
 
         // 第二轮：完整 input = 首轮 input + 首轮输出 items + 新 user 消息
         val fullInput = firstInput + listOf(
             parse("""{"type":"message","role":"assistant","content":[]}""")[0],
             userMsg("继续"),
         )
-        val (prevId, delta) = sessions.resolve(fullInput)
+        val (prevId, delta) = sessions.resolve(fullInput, body(fullInput))
         assertNotNull(prevId)
         assertEquals("resp_1", prevId)
         // 增量只有新 user 消息
@@ -58,14 +65,14 @@ class IncrementalSessionsTest {
     fun `edited history falls back to full send`() {
         val sessions = IncrementalSessions()
         val firstInput = listOf(userMsg("你好"))
-        sessions.update(firstInput, "resp_1", listOf(parse("""{"type":"message","role":"assistant","content":[]}""")[0]))
+        sessions.update(body(firstInput), "resp_1", listOf(parse("""{"type":"message","role":"assistant","content":[]}""")[0]))
 
         // 历史被编辑（首条消息内容变了）→ 前缀不匹配 → 无法增量
         val editedInput = listOf(userMsg("你好吗")) + listOf(
             parse("""{"type":"message","role":"assistant","content":[]}""")[0],
             userMsg("继续"),
         )
-        val (prevId, delta) = sessions.resolve(editedInput)
+        val (prevId, delta) = sessions.resolve(editedInput, body(editedInput))
         assertNull(prevId)
         assertNull(delta)
     }
@@ -74,11 +81,11 @@ class IncrementalSessionsTest {
     fun `shorter input falls back to full send`() {
         val sessions = IncrementalSessions()
         val firstInput = listOf(userMsg("你好"))
-        sessions.update(firstInput, "resp_1", listOf(parse("""{"type":"message","role":"assistant","content":[]}""")[0]))
+        sessions.update(body(firstInput), "resp_1", listOf(parse("""{"type":"message","role":"assistant","content":[]}""")[0]))
 
         // 输入比已知状态短（不可能前缀匹配）→ 全量
         val shortInput = listOf(userMsg("你好"))
-        val (prevId, delta) = sessions.resolve(shortInput)
+        val (prevId, delta) = sessions.resolve(shortInput, body(shortInput))
         assertNull(prevId)
         assertNull(delta)
     }
@@ -97,7 +104,7 @@ class IncrementalSessionsTest {
             fcItem,
             parse("""{"type":"function_call_output","call_id":"c1","output":"ok"}""")[0],
         )
-        val (prevId, delta) = sessions.resolve(fullInput)
+        val (prevId, delta) = sessions.resolve(fullInput, body(fullInput))
         // 已知状态含 function_call → 无法增量 → 全量发送
         assertNull(prevId)
         assertNull(delta)
@@ -108,13 +115,13 @@ class IncrementalSessionsTest {
         val sessions = IncrementalSessions()
         // 第一轮：纯文本
         val firstInput = listOf(userMsg("你好"))
-        sessions.update(firstInput, "resp_1", emptyList())
+        sessions.update(body(firstInput), "resp_1", emptyList())
         // 第二轮：纯文本增量可用
         val secondInput = firstInput + listOf(
             parse("""{"type":"message","role":"assistant","content":[]}""")[0],
             userMsg("继续"),
         )
-        val (prevId, delta) = sessions.resolve(secondInput)
+        val (prevId, delta) = sessions.resolve(secondInput, body(secondInput))
         assertNotNull(prevId)
         assertEquals(1, delta!!.size)
     }
@@ -123,10 +130,46 @@ class IncrementalSessionsTest {
     fun `different conversations do not share increments`() {
         val sessions = IncrementalSessions()
         // 会话 A
-        sessions.update(listOf(userMsg("A问")), "resp_A", emptyList())
+        sessions.update(body(listOf(userMsg("A问"))), "resp_A", emptyList())
         // 会话 B（不同首条消息）
         val bInput = listOf(userMsg("B问"), userMsg("B再问"))
-        val (prevId, delta) = sessions.resolve(bInput)
+        val (prevId, delta) = sessions.resolve(bInput, body(bInput))
+        assertNull(prevId)
+        assertNull(delta)
+    }
+
+    @Test
+    fun `request property change falls back to full send`() {
+        // [codex 对齐] 非 input 属性（model/reasoning/tools 等）变化时不能复用
+        // previous_response_id（否则服务端沿用旧参数）
+        val sessions = IncrementalSessions()
+        val firstInput = listOf(userMsg("你好"))
+        sessions.update(body(firstInput), "resp_1", emptyList())
+
+        // 第二次请求换模型（signature 不同）→ 回退全量
+        val secondInput = firstInput + listOf(userMsg("继续"))
+        val differentBody = kotlinx.serialization.json.buildJsonObject {
+            put("model", "different-model")
+            put("input", kotlinx.serialization.json.JsonArray(secondInput))
+        }
+        val (prevId, delta) = sessions.resolve(secondInput, differentBody)
+        assertNull(prevId)
+        assertNull(delta)
+    }
+
+    @Test
+    fun `invalidate removes session`() {
+        val sessions = IncrementalSessions()
+        val firstInput = listOf(userMsg("你好"))
+        sessions.update(body(firstInput), "resp_1", emptyList())
+        assertEquals(1, sessions.size())
+
+        sessions.invalidate(firstInput)
+        assertEquals(0, sessions.size())
+
+        // 失效后无法增量
+        val secondInput = firstInput + listOf(userMsg("继续"))
+        val (prevId, delta) = sessions.resolve(secondInput, body(secondInput))
         assertNull(prevId)
         assertNull(delta)
     }
