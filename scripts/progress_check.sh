@@ -66,10 +66,10 @@ grep -E "versionCode|versionName" app/build.gradle.kts | head -2 | sed 's/^[[:sp
 git tag --sort=-creatordate 2>/dev/null | head -3 | sed 's/^/TAG: /'
 
 echo "=== 4. 活跃 Release run ==="
-RL_SUMMARY=$(api "https://api.github.com/repos/$REPO/actions/runs?event=push&per_page=12" | python3 -c "
+RL_SUMMARY=$(api "https://api.github.com/repos/$REPO/actions/runs?per_page=12" | python3 -c "
 import json,sys
 d=json.load(sys.stdin)
-rels=[r for r in d.get('workflow_runs',[]) if r['name']=='Release Turbo'][:2]
+rels=[r for r in d.get('workflow_runs',[]) if r['name']=='Release Turbo'][:1]
 for r in rels:
     print(r['id'], r['status'], r.get('conclusion'), r['head_sha'][:7])
 if not rels: print('(none in last 12 push-triggered runs)')
