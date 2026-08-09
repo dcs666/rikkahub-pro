@@ -44,6 +44,7 @@ import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.metadataAs
 import me.rerere.ai.ui.toMetadata
 import me.rerere.ai.util.KeyRoulette
+import me.rerere.ai.util.buildEndpoint
 import me.rerere.ai.util.configureReferHeaders
 import me.rerere.ai.util.encodeBase64
 import me.rerere.ai.util.json
@@ -73,7 +74,7 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
     override suspend fun listModels(providerSetting: ProviderSetting.Claude): List<Model> =
         withContext(Dispatchers.IO) {
             val request = Request.Builder()
-                .url("${providerSetting.baseUrl}/models")
+                .url(buildEndpoint(providerSetting.baseUrl, "/models"))
                 .addHeader("x-api-key", keyRoulette.next(providerSetting.apiKey, providerSetting.id.toString()))
                 .addHeader("anthropic-version", ANTHROPIC_VERSION)
                 .get()
@@ -114,7 +115,7 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
     ): MessageChunk = withContext(Dispatchers.IO) {
         val requestBody = buildMessageRequest(providerSetting, messages, params)
         val request = Request.Builder()
-            .url("${providerSetting.baseUrl}/messages")
+            .url(buildEndpoint(providerSetting.baseUrl, "/messages"))
             .headers(params.customHeaders.toHeaders())
             .post(json.encodeToString(requestBody).toRequestBody("application/json".toMediaType()))
             .addHeader("x-api-key", keyRoulette.next(providerSetting.apiKey, providerSetting.id.toString()))
@@ -160,7 +161,7 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
     ): Flow<MessageChunk> = callbackFlow {
         val requestBody = buildMessageRequest(providerSetting, messages, params, stream = true)
         val request = Request.Builder()
-            .url("${providerSetting.baseUrl}/messages")
+            .url(buildEndpoint(providerSetting.baseUrl, "/messages"))
             .headers(params.customHeaders.toHeaders())
             .post(json.encodeToString(requestBody).toRequestBody("application/json".toMediaType()))
             .addHeader("x-api-key", keyRoulette.next(providerSetting.apiKey, providerSetting.id.toString()))
