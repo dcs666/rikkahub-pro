@@ -41,6 +41,7 @@ import me.rerere.ai.ui.UIMessageChoice
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.metadataAs
 import me.rerere.ai.ui.toMetadata
+import me.rerere.common.android.Logging
 import me.rerere.ai.util.KeyRoulette
 import me.rerere.ai.util.buildEndpoint
 import me.rerere.ai.util.configureReferHeaders
@@ -108,8 +109,9 @@ class ResponseAPI(
             if (response.code == 400 && bodyStr.contains("reasoning")) {
                 // 诊断：Console Go 网关 thinking mode 校验失败时记录完整错误 + input 形状，
                 // 便于复现（错误：The reasoning_text in the thinking mode must be passed back）
-                Log.w(TAG, "generateText 400 body=$bodyStr")
-                Log.w(TAG, "generateText 400 input=${requestBody["input"]}")
+                // 注意用 Logging.log（App 内存日志），Log.w 只进 logcat 无法远程查看
+                Logging.log(TAG, "generateText 400 body=${bodyStr.take(4000)}")
+                Logging.log(TAG, "generateText 400 input=${requestBody["input"]?.toString()?.take(4000)}")
             }
             throw Exception("Failed to get response: ${response.code} $bodyStr")
         }
@@ -178,6 +180,12 @@ class ResponseAPI(
                 var exception = t
 
                 val bodyRaw = response?.body?.stringSafe()
+                // 诊断：流式 400（如 thinking mode reasoning_text 校验失败）时把响应体 + 请求
+                // input 形状打进 App 内存日志（Logging.log），Log.w 只进 logcat 无法远程查看
+                if ((bodyRaw?.contains("reasoning") == true) || response?.code == 400) {
+                    Logging.log(TAG, "onFailure code=${response?.code} body=${bodyRaw?.take(4000)}")
+                    Logging.log(TAG, "onFailure request input=${requestBody["input"]?.toString()?.take(4000)}")
+                }
                 try {
                     if (!bodyRaw.isNullOrBlank()) {
                         val bodyElement = Json.parseToJsonElement(bodyRaw)
