@@ -34,7 +34,13 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
-            abiFilters += listOf("arm64-v8a", "x86_64")
+            // [TURBO] 与下方 splits abi 保持一致：-PsingleAbi 时只保留 arm64-v8a，
+            // 否则 AGP 报 "Conflicting configuration" 错误
+            if (gradle.startParameter.projectProperties.containsKey("singleAbi")) {
+                abiFilters += listOf("arm64-v8a")
+            } else {
+                abiFilters += listOf("arm64-v8a", "x86_64")
+            }
         }
     }
 
