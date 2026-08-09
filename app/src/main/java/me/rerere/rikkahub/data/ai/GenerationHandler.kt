@@ -21,6 +21,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import me.rerere.ai.core.MessageRole
@@ -523,6 +524,10 @@ class GenerationHandler(
             var textBaseParts: List<UIMessagePart>? = null
             var textMeta: JsonObject? = null
             var lastFlush = 0L
+            // [TURBO] 流式末尾 chunk 的 finish_reason=length/max_tokens 表示服务端已达
+            // max_tokens 截断。delta 常为空（finish chunk），原链路静默丢弃，用户无从得知
+            // 回答不完整。收集流结束、文本累积器 flush 后统一追加截断提示。
+            var truncationReason: String? = null
 
             fun flushText() {
                 val buf = textBuf ?: return
@@ -543,6 +548,9 @@ class GenerationHandler(
                 params = params
             ).collect { chunk ->
                 val choice = chunk.choices.getOrNull(0)
+                if (choice?.finishReason.isTruncationReason()) {
+                    truncationReason = choice?.finishReason
+                }
                 val delta = choice?.delta ?: choice?.message
                 val lastParts = messages.lastOrNull()?.parts
                 val lastIsText = lastParts?.lastOrNull() is UIMessagePart.Text
@@ -591,6 +599,10 @@ class GenerationHandler(
                 }
             }
             flushText()
+            truncationReason?.let { reason ->
+                messages = messages.appendTruncationNotice(reason)
+                Log.w(TAG, "streamText: answer truncated by server (finish_reason=$reason), notice appended")
+            }
             onUpdateMessages(messages)
         } else {
             val chunk = providerImpl.generateText(
@@ -610,9 +622,45 @@ class GenerationHandler(
                     }
                 }
             }
+            chunk.choices.firstOrNull()?.finishReason?.let { reason ->
+                if (reason.isTruncationReason()) {
+                    messages = messages.appendTruncationNotice(reason)
+                    Log.w(TAG, "generateText: answer truncated by server (finish_reason=$reason), notice appended")
+                }
+            }
             onUpdateMessages(messages)
         }
     }
+
+    /**
+     * [TURBO] 服务端 finish_reason 为截断类（length / max_tokens / MAX_TOKENS）时，
+     * 在最后一条 assistant 消息末尾追加可见提示块。带 metadata 标记，UI 可识别为警示条；
+     * 幂等（同消息已有提示则不重复追加，避免重试/继续生成时叠加）。
+     */
+    private fun List<UIMessage>.appendTruncationNotice(reason: String): List<UIMessage> {
+        val last = lastOrNull() ?: return this
+        if (last.role != MessageRole.ASSISTANT) return this
+        if (last.parts.any { part ->
+                part.metadata?.get("truncatedNotice")?.jsonPrimitive?.contentOrNull == "true"
+            }
+        ) {
+            return this
+        }
+        val notice = "\n\n> ⚠️ 回答已达 max_tokens 上限被截断，内容可能不完整（finish_reason=$reason）"
+        return dropLast(1) + last.copy(
+            parts = last.parts + UIMessagePart.Text(
+                text = notice,
+                metadata = buildJsonObject {
+                    put("truncatedNotice", JsonPrimitive(true))
+                }
+            )
+        )
+    }
+
+    private fun String?.isTruncationReason(): Boolean = this != null && (
+        equals("length", ignoreCase = true) ||
+            equals("max_tokens", ignoreCase = true)
+        )
 
     private fun maybeTruncateToolOutput(
         toolCallId: String,
