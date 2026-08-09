@@ -267,7 +267,7 @@ class ResponseAPIDeepSeekTest {
         )
         val body = buildJsonObject {
             put("status", "incomplete")
-            put("output", response["output"])
+            put("output", response["output"]!!)
         }
         val chunk = api.parseResponseOutput(body)
         assertEquals("length", chunk.choices[0].finishReason)
