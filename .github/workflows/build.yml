@@ -102,9 +102,10 @@ jobs:
         run: ./gradlew :app:compileProfileableKotlin --stacktrace
 
       - name: Build debug APK
-        # [TURBO] 普通 push 验证构建只出 arm64-v8a（-PsingleAbi，省 ~1-2min）；
-        # 发布构建走 release.yml 不打此参数 → 出全 ABI（arm64/x86_64/universal）
-        run: ./gradlew assembleProfileable -PsingleAbi --stacktrace
+        # [TURBO] 全 ABI 构建（arm64/x86_64/universal）：产物直接供 Release Turbo
+        # 下载发布（release.yml 不再重复构建）。成本比 singleAbi 多 ~1-2min，
+        # 但每次发布省掉 release 侧完整构建（~10min），净省 ~8min。
+        run: ./gradlew assembleProfileable --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

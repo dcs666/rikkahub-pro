@@ -13,7 +13,7 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 20
     permissions:
       contents: write
 
@@ -22,63 +22,39 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
+      # [TURBO] 产物共享：APK 由 push CI（build.yml）全 ABI 构建并上传 artifact，
+      # 发布不再重复编译。先找到 HEAD commit 对应的成功 Build APK run，
+      # 下载其 profileable artifact 直接发布（每次发布省 ~10min 构建）。
+      - name: Find successful Build APK run for HEAD
+        id: find
+        uses: actions/github-script@v7
         with:
-          java-version: '21'
-          distribution: 'temurin'
+          script: |
+            const { data } = await github.rest.actions.listWorkflowRuns({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'build.yml',
+              head_sha: context.sha,
+              event: 'push',
+              per_page: 10
+            });
+            const run = data.workflow_runs.find(r => r.status === 'completed' && r.conclusion === 'success');
+            if (!run) {
+              core.setFailed(
+                `No successful Build APK run found for ${context.sha}. ` +
+                `Wait for the push CI (Unit Tests + Build APK) to pass before releasing.`
+              );
+              return;
+            }
+            core.setOutput('run_id', run.id);
+            core.setOutput('run_url', run.html_url);
 
-      # [TURBO] 与 build/test 对齐：Gradle 官方 action 管理 ~/.gradle
-      #（依赖 + 构建缓存 + daemon），项目级 .gradle 增量状态单独缓存，
-      # 发布构建复用日常 CI 的编译产物（改动少时快速出包）
-      - name: Setup Gradle (deps + build cache + daemon)
-        uses: gradle/actions/setup-gradle@v3
-
-      - name: Cache project .gradle state
-        uses: actions/cache@v4
+      - name: Download profileable APK artifacts
+        uses: actions/download-artifact@v4
         with:
-          path: .gradle
-          key: ${{ runner.os }}-gradle-project-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-project-
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: web-ui/pnpm-lock.yaml
-
-      - name: Install web-ui dependencies
-        working-directory: web-ui
-        run: pnpm install --frozen-lockfile
-
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
-
-      - name: Setup fixed debug signing
-        env:
-          DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
-        run: |
-          if [ -z "$DEBUG_KEYSTORE_B64" ]; then
-            echo "DEBUG_KEYSTORE_B64 not set, skipping fixed signing"
-            exit 0
-          fi
-          printf '%s' "$DEBUG_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/debug.keystore"
-          {
-            echo "debug.storeFile=$RUNNER_TEMP/debug.keystore"
-            echo "debug.storePassword=android"
-            echo "debug.keyAlias=androiddebugkey"
-            echo "debug.keyPassword=android"
-          } >> local.properties
-
-      - name: Build profileable APK
-        run: ./gradlew assembleProfileable --stacktrace
+          name: rikkahub-turbo-profileable
+          run-id: ${{ steps.find.outputs.run_id }}
+          path: app/build/outputs/apk/profileable
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
