@@ -33,10 +33,15 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            // 手动触发（workflow_dispatch）时用 inputs.tag 定位发布版本（分支 HEAD
+            // 可能是仅 workflow 改动、无 build run 的 commit）；tag 触发时用 ref_name。
+            // commits API 会自动 dereference tag → commit SHA。
+            const tagInput = core.getInput('tag');
+            const ref = tagInput !== '' ? tagInput : context.ref_name;
             const { data: commit } = await github.rest.repos.getCommit({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              ref: context.ref_name,
+              ref: ref,
             });
             const commitSha = commit.sha;
             const { data } = await github.rest.actions.listWorkflowRuns({
@@ -51,7 +56,7 @@ jobs:
             if (!run) {
               // throw 会标记 job 失败并中断后续步骤（setFailed 不中断步骤链）
               throw new Error(
-                `No successful Build APK run found for ${commitSha} (${context.ref_name}). ` +
+                `No successful Build APK run found for ${commitSha} (${ref}). ` +
                 `Wait for the push CI (Unit Tests + Build APK) to pass before releasing.`
               );
             }
