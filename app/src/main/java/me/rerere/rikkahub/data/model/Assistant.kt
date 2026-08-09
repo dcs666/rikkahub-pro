@@ -38,7 +38,12 @@ data class Assistant(
     val customHeaders: List<CustomHeader> = emptyList(),
     val customBodies: List<CustomBody> = emptyList(),
     val mcpServers: Set<Uuid> = emptySet(),
-    val localTools: List<LocalToolOption> = listOf(LocalToolOption.TimeInfo, LocalToolOption.BackgroundTask),
+    val localTools: List<LocalToolOption> = listOf(
+        LocalToolOption.TimeInfo,
+        LocalToolOption.BackgroundTask,
+        // [TURBO] 默认开启设备日志工具：AI 排查 provider/运行问题需要一手日志
+        LocalToolOption.DeviceLogs,
+    ),
     val enableWebSearch: Boolean = false, // 网络搜索开关(每个助手独立)
     val workspaceId: Uuid? = null,
     val background: String? = null, // 聊天页背景图地址(本地文件 URI 或网络 URL), 为 null 时无背景
