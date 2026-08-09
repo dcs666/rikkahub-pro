@@ -348,11 +348,9 @@
 
 ## 自动进度同步（判定驱动机制）
 
-> 时间：2026-08-09 12:28 (UTC+8) | 最新提交：6854ad5（fix #52 throttleLatest）+ 140c5c9（feat #51 截断提示），已 push
+> 时间：2026-08-09 13:35 (UTC+8) | 最新提交：4785866（#52 修正：channelFlow 版 throttleLatest）
 > 版本：2.5.4/183（v1.7.8-turbo，Release #28 31293664450 success）｜3 个 profileable APK 已上传
-> 判定：[INCOMPLETE] CI 运行中（6854ad5 Unit Tests + Build APK，monitor c6dd088a）——本轮执行：遗留工作区代码收尾提交（见下）
-> 修复总数：52（51: finish_reason=length/max_tokens 截断无 UI 提示 → 追加 ⚠️ 提示块；52: 官方 sample 窗口内最后值被静默丢弃 → 流式尾部 chunk 丢失，throttleLatest 替代）
-> 活跃：71f9f7a1（5min×∞，auto_ai=true）｜ci_monitor c6dd088a（6854ad5，运行中）
-> 其他：本轮收尾了上轮遗留的 2 处工作区代码（截断提示功能 + 流式尾部丢失修复，均审查通过后提交）；Message.kt 格式事故（签名与 require 挤一行）已还原；v1.7.8 发布完成（arm64-v8a 38.7MB / universal 48.8MB / x86_64 39.4MB）
-
-
+> 判定：[COMPLETE] 代码已同步、CI 全绿（4785866 Unit Tests + Build APK 双 success）、无活跃 Release
+> 修复总数：52（#51 finish_reason 截断提示；#52 流式尾部丢失 throttleLatest + channelFlow 修正 + FlowThrottleTest 7 用例）
+> 活跃：5332a4cd（5min×∞，auto_ai=true）
+> 其他：progress_check.sh 判定修复——run 名含 SHA 前缀导致历史失败 run 永远计入判定（已修复的旧失败阻塞 INCOMPLETE），改为只检查最新提交（REMOTE_HEAD）的 run，最新提交尚无 run 时 wait；FIXES 计数 48→52；已 push

@@ -78,14 +78,14 @@ echo "$RL_SUMMARY"
 
 echo "=== 4.5 进度快照（同步用）==="
 echo "TIME: $(date '+%Y-%m-%d %H:%M:%S %Z')"
-echo "FIXES: 48（累计真实 bug 修复）"
+echo "FIXES: 52（累计真实 bug 修复）"
 echo "LATEST: $(echo $REMOTE_HEAD | cut -c1-7)"
 
 echo "=== 5. 完成度判定 ==="# 自动判定：本地同步 + CI 全绿 + 无活跃 Release = COMPLETE
 # 摘要都是小文本，经 argv 传入（heredoc 与管道冲突会吞掉 stdin，不可用管道）
-python3 - "$SYNC_STATE" "$RL_SUMMARY" "$CI_SUMMARY" << 'PYEOF'
+python3 - "$SYNC_STATE" "$RL_SUMMARY" "$CI_SUMMARY" "$REMOTE_HEAD" << 'PYEOF'
 import sys
-sync_state, rl_summary, ci_summary = sys.argv[1], sys.argv[2], sys.argv[3]
+sync_state, rl_summary, ci_summary, remote_head = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 ci_lines = [l for l in ci_summary.splitlines() if l.strip()]
 
 next_actions = []
@@ -103,24 +103,29 @@ else:
     print("SYNC OK")
 
 # 2. CI 状态（摘要为空 = API 失败；cancelled = 被新提交取代，忽略；name 用 rsplit 取最后两字段）
+# [FIX] 只检查最新提交（REMOTE_HEAD）的 run：run 名含 SHA 前缀（"4785866 Unit Tests"），
+# 按 run 名去重会把历史提交的失败 run 也计入判定 → 已修复的旧失败永远阻塞（INCOMPLETE）。
+# 现在仅对最新提交的 run 判定；最新提交尚无 run 时视为 wait（避免把历史失败误判为当前状态）。
 if not ci_summary.strip():
     next_actions.append("api_retry（CI 状态获取失败）")
-newest = {}
-for line in ci_lines:
+ci_lines = [l for l in ci_summary.splitlines() if l.strip()]
+remote_short = (remote_head or '')[:7]
+matched = []
+if remote_short and ci_lines:
+    matched = [l for l in ci_lines if l.split()[0].startswith(remote_short)]
+    if not matched:
+        next_actions.append("wait（最新提交 CI 尚未出现，稍后重试）")
+for line in matched:
     parts = line.rsplit(None, 2)
     if len(parts) < 3:
         continue
     name, status, conclusion = parts[0], parts[1], parts[2]
-    sha = name.split()[0]
     if conclusion == 'cancelled':
         continue  # 被新 push 取代的旧 run，不视为失败
-    if name not in newest:
-        newest[name] = (sha, status, conclusion)
-for name, (sha, status, conclusion) in newest.items():
     if status != 'completed':
-        next_actions.append(f"wait（{name} 运行中: {sha}）")
+        next_actions.append(f"wait（{name} 运行中: {name.split()[0]}）")
     elif conclusion != 'success':
-        next_actions.append(f"fix（{name} 失败: {sha}）")
+        next_actions.append(f"fix（{name} 失败: {name.split()[0]}）")
 
 # 3. Release 状态
 for line in rl_summary.splitlines():
