@@ -197,4 +197,53 @@ class ResponseAPIOpenCodeTest {
             ?.getOrNull(0)?.jsonObject?.get("text")?.jsonPrimitive?.content
         assertEquals("…", text)
     }
+
+    @Test
+    fun `opencode multiple tool calls each get their own reasoning item`() {
+        // [FIX] 网关按 function_call 逐个校验 reasoning：1 个 reasoning 只服务其后的
+        // 第 1 个 fc。同一条 assistant 消息里 2 个并行工具（模型一轮输出 1 个思维链 +
+        // 2 个 tool_calls）必须为第 2 个 fc 补占位 reasoning，否则继续生成请求
+        // （input 以 function_call_output 结尾）400「reasoning_text must be passed back」。
+        val assistant = UIMessage(
+            role = MessageRole.ASSISTANT,
+            parts = listOf(
+                UIMessagePart.Reasoning(reasoning = "let me think"),
+                UIMessagePart.Tool(
+                    toolCallId = "call_1",
+                    toolName = "background_task",
+                    input = """{"action":"list_tasks"}""",
+                    output = listOf(UIMessagePart.Text("{}")),
+                ),
+                UIMessagePart.Tool(
+                    toolCallId = "call_2",
+                    toolName = "get_time_info",
+                    input = "{}",
+                    output = listOf(UIMessagePart.Text("{}")),
+                ),
+            )
+        )
+        val body = api.buildRequestBody(
+            openCodeSetting(),
+            listOf(UIMessage.user("你好"), assistant),
+            reasoningParams(ReasoningLevel.XHIGH),
+            stream = false
+        )
+        val input = body["input"]?.jsonArray!!
+        val types = input.map { it.jsonObject["type"]?.jsonPrimitive?.content ?: it.jsonObject["role"]?.jsonPrimitive?.content }
+        // 期望顺序：user, reasoning(真实), fc1, fco1, reasoning(占位), fc2, fco2
+        assertEquals("user", types[0])
+        assertEquals("reasoning", types[1])
+        assertEquals("function_call", types[2])
+        assertEquals("function_call_output", types[3])
+        assertEquals("reasoning", types[4])
+        assertEquals("function_call", types[5])
+        assertEquals("function_call_output", types[6])
+        // 第二个 fc 前的 reasoning 是占位符
+        val placeholder = input[4].jsonObject["content"]?.jsonArray
+            ?.getOrNull(0)?.jsonObject?.get("text")?.jsonPrimitive?.content
+        assertEquals("…", placeholder)
+        // 两个 fc 的 call_id 保持正确
+        assertEquals("call_1", input[2].jsonObject["call_id"]?.jsonPrimitive?.content)
+        assertEquals("call_2", input[5].jsonObject["call_id"]?.jsonPrimitive?.content)
+    }
 }

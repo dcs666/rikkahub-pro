@@ -413,6 +413,12 @@ class ResponseAPI(
         // Console Go 网关（opencode.ai）thinking mode：带工具调用的 assistant 消息必须
         // 回传非空 reasoning_text；历史消息未捕获思维链时用占位符补上
         var reasoningEmitted = false
+        // [FIX] 网关按 function_call 逐个校验 reasoning：1 个 reasoning item 只"服务"其
+        // 后的第 1 个 fc；同一条消息内第 2 个 fc 起（或跨 Tools group）前面没有 reasoning
+        // 会 400「The reasoning_text in the thinking mode must be passed back to the API」
+        //（实测：占位符可接受、assistant content 不能替代、reasoning 补在 fc 之后无效）。
+        // 用计数器跟踪"距上次 reasoning 输出后已输出的 fc 数"，>0 时在下一个 fc 前补占位。
+        var fcSinceReasoning = 0
 
         for (group in groups) {
             when (group) {
@@ -472,6 +478,7 @@ class ResponseAPI(
                                 // 无论用哪种格式回传，只要 reasoning item 已输出（且文本非空，
                                 // useReasoningTextArray 分支已用占位符兜底），标记本消息已带思维链
                                 reasoningEmitted = true
+                                fcSinceReasoning = 0
                             }
 
                             is UIMessagePart.Image -> {
@@ -513,10 +520,26 @@ class ResponseAPI(
                             })
                         })
                         reasoningEmitted = true
+                        fcSinceReasoning = 0
                     }
 
                     // 输出 function_call + function_call_output
                     group.tools.forEach { tool ->
+                        // [FIX] 网关按 fc 逐个校验：1 个 reasoning 只服务其后的第 1 个 fc，
+                        // 同组第 2 个 fc 起（以及跨 Tools group 的下一个 fc）前面没有
+                        // reasoning 会 400（占位符可接受、assistant content 不能替代）。
+                        if (forcePlaceholderReasoning && fcSinceReasoning > 0) {
+                            add(buildJsonObject {
+                                put("type", "reasoning")
+                                put("content", buildJsonArray {
+                                    add(buildJsonObject {
+                                        put("type", "reasoning_text")
+                                        put("text", REASONING_PLACEHOLDER)
+                                    })
+                                })
+                            })
+                            fcSinceReasoning = 0
+                        }
                         add(buildJsonObject {
                             put("type", "function_call")
                             put("call_id", tool.toolCallId)
@@ -557,6 +580,7 @@ class ResponseAPI(
                                 put("output", text.ifBlank { "[Tool returned no output]" })
                             }
                         })
+                        fcSinceReasoning++
                     }
                 }
             }
