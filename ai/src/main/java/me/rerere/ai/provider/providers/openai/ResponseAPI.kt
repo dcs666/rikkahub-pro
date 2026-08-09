@@ -372,8 +372,13 @@ class ResponseAPI(
                                             })
                                         }
                                     }
-                                    reasoningMetadata?.encryptedContent?.let {
-                                        put("encrypted_content", it)
+                                    // encrypted_content 仅 OpenAI 官方支持：DeepSeek / OpenCode Zen
+                                    // 网关均不接受（能力矩阵 supportEncryptedContent=false），
+                                    // 回传会触发上游校验错误 → 仅 summary 分支（官方）回传
+                                    if (!usePlainReasoningContent && !useReasoningTextArray) {
+                                        reasoningMetadata?.encryptedContent?.let {
+                                            put("encrypted_content", it)
+                                        }
                                     }
                                 })
                             }
