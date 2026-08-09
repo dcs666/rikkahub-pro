@@ -36,4 +36,8 @@ sealed class LocalToolOption {
     @Serializable
     @SerialName("background_task")
     data object BackgroundTask : LocalToolOption()
+
+    @Serializable
+    @SerialName("device_logs")
+    data object DeviceLogs : LocalToolOption()
 }

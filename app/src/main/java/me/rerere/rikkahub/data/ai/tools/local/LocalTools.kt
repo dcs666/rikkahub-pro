@@ -30,6 +30,8 @@ class LocalTools(
 
     val calendarCreateTool by lazy { buildCalendarCreateTool(context) }
 
+    val deviceLogsTool by lazy { buildDeviceLogsTool() }
+
     fun getTools(options: List<LocalToolOption>, conversationId: String = ""): List<Tool> {
         val tools = mutableListOf<Tool>()
         if (options.contains(LocalToolOption.JavascriptEngine)) {
@@ -58,6 +60,9 @@ class LocalTools(
             taskManager?.let {
                 tools.add(buildBackgroundTaskTool(it, settingsStore, conversationId))
             }
+        }
+        if (options.contains(LocalToolOption.DeviceLogs)) {
+            tools.add(deviceLogsTool)
         }
         return tools
     }

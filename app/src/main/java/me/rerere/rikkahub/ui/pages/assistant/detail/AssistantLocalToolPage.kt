@@ -228,6 +228,20 @@ private fun AssistantLocalToolContent(
             )
             item(
                 headlineContent = {
+                    Text(stringResource(R.string.assistant_page_local_tools_device_logs_title))
+                },
+                supportingContent = {
+                    Text(stringResource(R.string.assistant_page_local_tools_device_logs_desc))
+                },
+                trailingContent = {
+                    Switch(
+                        checked = assistant.localTools.contains(LocalToolOption.DeviceLogs),
+                        onCheckedChange = { toggleLocalTool(LocalToolOption.DeviceLogs, it) }
+                    )
+                }
+            )
+            item(
+                headlineContent = {
                     Text("Background Tasks")
                 },
                 supportingContent = {

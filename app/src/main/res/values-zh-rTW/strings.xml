@@ -1259,6 +1259,8 @@
   <string name="permission_calendar_write">寫入日曆</string>
   <string name="permission_calendar_write_desc">代您建立日曆活動</string>
   <string name="assistant_page_local_tools_calendar_title">日曆</string>
+  <string name="assistant_page_local_tools_device_logs_title">設備日誌</string>
+  <string name="assistant_page_local_tools_device_logs_desc">讓 AI 讀取應用最近的日誌（文字 + HTTP 請求）來排查問題</string>
   <string name="assistant_page_local_tools_calendar_desc">讓AI查詢和建立行事曆事件</string>
   <string name="chat_message_tool_calendar_query">查詢日曆事件</string>
   <string name="chat_message_tool_calendar_create">建立事件: %1$s</string>
