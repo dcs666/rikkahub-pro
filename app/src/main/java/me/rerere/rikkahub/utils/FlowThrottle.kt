@@ -28,6 +28,8 @@ private val NULL = Any()
  */
 internal fun <T> Flow<T>.throttleLatest(periodMillis: Long): Flow<T> = flow {
     coroutineScope {
+        // 捕获 FlowCollector.emit：launch 子协程内没有隐式接收者，必须显式持有
+        val emitValue: suspend (T) -> Unit = { value -> emit(value) }
         val values = Channel<Any?>(Channel.CONFLATED)
         val producer = launch {
             try {
@@ -46,10 +48,10 @@ internal fun <T> Flow<T>.throttleLatest(periodMillis: Long): Flow<T> = flow {
                     delay(periodMillis)
                     val toEmit = lastValue
                     lastValue = null
-                    if (toEmit != null) send(toEmit.unboxNull())
+                    if (toEmit != null) emitValue(toEmit.unboxNull())
                 } else {
                     // 上游已结束：flush 最后一个未发出的值，然后退出
-                    if (lastValue != null) send(lastValue.unboxNull())
+                    if (lastValue != null) emitValue(lastValue.unboxNull())
                     break
                 }
             }
