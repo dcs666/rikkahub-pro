@@ -372,5 +372,7 @@
 - 现象：App 报 `Error from provider (Console Go): The reasoning_text in the thinking mode must be passed back to the API`（ChatService rd5，16:06）
 - 复现（curl 实测 /zen/go/v1）：chat/completions 带工具调用的 assistant 消息缺 reasoning_content → 400「reasoning_content must be passed back」（空字符串可接受）；responses 缺 reasoning item → 400「reasoning_text must be passed back」（空文本拒绝、非空即可、id 可选）；无工具消息不校验
 - 根因：网关校验只认结构——思考模式下带 tool_calls 的 assistant 消息必须回传思维链；历史消息若未捕获 Reasoning part（如开启思考前产生的工具消息），App 就不回传 → 网关 400
-- 修复：opencode.ai host + thinking 开启时，工具消息兜底——chat/completions 补 `reasoning_content:""`（buildAssistantMessageJson else-if）；responses 补占位 reasoning item（text="…"，非空必需）；useReasoningTextArray 分支思维链为空时也换占位符；新增 3 测试（ResponseAPI 占位 item 顺序/空思维链占位 + ChatCompletions 空 reasoning_content）
-- 未推送，待 CI 验证
+- 修复（c0253dc）：opencode.ai host + thinking 开启时工具消息兜底——chat/completions 补 `reasoning_content:""`（buildAssistantMessageJson else-if）；responses 补占位 reasoning item（text="…"，非空必需）；useReasoningTextArray 分支思维链为空时也换占位符；新增 3 测试
+- 佐证（opencode 代码阅读）：Zen 网关闭源（opencode-ai org 仅 opencode/homebrew-tap），端点矩阵见 opencode.ai/docs/zen（GPT→/zen/v1/responses、Claude→/zen/v1/messages、DeepSeek/MiniMax/GLM/Kimi→/zen/v1/chat/completions）；openai-go SDK ResponseReasoningItem 官方注释要求多轮必须把 reasoning items 放回 input；opencode CLI 本体只用 Chat Completions（openai-go SDK）
+- CI 修复（0aad389）：① #56 测试缺 jsonObject import（编译错）；② Build APK 的 ndk.abiFilters 与 splits 冲突——AGP 源码 ApplicationVariantFactory.checkSplitsConflicts 确认：isUniversalApk=true（发布）跳过检查（v1.8.1 Release 成功之谜），isUniversalApk=false（-PsingleAbi）时 abiFilters 非空必报错（与 splits 一致也没用）→ singleAbi 场景移除 abiFilters
+- 状态：0aad389 CI 验证中
