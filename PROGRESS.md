@@ -376,3 +376,7 @@
 - 佐证（opencode 代码阅读）：Zen 网关闭源（opencode-ai org 仅 opencode/homebrew-tap），端点矩阵见 opencode.ai/docs/zen（GPT→/zen/v1/responses、Claude→/zen/v1/messages、DeepSeek/MiniMax/GLM/Kimi→/zen/v1/chat/completions）；openai-go SDK ResponseReasoningItem 官方注释要求多轮必须把 reasoning items 放回 input；opencode CLI 本体只用 Chat Completions（openai-go SDK）
 - CI 修复（0aad389）：① #56 测试缺 jsonObject import（编译错）；② Build APK 的 ndk.abiFilters 与 splits 冲突——AGP 源码 ApplicationVariantFactory.checkSplitsConflicts 确认：isUniversalApk=true（发布）跳过检查（v1.8.1 Release 成功之谜），isUniversalApk=false（-PsingleAbi）时 abiFilters 非空必报错（与 splits 一致也没用）→ singleAbi 场景移除 abiFilters
 - 状态：0aad389 CI 验证中
+
+## v1.8.2-turbo 发布（2026-08-09，2.5.8/187，b03ea20 + tag）
+- 包含 #56 全链路：c0253dc（Console Go thinking 工具消息 reasoning 兜底：chat/completions 空串 + responses 占位 item + 3 测试）+ 0aad389（AGP checkSplitsConflicts 源码级修复：singleAbi 移除 ndk.abiFilters）+ 27fc45a（反射测试补参 + jsonObject import）
+- 27fc45a 双绿（Unit Tests + Build APK success）；Release run 31304788189 success（08:58→09:09）；3 个 profileable APK（arm64 36MB / universal 46MB / x86_64 37MB）
