@@ -27,7 +27,6 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onCompletion
-import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.jsonObject
@@ -88,6 +87,7 @@ import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.web.BadRequestException
 import me.rerere.rikkahub.web.NotFoundException
 import me.rerere.rikkahub.utils.applyPlaceholders
+import me.rerere.rikkahub.utils.throttleLatest
 import me.rerere.workspace.WorkspaceShellStatus
 import java.time.Instant
 import java.util.Locale
@@ -619,9 +619,13 @@ class ChatService(
             // [TURBO R1] 流式 UI 更新从 60fps(16ms) 降到 ~30fps(32ms)。
             // 长回答生成时主线程每帧要重组正在流式的那条 markdown 消息，30fps 给每帧
             // 多一倍的预算，直接缓解"生成时顿"。多数人对 30fps 文本流无感；若装上后
-            // 觉得流式不够跟手，可调回 16 或折中 24。kotlin sample 在源 flow 完成时仍
-            // emit 最后采样值，不丢最终消息。
-            }.sample(32L).collect { chunk ->
+            // 觉得流式不够跟手，可调回 16 或折中 24。
+            // [TURBO R2] 用 throttleLatest 替代官方 sample：官方 sample 在采样窗口内
+            // 未发出的最后值会被静默丢弃（KDoc 明确 "the latest element is not emitted
+            // if it does not fit into the sampling window"），流式生成末尾 32ms 内的
+            // chunk 丢失 → 回复尾部消失 + onSuccess 持久化缺尾部版本（#1296）。
+            // throttleLatest 节流语义相同，但上游完成后必 flush 最后一个值。
+            }.throttleLatest(32L).collect { chunk ->
                 when (chunk) {
                     is GenerationChunk.Messages -> {
                         val updatedConversation = getConversationFlow(conversationId).value
