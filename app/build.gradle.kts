@@ -45,8 +45,15 @@ android {
             val isBuildingBundle = gradle.startParameter.taskNames.any { it.lowercase().contains("bundle") }
             isEnable = !isBuildingBundle
             reset()
-            include("arm64-v8a", "x86_64")
-            isUniversalApk = true
+            // [TURBO] 普通 push 验证构建可只出 arm64-v8a（-PsingleAbi），
+            // 发布构建（release.yml）不打此参数 → 出全 ABI（arm64/x86_64/universal）
+            if (gradle.startParameter.projectProperties.containsKey("singleAbi")) {
+                include("arm64-v8a")
+                isUniversalApk = false
+            } else {
+                include("arm64-v8a", "x86_64")
+                isUniversalApk = true
+            }
         }
     }
 
