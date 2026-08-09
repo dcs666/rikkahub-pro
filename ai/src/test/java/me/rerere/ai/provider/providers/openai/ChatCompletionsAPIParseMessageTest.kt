@@ -8,6 +8,7 @@ import kotlinx.serialization.json.putJsonArray
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.util.KeyRoulette
+import me.rerere.ai.util.encodeBase64
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -166,5 +167,40 @@ class ChatCompletionsAPIParseMessageTest {
         })
         assertTrue(textOf(message).isEmpty())
         assertTrue(reasoningOf(message).isEmpty())
+    }
+
+    @Test
+    fun `images keep full data uri prefix for any mime`() {
+        // 修复前 substringAfter("data:image/png;base64,") 剥掉前缀：
+        // png 存成无前缀 base64 → Coil 无法渲染、encodeBase64 回传时抛
+        // Unsupported URL format 降级；jpeg/webp 因找不到分隔符反而保留原串。
+        // 修复后统一保留完整 data URI（Coil 与 encodeBase64 的 data: 分支均支持）。
+        val png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+        val jpeg = "data:image/jpeg;base64,/9j/4AAQSkZJRg=="
+
+        val message = parseMessage(buildJsonObject {
+            putJsonArray("images") {
+                add(buildJsonObject {
+                    put("type", "image_url")
+                    put("image_url", buildJsonObject {
+                        put("url", png)
+                    })
+                })
+                add(buildJsonObject {
+                    put("type", "image_url")
+                    put("image_url", buildJsonObject {
+                        put("url", jpeg)
+                    })
+                })
+            }
+        })
+
+        val images = message.parts.filterIsInstance<UIMessagePart.Image>()
+        assertEquals(2, images.size)
+        assertEquals(png, images[0].url)
+        assertEquals(jpeg, images[1].url)
+        // 回传链路：data URI 能被 encodeBase64 的 data: 分支原样接受
+        assertTrue(images[0].encodeBase64().isSuccess)
+        assertTrue(images[1].encodeBase64().isSuccess)
     }
 }

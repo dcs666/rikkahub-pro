@@ -833,7 +833,10 @@ class ChatCompletionsAPI(
                     if (type != "image_url") return@forEach
                     val url = imageObject["image_url"]?.jsonObjectOrNull?.get("url")?.jsonPrimitive?.contentOrNull ?: return@forEach
                     require(url.startsWith("data:image")) { "Only data uri is supported" }
-                    add(UIMessagePart.Image(url.substringAfter("data:image/png;base64,")))
+                    // 保留完整 data URI（勿用 substringAfter 剥前缀）：Coil 渲染与 encodeBase64
+                    // 的 data: 分支均按完整 data URI 处理；剥前缀后 png 显示失败、回传时
+                    // encodeBase64 抛 Unsupported URL format 降级为错误文本
+                    add(UIMessagePart.Image(url))
                 }
             },
             annotations = parseAnnotations(
