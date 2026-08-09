@@ -355,7 +355,7 @@ class ResponseAPI(
                     usePlainReasoningContent = host == "api.deepseek.com",
                     useReasoningTextArray = host == "opencode.ai",
                     forcePlaceholderReasoning = host == "opencode.ai" && params.reasoningLevel.isEnabled,
-                )
+                ).stripItemIds()
             )
 
             // reasoning

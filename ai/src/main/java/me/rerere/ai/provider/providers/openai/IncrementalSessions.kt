@@ -99,3 +99,19 @@ internal class IncrementalSessions {
         } ?: false
     }
 }
+
+/**
+ * [codex 对齐] 发送前清理 input item 的服务端 id 字段（保留 call_id）：
+ * codex 的 prepare_response_items_for_request 在发送前清除非 prefixed id——
+ * App 构建的 input 本应无 id（reasoning 服务端 id 已在回传时移除），
+ * 此处兜底防御，避免未来路径误带服务端 id 干扰网关解析。
+ */
+internal fun JsonArray.stripItemIds(): JsonArray = JsonArray(map { element ->
+    val obj = element as? JsonObject ?: return@map element
+    if (obj.containsKey("id")) {
+        val cleaned = obj.toMutableMap().apply { remove("id") }
+        JsonObject(cleaned)
+    } else {
+        element
+    }
+})

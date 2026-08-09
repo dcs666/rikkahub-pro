@@ -130,4 +130,27 @@ class IncrementalSessionsTest {
         assertNull(prevId)
         assertNull(delta)
     }
+
+    @Test
+    fun `stripItemIds removes id but keeps call_id`() {
+        val input = json.parseToJsonElement(
+            """
+            [
+              {"role":"user","content":"你好"},
+              {"type":"message","id":"msg_abc","role":"assistant","content":[]},
+              {"type":"function_call","id":"fc_xyz","call_id":"call_1","name":"t","arguments":"{}"}
+            ]
+            """.trimIndent()
+        ).jsonArray
+        val stripped = input.stripItemIds()
+        // message 的 id 被移除
+        assertEquals(null, stripped[1].jsonObject["id"])
+        // function_call 的 id 被移除、call_id 保留
+        assertEquals(null, stripped[2].jsonObject["id"])
+        assertEquals("call_1", stripped[2].jsonObject["call_id"]!!.jsonPrimitive.content)
+        // user 消息原样
+        assertEquals("你好", stripped[0].jsonObject["content"]!!.jsonPrimitive.content)
+        // 无 id 的 item 不受影响
+        assertEquals(3, stripped.size)
+    }
 }
