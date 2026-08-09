@@ -123,17 +123,24 @@ class ResponseAPI(
     private val client: OkHttpClient,
     private val keyRoulette: KeyRoulette = KeyRoulette.default()
 ) : OpenAIImpl {
+    // [codex 借鉴] previous_response_id 增量发送：历史（含超长思维链）不重传，
+    // 只发新增消息——input 从几十~几百 KB 降到仅增量，请求延迟与 token 双降。
+    private val incrementalSessions = IncrementalSessions()
+
     override suspend fun generateText(
         providerSetting: ProviderSetting.OpenAI,
         messages: List<UIMessage>,
         params: TextGenerationParams
     ): MessageChunk {
-        val requestBody = buildRequestBody(
+        val fullRequestBody = buildRequestBody(
             providerSetting = providerSetting,
             messages = messages,
             params = params,
             stream = false,
         )
+        // 尝试增量：命中（历史与上次一致）→ previous_response_id + 仅新增 items；
+        // 未命中（编辑/重试/新会话）→ 全量发送
+        val requestBody = applyIncremental(fullRequestBody)
         val request = Request.Builder()
             .url(buildEndpoint(providerSetting.baseUrl, "/responses"))
             .headers(params.customHeaders.toHeaders())
@@ -161,6 +168,11 @@ class ResponseAPI(
         }
 
         val bodyJson = json.parseToJsonElement(bodyStr).jsonObject
+        // 记录会话状态（下次请求可增量）：sentInput=完整 input，responseItems=本次输出
+        val outputItems = bodyJson["output"] as? JsonArray
+        if (outputItems != null) {
+            recordIncremental(fullRequestBody, bodyJson["id"]?.jsonPrimitive?.contentOrNull, outputItems.toList())
+        }
         val output = parseResponseOutput(bodyJson)
 
         return output
@@ -171,12 +183,15 @@ class ResponseAPI(
         messages: List<UIMessage>,
         params: TextGenerationParams
     ): Flow<MessageChunk> = callbackFlow {
-        val requestBody = buildRequestBody(
+        val fullRequestBody = buildRequestBody(
             providerSetting = providerSetting,
             messages = messages,
             params = params,
             stream = true,
         )
+        val requestBody = applyIncremental(fullRequestBody)
+        // 流式增量记录：收集 output_item.done 的完整 item + response id
+        val streamOutputItems = mutableListOf<JsonElement>()
         val request = Request.Builder()
             .url(buildEndpoint(providerSetting.baseUrl, "/responses"))
             .headers(params.customHeaders.toHeaders())
@@ -203,6 +218,16 @@ class ResponseAPI(
                 Log.d(TAG, "onEvent: $id/$type $data")
                 try {
                     val json = json.parseToJsonElement(data).jsonObject
+                    // [codex 借鉴] 流式收集：output_item.done 有完整 item JSON；
+                    // response.completed 有 response.id → 记录会话状态供下次增量
+                    if (type == "response.output_item.done") {
+                        json["item"]?.let { streamOutputItems.add(it) }
+                    }
+                    if (type == "response.completed") {
+                        val responseId = json["response"]?.jsonObject?.get("id")
+                            ?.jsonPrimitive?.contentOrNull
+                        recordIncremental(fullRequestBody, responseId, streamOutputItems.toList())
+                    }
                     val chunk = parseResponseDelta(json)
                     if (chunk != null) {
                         trySend(chunk).onFailure { e ->
@@ -258,6 +283,35 @@ class ResponseAPI(
         }
         // trySend 在缓冲满时会静默丢弃 delta，导致回复中间缺字 (#1295)，因此缓冲必须无界
     }.buffer(Channel.UNLIMITED)
+
+    /**
+     * [codex 借鉴] 尝试把请求体转为增量：命中增量会话时
+     * 用 previous_response_id + 仅新增 items（+ store=true），否则原样返回。
+     */
+    private fun applyIncremental(fullRequestBody: JsonObject): JsonObject {
+        val input = fullRequestBody["input"] as? JsonArray ?: return fullRequestBody
+        val items = input.toList()
+        val (previousResponseId, deltaItems) = incrementalSessions.resolve(items)
+        if (previousResponseId == null || deltaItems == null) return fullRequestBody
+        val newBody = fullRequestBody.toMutableMap().apply {
+            put("previous_response_id", JsonPrimitive(previousResponseId))
+            put("input", JsonArray(deltaItems))
+            put("store", JsonPrimitive(true))
+        }
+        Log.d(TAG, "incremental: ${items.size} items -> ${deltaItems.size} delta (prev=$previousResponseId)")
+        return JsonObject(newBody)
+    }
+
+    /** 记录一次成功响应到增量会话（sentInput=完整 input，responseItems=本次输出 items） */
+    private fun recordIncremental(
+        fullRequestBody: JsonObject,
+        responseId: String?,
+        responseItems: List<JsonElement>,
+    ) {
+        if (responseId.isNullOrBlank()) return
+        val input = fullRequestBody["input"] as? JsonArray ?: return
+        incrementalSessions.update(input.toList(), responseId, responseItems)
+    }
 
     internal fun buildRequestBody(
         providerSetting: ProviderSetting.OpenAI,
