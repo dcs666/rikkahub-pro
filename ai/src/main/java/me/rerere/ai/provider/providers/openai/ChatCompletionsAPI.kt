@@ -160,52 +160,59 @@ class ChatCompletionsAPI(
                     close()
                     return
                 }
-                data
-                    .trim()
-                    .split("\n")
-                    .filter { it.isNotBlank() }
-                    .map { json.parseToJsonElement(it).jsonObject }
-                    .forEach {
-                        if (it["error"] != null) {
-                            val error = it["error"]!!.parseErrorDetail()
-                            Log.e(TAG, "Provider returned error in stream: ${error.message}")
-                            throw error
-                        }
-                        val id = it["id"]?.jsonPrimitive?.contentOrNull ?: ""
-                        val model = it["model"]?.jsonPrimitive?.contentOrNull ?: ""
+                try {
+                    data
+                        .trim()
+                        .split("\n")
+                        .filter { it.isNotBlank() }
+                        .map { json.parseToJsonElement(it).jsonObject }
+                        .forEach {
+                            if (it["error"] != null) {
+                                val error = it["error"]!!.parseErrorDetail()
+                                Log.e(TAG, "Provider returned error in stream: ${error.message}")
+                                throw error
+                            }
+                            val id = it["id"]?.jsonPrimitive?.contentOrNull ?: ""
+                            val model = it["model"]?.jsonPrimitive?.contentOrNull ?: ""
 
-                        val choices = it["choices"]?.jsonArray ?: JsonArray(emptyList())
-                        val choiceList = buildList {
-                            if (choices.isNotEmpty()) {
-                                val choice = choices[0].jsonObject
-                                val message =
-                                    choice["delta"]?.jsonObject ?: choice["message"]?.jsonObject
-                                    ?: throw Exception("delta/message is null")
-                                val finishReason =
-                                    choice["finish_reason"]?.jsonPrimitive?.contentOrNull
-                                        ?: "unknown"
-                                add(
-                                    UIMessageChoice(
-                                        index = 0,
-                                        delta = parseMessage(message),
-                                        message = null,
-                                        finishReason = finishReason,
+                            val choices = it["choices"]?.jsonArray ?: JsonArray(emptyList())
+                            val choiceList = buildList {
+                                if (choices.isNotEmpty()) {
+                                    val choice = choices[0].jsonObject
+                                    val message =
+                                        choice["delta"]?.jsonObject ?: choice["message"]?.jsonObject
+                                        ?: throw Exception("delta/message is null")
+                                    val finishReason =
+                                        choice["finish_reason"]?.jsonPrimitive?.contentOrNull
+                                            ?: "unknown"
+                                    add(
+                                        UIMessageChoice(
+                                            index = 0,
+                                            delta = parseMessage(message),
+                                            message = null,
+                                            finishReason = finishReason,
+                                        )
                                     )
-                                )
+                                }
+                            }
+                            val usage = parseTokenUsage(it["usage"] as? JsonObject)
+
+                            val messageChunk = MessageChunk(
+                                id = id,
+                                model = model,
+                                choices = choiceList,
+                                usage = usage
+                            )
+                            trySend(messageChunk).onFailure { e ->
+                                Log.w(TAG, "onEvent: chunk dropped (${e?.message})")
                             }
                         }
-                        val usage = parseTokenUsage(it["usage"] as? JsonObject)
-
-                        val messageChunk = MessageChunk(
-                            id = id,
-                            model = model,
-                            choices = choiceList,
-                            usage = usage
-                        )
-                        trySend(messageChunk).onFailure { e ->
-                            Log.w(TAG, "onEvent: chunk dropped (${e?.message})")
-                        }
-                    }
+                } catch (e: Throwable) {
+                    // 事件数据非法/流内错误/未知格式时不能悬挂：
+                    // 以异常结束 flow，让调用方收到错误提示
+                    Log.w(TAG, "onEvent: failed to process event data: $data", e)
+                    close(e)
+                }
             }
 
             override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {

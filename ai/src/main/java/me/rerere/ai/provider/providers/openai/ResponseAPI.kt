@@ -139,15 +139,22 @@ class ResponseAPI(
                     return
                 }
                 Log.d(TAG, "onEvent: $id/$type $data")
-                val json = json.parseToJsonElement(data).jsonObject
-                val chunk = parseResponseDelta(json)
-                if (chunk != null) {
-                    trySend(chunk).onFailure { e ->
-                        Log.w(TAG, "onEvent: chunk dropped (${e?.message})")
+                try {
+                    val json = json.parseToJsonElement(data).jsonObject
+                    val chunk = parseResponseDelta(json)
+                    if (chunk != null) {
+                        trySend(chunk).onFailure { e ->
+                            Log.w(TAG, "onEvent: chunk dropped (${e?.message})")
+                        }
                     }
-                }
-                if (type == "response.completed") {
-                    close()
+                    if (type == "response.completed") {
+                        close()
+                    }
+                } catch (e: Throwable) {
+                    // 网关事件数据非法（非 JSON/未知 chunk 类型）时不能悬挂：
+                    // 以异常结束 flow，让调用方收到错误提示
+                    Log.w(TAG, "onEvent: failed to process event data: $data", e)
+                    close(e)
                 }
             }
 
@@ -722,7 +729,7 @@ class ResponseAPI(
         return null
     }
 
-    private fun parseResponseOutput(jsonObject: JsonObject): MessageChunk {
+    internal fun parseResponseOutput(jsonObject: JsonObject): MessageChunk {
         val outputs = jsonObject["output"]?.jsonArray ?: error("output not found")
         val parts = arrayListOf<UIMessagePart>()
 
@@ -731,20 +738,67 @@ class ResponseAPI(
             val type = output["type"]?.jsonPrimitive?.content ?: error("output type not found")
             when (type) {
                 "reasoning" -> {
-                    val summary = output["summary"]?.jsonArray ?: error("summary not found")
-                    summary.map { it.jsonObject }.forEach { part ->
-                        val partType = part["type"]?.jsonPrimitive?.content ?: error("part type not found")
-                        when (partType) {
-                            "summary_text" -> {
-                                val text = part["text"]?.jsonPrimitive?.content ?: error("text not found")
-                                parts.add(
-                                    UIMessagePart.Reasoning(
-                                        reasoning = text,
-                                        createdAt = Clock.System.now(),
-                                        finishedAt = Clock.System.now()
+                    // 兼容三种网关的 reasoning item 格式（只认 summary 会导致非流式请求在
+                    // DeepSeek/OpenCode Zen 上抛 "summary not found" 崩溃）：
+                    // 1. OpenAI 官方：summary 数组（summary_text）
+                    // 2. DeepSeek：明文 content 字符串
+                    // 3. OpenCode Zen 网关：content 数组（reasoning_text）
+                    val summary = output["summary"]?.jsonArray
+                    if (summary != null) {
+                        summary.map { it.jsonObject }.forEach { part ->
+                            val partType = part["type"]?.jsonPrimitive?.content
+                                ?: error("part type not found")
+                            when (partType) {
+                                "summary_text" -> {
+                                    val text = part["text"]?.jsonPrimitive?.content
+                                        ?: error("text not found")
+                                    parts.add(
+                                        UIMessagePart.Reasoning(
+                                            reasoning = text,
+                                            createdAt = Clock.System.now(),
+                                            finishedAt = Clock.System.now()
+                                        )
                                     )
-                                )
+                                }
                             }
+                        }
+                    } else {
+                        when (val content = output["content"]) {
+                            is JsonPrimitive -> {
+                                // DeepSeek Responses API：明文 content 字符串
+                                content.contentOrNull?.takeIf { it.isNotBlank() }?.let { text ->
+                                    parts.add(
+                                        UIMessagePart.Reasoning(
+                                            reasoning = text,
+                                            createdAt = Clock.System.now(),
+                                            finishedAt = Clock.System.now()
+                                        )
+                                    )
+                                }
+                            }
+
+                            is JsonArray -> {
+                                // OpenCode Zen 网关：content 数组（reasoning_text）
+                                content.forEach { element ->
+                                    val partObj = element.jsonObjectOrNull ?: return@forEach
+                                    if (partObj["type"]?.jsonPrimitive?.contentOrNull ==
+                                        "reasoning_text"
+                                    ) {
+                                        partObj["text"]?.jsonPrimitiveOrNull?.contentOrNull
+                                            ?.takeIf { it.isNotBlank() }?.let { text ->
+                                                parts.add(
+                                                    UIMessagePart.Reasoning(
+                                                        reasoning = text,
+                                                        createdAt = Clock.System.now(),
+                                                        finishedAt = Clock.System.now()
+                                                    )
+                                                )
+                                            }
+                                    }
+                                }
+                            }
+
+                            else -> {}
                         }
                     }
                 }

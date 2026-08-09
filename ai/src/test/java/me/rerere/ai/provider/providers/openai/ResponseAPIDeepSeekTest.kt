@@ -1,16 +1,22 @@
 package me.rerere.ai.provider.providers.openai
 
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelAbility
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.TextGenerationParams
+import me.rerere.ai.ui.MessageChunk
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import okhttp3.OkHttpClient
@@ -161,5 +167,74 @@ class ResponseAPIDeepSeekTest {
         val summary = reasoningItem.jsonObject["summary"]?.jsonArray
         assertTrue(summary != null && summary.isNotEmpty())
         assertEquals("thinking trace", summary!![0].jsonObject["text"]?.jsonPrimitive?.content)
+    }
+
+    // ---- 非流式响应解析（parseResponseOutput）----
+
+    private fun responseWithReasoningAndMessage(reasoningJson: String): JsonObject {
+        return buildJsonObject {
+            put("output", buildJsonArray {
+                add(Json.parseToJsonElement(reasoningJson).jsonObject)
+                add(buildJsonObject {
+                    put("type", "message")
+                    put("content", buildJsonArray {
+                        add(buildJsonObject {
+                            put("type", "output_text")
+                            put("text", "answer")
+                        })
+                    })
+                })
+            })
+        }
+    }
+
+    private fun reasoningParts(chunk: MessageChunk): List<UIMessagePart.Reasoning> {
+        return chunk.choices[0].message!!.parts.filterIsInstance<UIMessagePart.Reasoning>()
+    }
+
+    @Test
+    fun `non-stream deepseek reasoning uses plaintext content string`() {
+        // DeepSeek 非流式响应：reasoning item 无 summary，content 是明文字符串
+        val response = responseWithReasoningAndMessage(
+            """{"type":"reasoning","id":"rs_1","content":"thinking trace"}"""
+        )
+        val chunk = api.parseResponseOutput(response)
+        val reasoning = reasoningParts(chunk)
+        assertEquals(1, reasoning.size)
+        assertEquals("thinking trace", reasoning[0].reasoning)
+    }
+
+    @Test
+    fun `non-stream opencode reasoning uses content array of reasoning_text`() {
+        // OpenCode Zen 网关非流式响应：content 是 reasoning_text 数组
+        val response = responseWithReasoningAndMessage(
+            """{"type":"reasoning","id":"rs_1","content":[{"type":"reasoning_text","text":"thinking trace"}]}"""
+        )
+        val chunk = api.parseResponseOutput(response)
+        val reasoning = reasoningParts(chunk)
+        assertEquals(1, reasoning.size)
+        assertEquals("thinking trace", reasoning[0].reasoning)
+    }
+
+    @Test
+    fun `non-stream openai reasoning uses summary array`() {
+        // OpenAI 官方非流式响应：summary 数组（原有行为保持不变）
+        val response = responseWithReasoningAndMessage(
+            """{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"thinking trace"}]}"""
+        )
+        val chunk = api.parseResponseOutput(response)
+        val reasoning = reasoningParts(chunk)
+        assertEquals(1, reasoning.size)
+        assertEquals("thinking trace", reasoning[0].reasoning)
+    }
+
+    @Test
+    fun `non-stream reasoning with empty content does not crash`() {
+        // 网关返回空 reasoning item（无 summary/content）时不抛异常
+        val response = responseWithReasoningAndMessage(
+            """{"type":"reasoning","id":"rs_1"}"""
+        )
+        val chunk = api.parseResponseOutput(response)
+        assertTrue(reasoningParts(chunk).isEmpty())
     }
 }
