@@ -34,11 +34,12 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
-            // [TURBO] 与下方 splits abi 保持一致：-PsingleAbi 时只保留 arm64-v8a，
-            // 否则 AGP 报 "Conflicting configuration" 错误
-            if (gradle.startParameter.projectProperties.containsKey("singleAbi")) {
-                abiFilters += listOf("arm64-v8a")
-            } else {
+            // [TURBO] AGP checkSplitsConflicts（ApplicationVariantFactory）：
+            // splits abi 构建且 isUniversalApk=false 时（-PsingleAbi），ndk.abiFilters
+            // 只要非空就报 "Conflicting configuration"（即使与 splits filters 完全一致
+            // 也报错）；isUniversalApk=true（发布构建）时 abiFilters 控制 universal APK
+            // 内容，允许设置。因此仅非 singleAbi 场景设置 ABI 白名单。
+            if (!gradle.startParameter.projectProperties.containsKey("singleAbi")) {
                 abiFilters += listOf("arm64-v8a", "x86_64")
             }
         }
