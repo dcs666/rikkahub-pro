@@ -292,10 +292,16 @@ class WorkspaceDocumentsProvider : DocumentsProvider() {
         require(documentId.startsWith(DOC_PREFIX)) { "Invalid documentId: $documentId" }
         val rest = documentId.removePrefix(DOC_PREFIX)
         val idx = rest.indexOf('/')
+        val root = if (idx < 0) rest else rest.substring(0, idx)
+        // [FIX] SAF 暴露面加固：恶意 App 可构造任意 documentId，root 段此前未校验。
+        // root=".." 会把 filesDir(root) 的 base 指向 workspaces 目录之外，
+        // canonical 逃逸校验基于错误的 base → 越权访问 app filesDir 下意外目录。
+        // 与 WorkspaceManager.requireValidRoot 的 ROOT_NAME_REGEX 保持一致。
+        require(root.matches(DOC_ROOT_REGEX)) { "Invalid workspace root in documentId: $documentId" }
         return if (idx < 0) {
             DocId(isRoot = false, root = rest, relPath = "")
         } else {
-            DocId(isRoot = false, root = rest.substring(0, idx), relPath = rest.substring(idx + 1))
+            DocId(isRoot = false, root = root, relPath = rest.substring(idx + 1))
         }
     }
 
@@ -321,6 +327,9 @@ class WorkspaceDocumentsProvider : DocumentsProvider() {
         private const val ROOT_ID = "rikkahub_workspaces"
         private const val ROOT_DOC_ID = "root"
         private const val DOC_PREFIX = "ws/"
+
+        /** workspace root 合法字符（与 WorkspaceManager.requireValidRoot 一致） */
+        private val DOC_ROOT_REGEX = Regex("[A-Za-z0-9._-]+")
 
         private val DEFAULT_ROOT_PROJECTION = arrayOf(
             Root.COLUMN_ROOT_ID,
