@@ -348,11 +348,11 @@
 
 ## 自动进度同步（判定驱动机制）
 
-> 时间：2026-08-07 21:05 (UTC+8) | 最新提交：91ab838（深审批次修复）
-> 版本：2.5.3/182（v1.7.7 已发布）｜深审 5a85c23..91ab838 全批次 94 文件完成
-> 判定：[COMPLETE] 代码同步、CI 运行中（91ab838 monitor 0ee5ea9b）、无活跃 Release
-> 修复总数：48 + 深审新发现 3（① 3d89348 WebServer 关 JWT 后 fail-open 窗口→看门狗自动降级回环；② provider 14 处请求体/响应体日志泄漏对话内容→删除；③ CustomJs 死循环 withTimeout 无效→独立线程方案）
-> 活跃：64293a4e（5min×∞）
-> 其他：25/26.json schema 缺失已通过 CI artifact 上传补救；52b698b 泄漏计数上限、device_list_files 条目上限、device_read_file 8MB 文本截断为低优先改进点
+> 时间：2026-08-09 11:49 (UTC+8) | 最新提交：9703600（fix: ChatCompletions 解析 content part 数组，修复回答丢字/截断）
+> 版本：2.5.3/182（v1.7.7 已发布）｜9703600 + 07a877b 双双绿（Unit Tests + Build APK success）
+> 判定：[COMPLETE] 代码已同步、CI 全绿、无活跃 Release
+> 修复总数：50（49: content part 数组正文丢失；50: opencode.ai reasoning_effort XHIGH→max 映射）
+> 活跃：c3596e36（5min×∞，auto_ai=true）
+> 其他：parseMessage 支持 content part 数组（text/output_text/input_text 拼接正文 + thinking/reasoning 提取思维链）；新增 ChatCompletionsAPIOpenCodeTest / ResponseAPIOpenCodeTest / ChatCompletionsAPIParseMessageTest 共 20 用例；待办：finish_reason=length 无 UI 提示（体验缺口，可加"已截断"提示）；v1.7.8 候选
 
 
