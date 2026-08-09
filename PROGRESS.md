@@ -348,11 +348,11 @@
 
 ## 自动进度同步（判定驱动机制）
 
-> 时间：2026-08-09 11:49 (UTC+8) | 最新提交：9703600（fix: ChatCompletions 解析 content part 数组，修复回答丢字/截断）
-> 版本：2.5.3/182（v1.7.7 已发布）｜9703600 + 07a877b 双双绿（Unit Tests + Build APK success）
+> 时间：2026-08-09 12:13 (UTC+8) | 最新提交：e2d0768（v1.7.8-turbo 已发布）
+> 版本：2.5.4/183（v1.7.8-turbo，Release #28 31293664450 success）｜3 个 profileable APK 已上传
 > 判定：[COMPLETE] 代码已同步、CI 全绿、无活跃 Release
 > 修复总数：50（49: content part 数组正文丢失；50: opencode.ai reasoning_effort XHIGH→max 映射）
 > 活跃：c3596e36（5min×∞，auto_ai=true）
-> 其他：parseMessage 支持 content part 数组（text/output_text/input_text 拼接正文 + thinking/reasoning 提取思维链）；新增 ChatCompletionsAPIOpenCodeTest / ResponseAPIOpenCodeTest / ChatCompletionsAPIParseMessageTest 共 20 用例；待办：finish_reason=length 无 UI 提示（体验缺口，可加"已截断"提示）；v1.7.8 候选
+> 其他：v1.7.8 发布完成（arm64-v8a 38.7MB / universal 48.8MB / x86_64 39.4MB）；待办：finish_reason=length 无 UI 提示
 
 
