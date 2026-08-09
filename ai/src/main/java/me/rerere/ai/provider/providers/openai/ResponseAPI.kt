@@ -215,8 +215,18 @@ class ResponseAPI(
 
             // messages
             // DeepSeek Responses API 的 reasoning 输入 item 不支持 summary 字段（官方文档：
-            // 明文 content 才被归并），需用明文 content 回传思维链（工具调用场景必须回传）
-            put("input", buildMessages(messages, usePlainReasoningContent = host == "api.deepseek.com"))
+            // 明文 content 才被归并），需用明文 content 回传思维链（工具调用场景必须回传）；
+            // OpenCode Zen 网关（Console provider）thinking mode 下要求 content 数组的
+            // reasoning_text 类型回传（错误：The reasoning_text in the thinking mode must
+            // be passed back to the API）
+            put(
+                "input",
+                buildMessages(
+                    messages,
+                    usePlainReasoningContent = host == "api.deepseek.com",
+                    useReasoningTextArray = host == "opencode.ai",
+                )
+            )
 
             // reasoning
             if (params.model.abilities.contains(ModelAbility.REASONING)) {
@@ -297,12 +307,13 @@ class ResponseAPI(
     internal fun buildMessages(
         messages: List<UIMessage>,
         usePlainReasoningContent: Boolean = false,
+        useReasoningTextArray: Boolean = false,
     ) = buildJsonArray {
         messages
             .filter { it.isValidToUpload() && it.role != MessageRole.SYSTEM }
             .forEach { message ->
                 if (message.role == MessageRole.ASSISTANT) {
-                    addAssistantItems(message, usePlainReasoningContent)
+                    addAssistantItems(message, usePlainReasoningContent, useReasoningTextArray)
                 } else {
                     addUserItems(message)
                 }
@@ -312,6 +323,7 @@ class ResponseAPI(
     private fun JsonArrayBuilder.addAssistantItems(
         message: UIMessage,
         usePlainReasoningContent: Boolean = false,
+        useReasoningTextArray: Boolean = false,
     ) {
         val groups = groupPartsByToolBoundary(message.parts)
         val contentBuffer = mutableListOf<UIMessagePart>()
@@ -334,16 +346,31 @@ class ResponseAPI(
                                     reasoningMetadata?.reasoningId?.let {
                                         put("id", it)
                                     }
-                                    if (usePlainReasoningContent) {
-                                        // DeepSeek Responses API 不支持 summary 字段，用明文 content 回传思维链
-                                        put("content", part.reasoning)
-                                    } else {
-                                        put("summary", buildJsonArray {
-                                            add(buildJsonObject {
-                                                put("type", "summary_text")
-                                                put("text", part.reasoning)
+                                    when {
+                                        usePlainReasoningContent -> {
+                                            // DeepSeek Responses API 不支持 summary 字段，用明文 content 回传思维链
+                                            put("content", part.reasoning)
+                                        }
+
+                                        useReasoningTextArray -> {
+                                            // OpenCode Zen 网关（Console provider）thinking mode 要求
+                                            // content 数组的 reasoning_text 类型回传
+                                            put("content", buildJsonArray {
+                                                add(buildJsonObject {
+                                                    put("type", "reasoning_text")
+                                                    put("text", part.reasoning)
+                                                })
                                             })
-                                        })
+                                        }
+
+                                        else -> {
+                                            put("summary", buildJsonArray {
+                                                add(buildJsonObject {
+                                                    put("type", "summary_text")
+                                                    put("text", part.reasoning)
+                                                })
+                                            })
+                                        }
                                     }
                                     reasoningMetadata?.encryptedContent?.let {
                                         put("encrypted_content", it)
@@ -812,6 +839,15 @@ internal fun resolveResponseProviderCapabilities(host: String): ResponseProvider
             // DeepSeek Responses API 文档（guides/responses_api）：reasoning 输入 item 仅支持
             // 明文 content，summary / encrypted_content 不支持；请求参数 reasoning.summary
             // 可传入但不生成摘要 → 不发送无效参数；也不请求 reasoning.encrypted_content 输出
+            supportsReasoningSummary = false,
+            supportEncryptedContent = false
+        )
+
+        "opencode.ai" -> ResponseProviderCapabilities(
+            // OpenCode Zen 网关（Console provider）：thinking mode 下 reasoning 输入 item
+            // 必须用 content 数组的 reasoning_text 类型回传（错误：The reasoning_text in
+            // the thinking mode must be passed back to the API），summary/encrypted_content
+            // 不被接受 → 不发送无效参数，也不请求 encrypted_content 输出
             supportsReasoningSummary = false,
             supportEncryptedContent = false
         )

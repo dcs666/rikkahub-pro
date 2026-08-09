@@ -1,17 +1,21 @@
 package me.rerere.ai.provider.providers.openai
 
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelAbility
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.ui.UIMessage
+import me.rerere.ai.ui.UIMessagePart
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -19,6 +23,9 @@ import org.junit.Test
  * Unit tests for OpenCode Zen gateway (opencode.ai) Responses API handling:
  * - reasoning.effort: App's XHIGH is mapped to "max", MEDIUM to "high"
  *   (与 DeepSeek 官方一致，zen 网关代理 DeepSeek 系模型，官方枚举 low/high/max)
+ * - reasoning history items use content array of reasoning_text (网关 Console provider
+ *   要求：The reasoning_text in the thinking mode must be passed back to the API)
+ * - 不请求 reasoning.summary / reasoning.encrypted_content（网关不支持）
  */
 class ResponseAPIOpenCodeTest {
 
@@ -76,5 +83,55 @@ class ResponseAPIOpenCodeTest {
     fun `off sends effort none on opencode zen responses api`() {
         val body = invokeBuildRequestBody(openCodeSetting(), reasoningParams(ReasoningLevel.OFF))
         assertEquals("none", body["reasoning"]?.jsonObject?.get("effort")?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `opencode does not request summary or encrypted content`() {
+        val body = invokeBuildRequestBody(openCodeSetting(), reasoningParams(ReasoningLevel.HIGH))
+        assertNull(body["reasoning"]?.jsonObject?.get("summary"))
+        assertNull(body["include"])
+    }
+
+    @Test
+    fun `opencode reasoning history uses reasoning_text array content`() {
+        val assistant = UIMessage(
+            role = MessageRole.ASSISTANT,
+            parts = listOf(
+                UIMessagePart.Reasoning(reasoning = "thinking trace"),
+                UIMessagePart.Text("answer")
+            )
+        )
+        val items = api.buildMessages(listOf(assistant), useReasoningTextArray = true)
+        val reasoningItem = items.jsonArray.first { it.jsonObject["type"]?.jsonPrimitive?.content == "reasoning" }
+        assertNull(reasoningItem.jsonObject["summary"])
+        val content = reasoningItem.jsonObject["content"]?.jsonArray
+        assertTrue(content != null && content.isNotEmpty())
+        assertEquals("reasoning_text", content!![0].jsonObject["type"]?.jsonPrimitive?.content)
+        assertEquals("thinking trace", content[0].jsonObject["text"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `opencode host buildRequestBody uses reasoning_text for history`() {
+        // 走真实路径：host=opencode.ai 时历史 reasoning item 必须是 reasoning_text 数组
+        val assistant = UIMessage(
+            role = MessageRole.ASSISTANT,
+            parts = listOf(
+                UIMessagePart.Reasoning(reasoning = "thinking trace"),
+                UIMessagePart.Text("answer")
+            )
+        )
+        val body = api.buildRequestBody(
+            openCodeSetting(),
+            listOf(UIMessage.user("next"), assistant),
+            reasoningParams(ReasoningLevel.HIGH),
+            stream = false
+        )
+        val input = body["input"]?.jsonArray
+        assertTrue(input != null)
+        val reasoningItem = input!!.first { it.jsonObject["type"]?.jsonPrimitive?.content == "reasoning" }
+        val content = reasoningItem.jsonObject["content"]?.jsonArray
+        assertTrue(content != null && content.isNotEmpty())
+        assertEquals("reasoning_text", content!![0].jsonObject["type"]?.jsonPrimitive?.content)
+        assertNull(reasoningItem.jsonObject["summary"])
     }
 }
