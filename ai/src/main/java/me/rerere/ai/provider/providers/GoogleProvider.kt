@@ -519,13 +519,14 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
         val role = googleRoleToCommonRole(
             message["role"]?.jsonPrimitive?.contentOrNull ?: "model"
         )
-        val content = message["content"]?.jsonObject ?: error("No content")
-        val parts = content["parts"]?.jsonArray?.map { part ->
+        // [FIX] 流式 delta / 异常候选可能缺 content（如内容被拦截），返回空消息而非崩溃中断整轮
+        val content = message["content"]?.jsonObject
+        val parts = content?.get("parts")?.jsonArray?.map { part ->
             parseMessagePart(part.jsonObject)
         } ?: emptyList()
 
         val groundingMetadata = message["groundingMetadata"]?.jsonObject
-        Log.i(TAG, "parseMessage: $groundingMetadata")
+        Log.d(TAG, "parseMessage: $groundingMetadata")
         val annotations = parseSearchGroundingMetadata(groundingMetadata)
 
         return UIMessage(
@@ -564,10 +565,12 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
             }
 
             jsonObject.containsKey("functionCall") -> {
+                // [FIX] 防御：name 缺失时给空串，避免 !! 链 NPE 中断整轮
+                val callObj = jsonObject["functionCall"]?.jsonObject
                 UIMessagePart.Tool(
                     toolCallId = Uuid.random().toString(),
-                    toolName = jsonObject["functionCall"]!!.jsonObject["name"]!!.jsonPrimitive.content,
-                    input = json.encodeToString(jsonObject["functionCall"]!!.jsonObject["args"]),
+                    toolName = callObj?.get("name")?.jsonPrimitive?.contentOrNull ?: "",
+                    input = callObj?.get("args")?.let { json.encodeToString(it) } ?: "{}",
                     output = emptyList(),
                     metadata = GoogleThoughtMetadata(
                         thoughtSignature = jsonObject["thoughtSignature"]?.jsonPrimitive?.contentOrNull
@@ -576,14 +579,11 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
             }
 
             jsonObject.containsKey("inlineData") -> {
-                val inlineData = jsonObject["inlineData"]!!.jsonObject
-                val mime = inlineData["mimeType"]?.jsonPrimitive?.content ?: "image/png"
-                val data = inlineData["data"]?.jsonPrimitive?.content ?: ""
+                val inlineData = jsonObject["inlineData"]?.jsonObject
+                val mime = inlineData?.get("mimeType")?.jsonPrimitive?.content ?: "image/png"
+                val data = inlineData?.get("data")?.jsonPrimitive?.content ?: ""
                 val thought = jsonObject["thought"]?.jsonPrimitive?.booleanOrNull ?: false
                 val thoughtSignature = jsonObject["thoughtSignature"]?.jsonPrimitive?.contentOrNull
-                require(mime.startsWith("image/")) {
-                    "Only image mime type is supported"
-                }
                 // 如果是思考过程中的草稿图，直接忽略
                 if (thought) {
                     return UIMessagePart.Reasoning(
@@ -592,10 +592,28 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
                         finishedAt = null
                     )
                 }
-                UIMessagePart.Image(
-                    url = data,
-                    metadata = GoogleThoughtMetadata(thoughtSignature = thoughtSignature).toMetadata()
-                )
+                // [FIX] 拼完整 data URI（勿放纯 base64：Coil 渲染与 encodeBase64 的 data: 分支
+                // 均按完整 data URI 处理）；video/audio 也按对应 part 解析，未知 mime 降级
+                // 为文本占位，不再 require 崩溃中断整轮
+                val dataUri = "data:$mime;base64,$data"
+                when {
+                    mime.startsWith("image/") -> UIMessagePart.Image(
+                        url = dataUri,
+                        metadata = GoogleThoughtMetadata(thoughtSignature = thoughtSignature).toMetadata()
+                    )
+
+                    mime.startsWith("video/") -> UIMessagePart.Video(
+                        url = dataUri,
+                        metadata = GoogleThoughtMetadata(thoughtSignature = thoughtSignature).toMetadata()
+                    )
+
+                    mime.startsWith("audio/") -> UIMessagePart.Audio(
+                        url = dataUri,
+                        metadata = GoogleThoughtMetadata(thoughtSignature = thoughtSignature).toMetadata()
+                    )
+
+                    else -> UIMessagePart.Text("[Unsupported media: $mime]")
+                }
             }
 
             else -> error("unknown message part type: $jsonObject")
