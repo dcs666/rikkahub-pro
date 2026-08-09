@@ -227,8 +227,9 @@ class ResponseAPI(
                     }
                     if (level != ReasoningLevel.AUTO) {
                         // DeepSeek Responses API 的 effort 只支持 low/high/max（thinking_mode 文档），
+                        // OpenCode Zen 网关（opencode.ai）同样代理 DeepSeek 系模型；
                         // App 的 XHIGH("xhigh")/MEDIUM("medium") 需映射到官方枚举，否则强度静默失效
-                        val effort = if (host == "api.deepseek.com") {
+                        val effort = if (host == "api.deepseek.com" || host == "opencode.ai") {
                             when (level) {
                                 ReasoningLevel.XHIGH -> "max"
                                 ReasoningLevel.MEDIUM -> "high"

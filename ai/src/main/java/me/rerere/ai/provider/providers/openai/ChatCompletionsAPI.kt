@@ -421,8 +421,16 @@ class ChatCompletionsAPI(
                     }
 
                     "opencode.ai" -> {
+                        // OpenCode Zen 网关（chat/completions 端点服务 DeepSeek V4/Kimi/GLM/
+                        // MiniMax 等推理模型），官方枚举为 low/high/max，App 的 XHIGH("xhigh")/
+                        // MEDIUM("medium") 需映射到官方枚举，否则 max 强度静默失效（#opencode）
                         if (level != ReasoningLevel.AUTO) {
-                            put("reasoning_effort", level.effort)
+                            val effort = when (level) {
+                                ReasoningLevel.XHIGH -> "max"
+                                ReasoningLevel.MEDIUM -> "high"
+                                else -> level.effort
+                            }
+                            put("reasoning_effort", effort)
                         }
                     }
 
