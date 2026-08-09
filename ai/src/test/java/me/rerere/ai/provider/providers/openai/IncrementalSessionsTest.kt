@@ -29,8 +29,8 @@ class IncrementalSessionsTest {
         put("content", text)
     }
 
-    private fun parse(text: String): JsonArray =
-        json.parseToJsonElement(text).jsonArray
+    private fun parse(text: String): JsonObject =
+        json.parseToJsonElement(text).jsonObject
 
     @Test
     fun `first request has no increment`() {
@@ -46,11 +46,11 @@ class IncrementalSessionsTest {
         val sessions = IncrementalSessions()
         val firstInput = listOf(userMsg("你好"))
         // 首次请求：记录会话（模拟服务端返回 output item）
-        sessions.update(body(firstInput), "resp_1", listOf(parse("""{"type":"message","role":"assistant","content":[]}""")[0]))
+        sessions.update(body(firstInput), "resp_1", listOf(parse("""{"type":"message","role":"assistant","content":[]}""")))
 
         // 第二轮：完整 input = 首轮 input + 首轮输出 items + 新 user 消息
         val fullInput = firstInput + listOf(
-            parse("""{"type":"message","role":"assistant","content":[]}""")[0],
+            parse("""{"type":"message","role":"assistant","content":[]}"""),
             userMsg("继续"),
         )
         val (prevId, delta) = sessions.resolve(fullInput, body(fullInput))
@@ -65,11 +65,11 @@ class IncrementalSessionsTest {
     fun `edited history falls back to full send`() {
         val sessions = IncrementalSessions()
         val firstInput = listOf(userMsg("你好"))
-        sessions.update(body(firstInput), "resp_1", listOf(parse("""{"type":"message","role":"assistant","content":[]}""")[0]))
+        sessions.update(body(firstInput), "resp_1", listOf(parse("""{"type":"message","role":"assistant","content":[]}""")))
 
         // 历史被编辑（首条消息内容变了）→ 前缀不匹配 → 无法增量
         val editedInput = listOf(userMsg("你好吗")) + listOf(
-            parse("""{"type":"message","role":"assistant","content":[]}""")[0],
+            parse("""{"type":"message","role":"assistant","content":[]}"""),
             userMsg("继续"),
         )
         val (prevId, delta) = sessions.resolve(editedInput, body(editedInput))
@@ -81,7 +81,7 @@ class IncrementalSessionsTest {
     fun `shorter input falls back to full send`() {
         val sessions = IncrementalSessions()
         val firstInput = listOf(userMsg("你好"))
-        sessions.update(body(firstInput), "resp_1", listOf(parse("""{"type":"message","role":"assistant","content":[]}""")[0]))
+        sessions.update(body(firstInput), "resp_1", listOf(parse("""{"type":"message","role":"assistant","content":[]}""")))
 
         // 输入比已知状态短（不可能前缀匹配）→ 全量
         val shortInput = listOf(userMsg("你好"))
@@ -96,13 +96,13 @@ class IncrementalSessionsTest {
         // 已知状态含 function_call 时禁用增量，回退全量（工具循环正确性不受影响）
         val sessions = IncrementalSessions()
         val firstInput = listOf(userMsg("查天气"))
-        val fcItem = parse("""{"type":"function_call","call_id":"c1","name":"get_weather","arguments":"{}"}""")[0]
-        sessions.update(firstInput, "resp_1", listOf(fcItem))
+        val fcItem = parse("""{"type":"function_call","call_id":"c1","name":"get_weather","arguments":"{}"}""")
+        sessions.update(body(firstInput), "resp_1", listOf(fcItem))
 
         // 工具执行后：完整 input = 首轮 + function_call + function_call_output + 新消息
         val fullInput = firstInput + listOf(
             fcItem,
-            parse("""{"type":"function_call_output","call_id":"c1","output":"ok"}""")[0],
+            parse("""{"type":"function_call_output","call_id":"c1","output":"ok"}"""),
         )
         val (prevId, delta) = sessions.resolve(fullInput, body(fullInput))
         // 已知状态含 function_call → 无法增量 → 全量发送
@@ -118,7 +118,7 @@ class IncrementalSessionsTest {
         sessions.update(body(firstInput), "resp_1", emptyList())
         // 第二轮：纯文本增量可用
         val secondInput = firstInput + listOf(
-            parse("""{"type":"message","role":"assistant","content":[]}""")[0],
+            parse("""{"type":"message","role":"assistant","content":[]}"""),
             userMsg("继续"),
         )
         val (prevId, delta) = sessions.resolve(secondInput, body(secondInput))
