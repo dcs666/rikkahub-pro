@@ -34,10 +34,12 @@ jobs:
         with:
           script: |
             // 手动触发（workflow_dispatch）时用 inputs.tag 定位发布版本（分支 HEAD
-            // 可能是仅 workflow 改动、无 build run 的 commit）；tag 触发时用 ref_name。
-            // commits API 会自动 dereference tag → commit SHA。
-            const tagInput = core.getInput('tag');
-            const ref = tagInput !== '' ? tagInput : context.ref_name;
+            // 可能是仅 workflow 改动、无 build run 的 commit）；tag 触发时用 context.ref。
+            // workflow_dispatch 的 inputs 需从 context.payload.inputs 读取
+            // （core.getInput 只读 action 级 with 参数）；commits API 会自动
+            // dereference tag → commit SHA。
+            const tagInput = context.payload.inputs?.tag ?? '';
+            const ref = tagInput !== '' ? tagInput : context.ref;
             const { data: commit } = await github.rest.repos.getCommit({
               owner: context.repo.owner,
               repo: context.repo.repo,
