@@ -21,6 +21,18 @@ fun List<CustomHeader>.toHeaders(): Headers {
     }.build()
 }
 
+/**
+ * 拼接 API 端点 URL。若 baseUrl 已以 path 结尾（用户把完整端点填进了 base_url，
+ * 如 https://opencode.ai/zen/go/v1/responses），不再重复拼接，避免出现
+ * /responses/responses 或 /chat/completions/chat/completions 这类 404。
+ */
+fun buildEndpoint(baseUrl: String, path: String): String {
+    val base = baseUrl.trimEnd('/')
+    val p = path.trim('/')
+    if (p.isEmpty()) return base
+    return if (base.endsWith("/$p")) base else "$base/$p"
+}
+
 fun Request.Builder.configureReferHeaders(url: String): Request.Builder {
     val httpUrl = url.toHttpUrl()
     return when (httpUrl.host) {

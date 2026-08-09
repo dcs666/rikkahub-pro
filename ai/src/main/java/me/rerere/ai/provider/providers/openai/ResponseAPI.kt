@@ -42,6 +42,7 @@ import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.metadataAs
 import me.rerere.ai.ui.toMetadata
 import me.rerere.ai.util.KeyRoulette
+import me.rerere.ai.util.buildEndpoint
 import me.rerere.ai.util.configureReferHeaders
 import me.rerere.ai.util.encodeBase64
 import me.rerere.ai.util.json
@@ -89,7 +90,7 @@ class ResponseAPI(
             stream = false,
         )
         val request = Request.Builder()
-            .url("${providerSetting.baseUrl}/responses")
+            .url(buildEndpoint(providerSetting.baseUrl, "/responses"))
             .headers(params.customHeaders.toHeaders())
             .post(json.encodeToString(requestBody).toRequestBody("application/json".toMediaType()))
             .addHeader(
@@ -102,11 +103,17 @@ class ResponseAPI(
 
 
         val response = client.newCall(request).await()
+        val bodyStr = response.body?.string() ?: ""
         if (!response.isSuccessful) {
-            throw Exception("Failed to get response: ${response.code} ${response.body.string()}")
+            if (response.code == 400 && bodyStr.contains("reasoning")) {
+                // 诊断：Console Go 网关 thinking mode 校验失败时记录完整错误 + input 形状，
+                // 便于复现（错误：The reasoning_text in the thinking mode must be passed back）
+                Log.w(TAG, "generateText 400 body=$bodyStr")
+                Log.w(TAG, "generateText 400 input=${requestBody["input"]}")
+            }
+            throw Exception("Failed to get response: ${response.code} $bodyStr")
         }
 
-        val bodyStr = response.body?.string() ?: ""
         val bodyJson = json.parseToJsonElement(bodyStr).jsonObject
         val output = parseResponseOutput(bodyJson)
 
@@ -125,7 +132,7 @@ class ResponseAPI(
             stream = true,
         )
         val request = Request.Builder()
-            .url("${providerSetting.baseUrl}/responses")
+            .url(buildEndpoint(providerSetting.baseUrl, "/responses"))
             .headers(params.customHeaders.toHeaders())
             .post(json.encodeToString(requestBody).toRequestBody("application/json".toMediaType()))
             .addHeader(

@@ -27,6 +27,7 @@ import me.rerere.ai.ui.ImageGenerationItem
 import me.rerere.ai.ui.MessageChunk
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.util.KeyRoulette
+import me.rerere.ai.util.buildEndpoint
 import me.rerere.ai.util.configureReferHeaders
 import me.rerere.ai.util.json
 import me.rerere.ai.util.mergeCustomBody
@@ -58,7 +59,7 @@ class OpenAIProvider(
         withContext(Dispatchers.IO) {
             val key = keyRoulette.next(providerSetting.apiKey, providerSetting.id.toString())
             val request = Request.Builder()
-                .url("${providerSetting.baseUrl}/models")
+                .url(buildEndpoint(providerSetting.baseUrl, "/models"))
                 .addHeader("Authorization", "Bearer $key")
                 .get()
                 .build()
@@ -88,7 +89,7 @@ class OpenAIProvider(
         val url = if (providerSetting.balanceOption.apiPath.startsWith("http")) {
             providerSetting.balanceOption.apiPath
         } else {
-            "${providerSetting.baseUrl}${providerSetting.balanceOption.apiPath}"
+            buildEndpoint(providerSetting.baseUrl, providerSetting.balanceOption.apiPath)
         }
         val request = Request.Builder()
             .url(url)
@@ -169,7 +170,7 @@ class OpenAIProvider(
         )
 
         val request = Request.Builder()
-            .url("${providerSetting.baseUrl}/embeddings")
+            .url(buildEndpoint(providerSetting.baseUrl, "/embeddings"))
             .headers(params.customHeaders.toHeaders())
             .addHeader("Authorization", "Bearer $key")
             .addHeader("Content-Type", "application/json")
@@ -226,7 +227,7 @@ class OpenAIProvider(
 
 
         val request = Request.Builder()
-            .url("${providerSetting.baseUrl}/images/generations")
+            .url(buildEndpoint(providerSetting.baseUrl, "/images/generations"))
             .headers(params.customHeaders.toHeaders())
             .addHeader("Authorization", "Bearer $key")
             .addHeader("Content-Type", "application/json")
@@ -291,7 +292,7 @@ class OpenAIProvider(
         }
 
         val request = Request.Builder()
-            .url("${providerSetting.baseUrl}/images/edits")
+            .url(buildEndpoint(providerSetting.baseUrl, "/images/edits"))
             .headers(params.customHeaders.toHeaders())
             .addHeader("Authorization", "Bearer $key")
             .post(bodyBuilder.build())
