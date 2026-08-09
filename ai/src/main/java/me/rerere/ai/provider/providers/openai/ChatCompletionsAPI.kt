@@ -738,17 +738,42 @@ class ChatCompletionsAPI(
             jsonObject["role"]?.jsonPrimitive?.contentOrNull?.uppercase() ?: "ASSISTANT"
         )
 
-        // 也许支持其他模态的输出content?
-        val content = jsonObject["content"]?.jsonPrimitiveOrNull?.contentOrNull ?: ""
+        // content 可能是字符串（OpenAI 标准）或 part 数组（OpenAI 新格式/Mistral/MiniMax/
+        // 部分网关归一化输出），数组时正文与思维链都从 part 中提取，否则正文会整段丢失
+        val contentElement = jsonObject["content"]
+        val contentArray = contentElement as? JsonArray
+
+        // 数组格式中的正文：text / output_text / input_text 元素按序拼接
+        val content = contentElement?.jsonPrimitiveOrNull?.contentOrNull
+            ?: contentArray?.mapNotNull { part ->
+                val partObj = part.jsonObjectOrNull ?: return@mapNotNull null
+                when (partObj["type"]?.jsonPrimitive?.contentOrNull) {
+                    "text", "output_text", "input_text" ->
+                        partObj["text"]?.jsonPrimitiveOrNull?.contentOrNull
+                    else -> null
+                }
+            }?.filterNotNull()?.joinToString("")
+            ?: ""
+
+        // 数组格式中的思维链：thinking / reasoning part（元素内部仍可能是 text 数组）
         val reasoning = jsonObject["reasoning_content"]?.jsonPrimitiveOrNull?.contentOrNull
             ?: jsonObject["reasoning"]?.jsonPrimitiveOrNull?.contentOrNull
-            ?: jsonObject["content"]?.takeIf { it is JsonArray }?.let { arr ->
-                // Mistral接口
-                // {"id":"","object":"chat.completion.chunk","created":1772351733,"model":"magistral-medium-2509","choices":[{"index":0,"delta":{"content":[{"type":"thinking","thinking":[{"type":"text","text":"好的"}]}]},"finish_reason":null}]}
-                arr.jsonArrayOrNull?.getOrNull(0)?.jsonObject?.get("thinking")?.jsonArrayOrNull?.getOrNull(0)?.jsonObjectOrNull?.get(
-                    "text"
-                )?.jsonPrimitiveOrNull?.contentOrNull
-            }
+            ?: contentArray?.mapNotNull { part ->
+                val partObj = part.jsonObjectOrNull ?: return@mapNotNull null
+                when (partObj["type"]?.jsonPrimitive?.contentOrNull) {
+                    // Mistral接口
+                    // {"id":"","object":"chat.completion.chunk","created":1772351733,"model":"magistral-medium-2509","choices":[{"index":0,"delta":{"content":[{"type":"thinking","thinking":[{"type":"text","text":"好的"}]}]},"finish_reason":null}]}
+                    "thinking" -> partObj["thinking"]?.jsonArrayOrNull?.mapNotNull { t ->
+                        t.jsonObjectOrNull?.get("text")?.jsonPrimitiveOrNull?.contentOrNull
+                    }?.filterNotNull()?.joinToString("")
+
+                    "reasoning" -> partObj["reasoning"]?.jsonArrayOrNull?.mapNotNull { t ->
+                        t.jsonObjectOrNull?.get("text")?.jsonPrimitiveOrNull?.contentOrNull
+                    }?.filterNotNull()?.joinToString("")
+
+                    else -> null
+                }
+            }?.filterNotNull()?.joinToString("")
         val toolCalls = jsonObject["tool_calls"] as? JsonArray ?: JsonArray(emptyList())
         val images = jsonObject["images"] as? JsonArray ?: JsonArray(emptyList())
 
