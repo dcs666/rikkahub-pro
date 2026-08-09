@@ -124,7 +124,10 @@ class IncrementalSessionsTest {
         )
         val (prevId, delta) = sessions.resolve(secondInput, body(secondInput))
         assertNotNull(prevId)
-        assertEquals(1, delta!!.size)
+        // responseItems 为空时增量 = 全部新增 items（assistant 消息 + 新 user 消息）
+        assertEquals(2, delta!!.size)
+        assertEquals("message", delta[0].jsonObject["type"]!!.jsonPrimitive.content)
+        assertEquals("继续", delta[1].jsonObject["content"]!!.jsonPrimitive.content)
     }
 
     @Test
