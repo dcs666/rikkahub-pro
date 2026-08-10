@@ -131,8 +131,15 @@ private const val CHARS_PER_TOKEN = 4
 /** overflow 预留 buffer：opencode overflow.ts COMPACTION_BUFFER=20_000 */
 private const val COMPACTION_BUFFER = 20_000
 
-/** 模型上下文窗口：App 无 model.limit 元数据，deepseek 系取 128K（如不准可做成配置） */
-private const val CONTEXT_LIMIT = 128_000
+/**
+ * 模型上下文窗口（触发压缩的"假窗口"）。
+ * 注：deepseek-v4-flash 真实 context 为 1M tokens，但 opencode 网关路径下
+ * 无官方 implicit caching 红利（实测 200KB 请求体 TTFB 9.8s）——按真实值
+ * 设阈值会导致压缩永不触发、卡顿依旧。故按用户实测体感（TTFB < 3s 需
+ * 请求体 ≤ 50KB ≈ 15-20K tokens）取值：140K − 20K buffer = 120K tokens
+ * 触发，覆盖绝大多数长对话场景。如不准可做成 provider 配置。
+ */
+private const val CONTEXT_LIMIT = 140_000
 
 /** prune 保护线：opencode PRUNE_PROTECT=40_000（累计估算超此值的更老工具输出才清空） */
 private const val PRUNE_PROTECT = 40_000
