@@ -461,3 +461,43 @@
 ### 当前状态（2026-08-10 11:5x）
 - FIXES 计数 78（+11：52f56fd 审查修复）
 - 判定：发布链进行中（v1.9.0-turbo tag 已推，Release 运行中）
+
+## v1.9.1 + v1.9.2：深挖修复与 opencode 网关实测（2026-08-10，4edd2c1 → 2b718e08）
+### v1.9.1-turbo（4edd2c1，2.5.16/196）：深挖 3 项（未发布——CI 测试失败被 v1.9.2 覆盖）
+- F16 思维链回显未过滤：reasoning item 与 message 一样回显进 input，但过滤只匹配 message
+  → 思考模式下增量照样重发完整思维链。修复：isEchoOf 按 type 分发（message/reasoning 都过滤）
+- F12 非流式重试连接泄漏：增量失败重试前失败 response 未消费 body 未 close → OkHttp 连接泄漏
+- F13 流式 onFailure 诊断缺失：增量 400 分支未读 body → 失败原因丢失
+- ⚠️ 此提交 CI Unit Tests 失败（isEchoOf 方向 bug，6 用例挂 delta.size）→ 未发布
+
+### v1.9.2-turbo（2b718e08，2.5.17/197，Release 31360288191）：修复 + opencode 网关实测结论
+- **F17 修复 isEchoOf 方向**：known.isEchoOf(item) 参数语义错误（isEchoOf 按参数 type 分发，
+  传 App 回显无 type → 永远 false → 过滤全失效）。改为 item.isEchoOf(known)。6 测试恢复
+- **F18 增量全禁用（重大实测结论）**：opencode.ai /zen/v1 与 /zen/go/v1（deepseek-v4-flash/
+  flash-free 实测）**静默丢弃 previous_response_id**：请求 200 但服务端不关联上下文——
+  强测试（设秘密词→增量问）模型失忆；此前「答对 6」是常识弱测试误判（3+3=6 无需上下文）。
+  全量回显对照实验（数组/字符串）→ 正确记住。增量白名单置空 = 全禁用
+  （返回 200 无法用 400 兜底 → 不禁用则每轮对话失忆）
+- F19 claude/gemini 前缀防御：未来白名单启用也先禁（anthropic/google 转换路径 prev id 同样
+  被丢 + fromOpenaiRequest 的 fc 取 .id 非 call_id）
+- F20 completed 事件 output 兜底：转换路径流式无 output_item.done，completed 带完整 output
+  数组时用作 responseItems
+
+### opencode 网关源码深挖（packages/console/app/src/routes/zen/）
+- **架构**：/zen/v1/responses（full）与 /zen/go/v1/responses（lite）→ handler.ts →
+  createBodyConverter(from, to)：from===to 原样透传；异格式转 CommonRequest（白名单无
+  previous_response_id/store → 丢弃）
+- **Bug 清单**：① prev id 静默丢弃（实测）② fromOpenaiRequest 的 fc 取 .id 非 call_id
+  （转换路径工具断裂）③ toOpenaiRequest 硬编码 reasoning.effort=medium ④ toOpenaiChunk
+  只发 4 种事件（无 output_item.done/response.created）⑤ /zen/v1（Console）assistant
+  content 数组回显 400（go 端点无此问题）⑥ 流式结束追加 event:ping cost chunk（App 忽略）
+  ⑦ 错误类：Auth/Credits/Model=401、RateLimit=429（带 retry-after，App 未处理）
+- **用户实际端点确认**：rd5 = https://opencode.ai/zen/go/v1（go/lite 端点，deepseek 系）
+- 透传路径（deepseek/gpt，go 端点）：响应 id 为 UUID；kimi/glm 返回 chatcmpl-（oa-compat）
+
+### 当前状态（2026-08-10 13:5x）
+- FIXES 计数 80（+2：4edd2c1 深挖 3 项计 3、2b718e08 计 4 但 F17 为回归修复）——实际增量
+  #57 结论：**previous_response_id 增量在 opencode.ai 不可用，全量发送为唯一正确路径**
+- 判定：[COMPLETE] 代码同步、CI 全绿（2b718e08 双绿 + Release success）、v1.9.2 已发布
+- 待用户验证：v1.9.2 装后 rd5 全场景（全量发送路径，预期回到 v1.8.9 稳定行为）
+- 已记录取舍：思维链瘦身优化（截断历史 reasoning）用户明确不做
