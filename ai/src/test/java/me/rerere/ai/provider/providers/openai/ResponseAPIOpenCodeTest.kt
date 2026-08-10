@@ -111,6 +111,99 @@ class ResponseAPIOpenCodeTest {
     }
 
     @Test
+    fun `old reasoning beyond last 4 turns is placeholder`() {
+        // [L1] 思维链压缩：最近 4 轮 assistant 保留完整思维链，更早的用占位符
+        val msgs = mutableListOf<UIMessage>()
+        // 5 轮 assistant（每轮带思维链），夹在 user 消息之间
+        for (i in 0 until 5) {
+            msgs.add(UIMessage.user("question $i"))
+            msgs.add(
+                UIMessage(
+                    role = MessageRole.ASSISTANT,
+                    parts = listOf(
+                        UIMessagePart.Reasoning(reasoning = "thinking trace $i"),
+                        UIMessagePart.Text("answer $i")
+                    )
+                )
+            )
+        }
+        msgs.add(UIMessage.user("final"))
+        val items = api.buildMessages(msgs, useReasoningTextArray = true)
+        val reasoningItems = items.jsonArray.filter { it.jsonObject["type"]?.jsonPrimitive?.content == "reasoning" }
+        assertEquals(5, reasoningItems.size)
+        // 最早 1 轮（thinking trace 0）→ 占位符
+        val first = reasoningItems[0].jsonObject["content"]!!.jsonArray[0].jsonObject
+        assertEquals("…", first["text"]?.jsonPrimitive?.content)
+        // 最近 4 轮 → 完整保留
+        for (i in 1 until 5) {
+            val text = reasoningItems[i].jsonObject["content"]!!.jsonArray[0].jsonObject["text"]?.jsonPrimitive?.content
+            assertEquals("thinking trace $i", text)
+        }
+    }
+
+    @Test
+    fun `recent 4 turns reasoning kept complete when exactly 4`() {
+        // [L1] 边界：恰好 4 轮时全部保留完整
+        val msgs = mutableListOf<UIMessage>()
+        for (i in 0 until 4) {
+            msgs.add(UIMessage.user("question $i"))
+            msgs.add(
+                UIMessage(
+                    role = MessageRole.ASSISTANT,
+                    parts = listOf(
+                        UIMessagePart.Reasoning(reasoning = "thinking trace $i"),
+                        UIMessagePart.Text("answer $i")
+                    )
+                )
+            )
+        }
+        val items = api.buildMessages(msgs, useReasoningTextArray = true)
+        val reasoningItems = items.jsonArray.filter { it.jsonObject["type"]?.jsonPrimitive?.content == "reasoning" }
+        assertEquals(4, reasoningItems.size)
+        for (i in 0 until 4) {
+            val text = reasoningItems[i].jsonObject["content"]!!.jsonArray[0].jsonObject["text"]?.jsonPrimitive?.content
+            assertEquals("thinking trace $i", text)
+        }
+    }
+
+    @Test
+    fun `tool output over 4000 chars is truncated`() {
+        // [L3] 工具输出压缩：超 4000 字符截断 + [truncated] 标记
+        val longOutput = "x".repeat(5000)
+        val assistant = UIMessage(
+            role = MessageRole.ASSISTANT,
+            parts = listOf(
+                UIMessagePart.Tool(
+                    toolName = "shell",
+                    toolCallId = "call_1",
+                    input = "cat file",
+                    output = listOf(UIMessagePart.Text(longOutput))
+                )
+            )
+        )
+        val items = api.buildMessages(listOf(assistant))
+        val fco = items.jsonArray.first { it.jsonObject["type"]?.jsonPrimitive?.content == "function_call_output" }
+        val output = fco.jsonObject["output"]?.jsonPrimitive?.content
+        assertTrue(output != null && output!!.length <= 4000 + "[truncated]".length)
+        assertTrue(output!!.endsWith("[truncated]"))
+        // 短输出不截断
+        val shortAssistant = UIMessage(
+            role = MessageRole.ASSISTANT,
+            parts = listOf(
+                UIMessagePart.Tool(
+                    toolName = "shell",
+                    toolCallId = "call_2",
+                    input = "echo hi",
+                    output = listOf(UIMessagePart.Text("hi"))
+                )
+            )
+        )
+        val items2 = api.buildMessages(listOf(shortAssistant))
+        val fco2 = items2.jsonArray.first { it.jsonObject["type"]?.jsonPrimitive?.content == "function_call_output" }
+        assertEquals("hi", fco2.jsonObject["output"]?.jsonPrimitive?.content)
+    }
+
+    @Test
     fun `opencode host buildRequestBody uses reasoning_text for history`() {
         // 走真实路径：host=opencode.ai 时历史 reasoning item 必须是 reasoning_text 数组
         val assistant = UIMessage(

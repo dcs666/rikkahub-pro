@@ -121,6 +121,9 @@ private fun summarizeInput(input: JsonElement?): String {
  */
 private const val REASONING_PLACEHOLDER = "…"
 
+/** [L3] 工具输出回传上限：超长截断（对齐 opencode TOOL_OUTPUT_MAX_CHARS=2000 思路，取 4000） */
+private const val MAX_TOOL_OUTPUT_CHARS = 4000
+
 /**
  * [F2] 增量请求失败信号：streamText 外层捕获后自动回退全量重试一次
  *（增量是性能优化，失败不应让用户看到报错；codex 同样失败后回退全量）。
@@ -547,20 +550,27 @@ class ResponseAPI(
         useReasoningTextArray: Boolean = false,
         forcePlaceholderReasoning: Boolean = false,
     ) = buildJsonArray {
-        messages
-            .filter { it.isValidToUpload() && it.role != MessageRole.SYSTEM }
-            .forEach { message ->
-                if (message.role == MessageRole.ASSISTANT) {
-                    addAssistantItems(
-                        message,
-                        usePlainReasoningContent,
-                        useReasoningTextArray,
-                        forcePlaceholderReasoning,
-                    )
-                } else {
-                    addUserItems(message)
-                }
+        val filtered = messages.filter { it.isValidToUpload() && it.role != MessageRole.SYSTEM }
+        val assistantCount = filtered.count { it.role == MessageRole.ASSISTANT }
+        var assistantIndex = 0
+        filtered.forEach { message ->
+            if (message.role == MessageRole.ASSISTANT) {
+                assistantIndex++
+                // [L1] 思维链压缩：仅最近 4 轮 assistant 消息保留完整思维链，
+                // 更早的用占位符（网关只校验非空；历史思维链对生成质量无益——
+                // opencode 官方甚至对历史消息补空 reasoning）
+                val keepReasoning = assistantIndex > assistantCount - 4
+                addAssistantItems(
+                    message,
+                    usePlainReasoningContent,
+                    useReasoningTextArray,
+                    forcePlaceholderReasoning,
+                    keepReasoning,
+                )
+            } else {
+                addUserItems(message)
             }
+        }
     }
 
     private fun JsonArrayBuilder.addAssistantItems(
@@ -568,6 +578,7 @@ class ResponseAPI(
         usePlainReasoningContent: Boolean = false,
         useReasoningTextArray: Boolean = false,
         forcePlaceholderReasoning: Boolean = false,
+        keepReasoning: Boolean = true,
     ) {
         val groups = groupPartsByToolBoundary(message.parts)
         val contentBuffer = mutableListOf<UIMessagePart>()
@@ -602,15 +613,21 @@ class ResponseAPI(
                                     // 避免网关对已过期 id 做状态校验。OpenAI 官方同样接受无 id。
                                     when {
                                         usePlainReasoningContent -> {
-                                            // DeepSeek Responses API 不支持 summary 字段，用明文 content 回传思维链
-                                            put("content", part.reasoning)
+                                            // DeepSeek Responses API 不支持 summary 字段，用明文 content 回传思维链；
+                                            // [L1] 旧轮次思维链用占位符（网关只校验非空）
+                                            put("content", if (keepReasoning) part.reasoning else REASONING_PLACEHOLDER)
                                         }
 
                                         useReasoningTextArray -> {
                                             // OpenCode Zen 网关（Console provider）thinking mode 要求
                                             // content 数组的 reasoning_text 类型回传；思维链为空时用
-                                            // 占位符（实测空字符串会被网关拒绝）
-                                            val text = part.reasoning.ifBlank { REASONING_PLACEHOLDER }
+                                            // 占位符（实测空字符串会被网关拒绝）；
+                                            // [L1] 旧轮次思维链同样用占位符（保留 item 结构满足校验）
+                                            val text = if (keepReasoning) {
+                                                part.reasoning.ifBlank { REASONING_PLACEHOLDER }
+                                            } else {
+                                                REASONING_PLACEHOLDER
+                                            }
                                             put("content", buildJsonArray {
                                                 add(buildJsonObject {
                                                     put("type", "reasoning_text")
@@ -623,15 +640,16 @@ class ResponseAPI(
                                             put("summary", buildJsonArray {
                                                 add(buildJsonObject {
                                                     put("type", "summary_text")
-                                                    put("text", part.reasoning)
+                                                    put("text", if (keepReasoning) part.reasoning else REASONING_PLACEHOLDER)
                                                 })
                                             })
                                         }
                                     }
                                     // encrypted_content 仅 OpenAI 官方支持：DeepSeek / OpenCode Zen
                                     // 网关均不接受（能力矩阵 supportEncryptedContent=false），
-                                    // 回传会触发上游校验错误 → 仅 summary 分支（官方）回传
-                                    if (!usePlainReasoningContent && !useReasoningTextArray) {
+                                    // 回传会触发上游校验错误 → 仅 summary 分支（官方）回传；
+                                    // [L1] 旧轮次思维链已占位，不匹配的 encrypted_content 不再回传
+                                    if (keepReasoning && !usePlainReasoningContent && !useReasoningTextArray) {
                                         reasoningMetadata?.encryptedContent?.let {
                                             put("encrypted_content", it)
                                         }
@@ -737,9 +755,17 @@ class ResponseAPI(
                                 }
                             } else {
                                 // [FIX] 空输出时给占位文本，避免提供商拒绝空 output
+                                // [L3] 工具输出压缩：超 4000 字符截断（对齐 opencode
+                                // TOOL_OUTPUT_MAX_CHARS 思路），防止大工具结果
+                                //（git diff/文件内容）导致请求体膨胀
                                 val text = tool.output.filterIsInstance<UIMessagePart.Text>()
                                     .joinToString("\n") { it.text }
-                                put("output", text.ifBlank { "[Tool returned no output]" })
+                                val trimmed = if (text.length > MAX_TOOL_OUTPUT_CHARS) {
+                                    text.take(MAX_TOOL_OUTPUT_CHARS) + "\n[truncated]"
+                                } else {
+                                    text
+                                }
+                                put("output", trimmed.ifBlank { "[Tool returned no output]" })
                             }
                         })
                         fcSinceReasoning++
