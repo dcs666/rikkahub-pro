@@ -380,3 +380,54 @@
 ## v1.8.2-turbo 发布（2026-08-09，2.5.8/187，b03ea20 + tag）
 - 包含 #56 全链路：c0253dc（Console Go thinking 工具消息 reasoning 兜底：chat/completions 空串 + responses 占位 item + 3 测试）+ 0aad389（AGP checkSplitsConflicts 源码级修复：singleAbi 移除 ndk.abiFilters）+ 27fc45a（反射测试补参 + jsonObject import）
 - 27fc45a 双绿（Unit Tests + Build APK success）；Release run 31304788189 success（08:58→09:09）；3 个 profileable APK（arm64 36MB / universal 46MB / x86_64 37MB）
+
+## #57 全链：Responses API 修复 + 增量发送（2026-08-09 ~ 08-10，v1.8.3 ~ v1.8.8）
+
+### v1.8.3-turbo（2.5.9/188）：URL 拼接去重 + 400 诊断（8-09）
+- 新增 buildEndpoint(baseUrl, path)：base_url 已以 path 结尾时不重复拼接——修 `/responses/responses` 404（用户把完整端点填进 base_url 实测触发）
+- 覆盖 7 处：ResponseAPI ×2 / ChatCompletionsAPI ×2 / OpenAIProvider models·embeddings·images·balance；+ BuildEndpointTest 7 用例
+- 400 诊断日志：generateText/onFailure 记录响应体 + input 形状（先用 Log.w——教训：只进 logcat 远程不可见；后改 Logging.log 进 App 内存日志）
+
+### v1.8.4-turbo（2.5.10/189）：诊断升级结构摘要（8-09）
+- summarizeInput：逐 item 输出 type/role/id/name/call_id/长度/开头，不受 4000 字符截断影响（rd5 400 复现的破案关键）
+- CI 教训：JsonElement import 缺失（compileDebugKotlin 失败）
+
+### v1.8.5-turbo（2.5.11/190）：400 根因修复（8-09）
+- rd5 400 根因：网关按 function_call 逐个校验 reasoning——1 个 reasoning 只服务其后的第 1 个 fc；同消息第 2 个 fc 起前面无 reasoning → 400「reasoning_text must be passed back」（继续生成请求 fco 结尾时校验；user 结尾不校验）
+- 实测矩阵：1r+1fc 200 / 1r+2fc 400 / 每 fc 前补占位 200 / assistant content 不能替代 / reasoning 补在 fc 之后无效
+- 修复：addAssistantItems 引入 fcSinceReasoning 计数器，Tools group 每个 fc 输出前检查补占位 + 跨 group 覆盖；+ 多工具 7 项序列断言测试
+- 借鉴 openai/codex prepare_response_items_for_request：reasoning 回传移除服务端 id（af1d11d）
+- 发布链实战坑 4 连：annotated tag push 时 context.sha 是 tag 对象 SHA（用 commits API resolve ref）→ inputs.tag 读取（context.payload.inputs）→ download-artifact@v4 跨 workflow run 不兼容（REST+fetch 401 → octokit downloadArtifact 端点）
+
+### v1.8.6-turbo（2.5.12/191）：审查批次（8-09）
+- Claude/Google provider URL 拼接统一 buildEndpoint（/messages/messages 双拼）
+- GoogleProvider：inlineData 拼完整 data URI（纯 base64 渲染失败 bug）+ video/audio 支持 + 缺 content/未知 mime 不崩溃 + functionCall 防御
+- MCP 服务器名校验放行 - 和 _（OpenAI/Anthropic 工具名规范 ^[a-zA-Z0-9_-]+$，ChatService + SettingMcpPage UI 两处对齐）
+
+### v1.8.7-turbo（2.5.13/192）：增量发送核心（8-10）
+- JsonTree 递归渲染深度上限（MAX_JSON_TREE_DEPTH=12，深嵌套 AI 输出 SOE 崩溃防护）
+- SAF DocumentsProvider documentId root 段合法性校验（恶意 App 构造 ws/.. 越权加固）
+- **增量发送（ae423f8 + eb4dd4c + 4263fa1）**：previous_response_id + store，借鉴 openai/codex get_incremental_items
+  - IncrementalSessions：input 前缀逐项比较 + 请求属性签名一致（model/instructions/tools/reasoning/store/stream 等，对齐 responses_request_properties_match）+ 发送前 stripItemIds（保留 call_id）+ 400 时 invalidate 会话
+  - 实测：纯文本增量 200（服务端记住 1+1=? 只发"那3+3呢"正确答 6）；全量请求也 store=true（增量链前提）
+  - 解决 rd5「下一步思考前卡顿」：历史思维链全量重传（input 几百 KB）→ 只发新增
+
+### v1.8.8-turbo（2.5.14/193）：工具轮次准增量（8-10）
+- 新实测：纯 fco 增量 400「No tool call found」（网关不关联之前的 fc）；增量重发 fc+fco 200（当新输入处理）——单 fc 直接 OK，双 fc 必须每个 fc 前补占位 reasoning（400 reasoning_text，规则与全量一致）
+- needRebuildFcs = delta 新 fc + sentInput 中 delta 有对应 fco 的历史 fc（distinctBy call_id）；剩余跳过 fc/fco 防重复；纯消息轮次直接增量
+- 工具重建逻辑 3 轮打磨（fco 重复 → responseItems 顺序 vs input 交错 → 精准规则），测试 10 用例全绿
+- 对照结论：openai/codex 有 WebSocket 增量；sst/opencode 客户端无增量（全量，AI SDK 层）；我们是三家唯一做 HTTP previous_response_id 增量 + 工具准增量的客户端
+
+### 发布历史（#57 系列）
+- v1.8.3-turbo：bc659e8 → 84232a0 → 4089c74(失败修复) → 9554777 → 1cd4b7f（Release 31308706242）
+- v1.8.4-turbo：d5516aa → 4089c74 诊断结构摘要 → 9554777 import 修复 → 1cd4b7f
+- v1.8.5-turbo：2b52342 → af1d11d → 720b0c6（Release 31311484120，octokit 下载打通）
+- v1.8.6-turbo：7ce8dfe → 64c7f75 → a38003e → 9f05b6e（Release 31316201652）
+- v1.8.7-turbo：f39035c → 2dbcc03（Release 31343624630）
+- v1.8.8-turbo：5a1408a → d4fdf24 → f068695 → f646d89 → 2a1d115 → fd5f149（Release 31347453777）
+- 教训：kotlinx 测试三大坑（parse jsonObject/jsonArray、import 易漏、签名变更全量替换）；工具重建 4 轮 CI 打磨；定时器 08-10 早 6 小时停止导致 CI 失败堆积
+
+### 当前状态（2026-08-10 09:47）
+- FIXES 计数 67（#57 系列 11 个真实修复）
+- 判定：[COMPLETE] 代码同步、CI 全绿、无活跃构建
+- 待用户验证：v1.8.8 装后 rd5 全场景（含工具轮次）增量效果
