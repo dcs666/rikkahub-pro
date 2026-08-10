@@ -129,7 +129,7 @@ class ResponseAPIOpenCodeTest {
         }
         msgs.add(UIMessage.user("final"))
         // 触发 overflow：超大 user 消息（450K 字符 ≈ 112.5K tokens ≥ 108K）
-        msgs.add(UIMessage.user("x".repeat(450_000)))
+        msgs.add(UIMessage.user("x".repeat(500_000)))
         val items = api.buildMessages(msgs, useReasoningTextArray = true)
         val reasoningItems = items.jsonArray.filter { it.jsonObject["type"]?.jsonPrimitive?.content == "reasoning" }
         assertEquals(5, reasoningItems.size)
@@ -198,8 +198,8 @@ class ResponseAPIOpenCodeTest {
     fun `tool output truncated only when overflow`() {
         // [L3] 照抄 opencode：仅当估算总 token ≥ context−20K（overflow）时，
         // 非最近 2 轮的超长工具输出截断 2500 + [truncated]；最近 2 轮始终完整
-        // 构造 5 轮工具，每轮输出 90K 字符（22.5K tokens）→ 总 112.5K ≥ 108K → overflow
-        val bigOutput = "x".repeat(90_000)
+        // 构造 5 轮工具，每轮输出 100K 字符（25K tokens）→ 总 125K ≥ 120K → overflow
+        val bigOutput = "x".repeat(100_000)
         val msgs = mutableListOf<UIMessage>()
         for (i in 1..5) {
             msgs.add(UIMessage.user("round $i"))
@@ -232,7 +232,7 @@ class ResponseAPIOpenCodeTest {
         // 第 4、5 轮：最近 2 轮 → 完整
         for (i in 3 until 5) {
             val out = fcos[i].jsonObject["output"]?.jsonPrimitive?.content
-            assertEquals(90_000, out?.length)
+            assertEquals(100_000, out?.length)
         }
         // 短输出永不截断（即使 overflow）
         val msgs2 = mutableListOf<UIMessage>()
@@ -440,7 +440,7 @@ class ResponseAPIOpenCodeTest {
                 )
             )
         }
-        msgs.add(UIMessage.user("x".repeat(450_000)))  // 触发 overflow
+        msgs.add(UIMessage.user("x".repeat(500_000)))  // 触发 overflow
         val items = api.buildMessages(msgs, usePlainReasoningContent = true)
         val reasoningItems = items.jsonArray.filter { it.jsonObject["type"]?.jsonPrimitive?.content == "reasoning" }
         assertEquals(5, reasoningItems.size)
@@ -469,7 +469,7 @@ class ResponseAPIOpenCodeTest {
                 )
             )
         }
-        msgs.add(UIMessage.user("x".repeat(450_000)))  // 触发 overflow
+        msgs.add(UIMessage.user("x".repeat(500_000)))  // 触发 overflow
         val items = api.buildMessages(msgs)
         val reasoningItems = items.jsonArray.filter { it.jsonObject["type"]?.jsonPrimitive?.content == "reasoning" }
         assertEquals(5, reasoningItems.size)
