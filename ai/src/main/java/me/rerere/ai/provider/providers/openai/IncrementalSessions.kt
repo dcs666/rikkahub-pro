@@ -4,10 +4,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.put
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -34,8 +31,10 @@ internal class IncrementalSessions {
 
     private data class Session(
         val previousResponseId: String,
-        /** 上次发送的完整 input（App 构建顺序，与请求体 input 一致） */
+        /** 上次发送的完整 input（与请求体 input 一致） */
         val sentInput: List<JsonElement>,
+        /** 上次响应的 output items（服务端已保存，无需重发） */
+        val responseItems: List<JsonElement>,
         /** 非 input 请求属性签名（对齐 codex responses_request_properties_match） */
         val requestSignature: String,
         val lastUsedAt: Long,
@@ -54,50 +53,19 @@ internal class IncrementalSessions {
         // [codex 对齐] 非 input 请求属性必须与上次一致（model/instructions/tools/
         // reasoning/store/stream 等），否则 previous_response_id 会沿用旧参数
         if (session.requestSignature != requestSignature(requestBody)) return null to null
-        val prefix = session.sentInput
+        val prefix = session.sentInput + session.responseItems
+        // [实测] opencode.ai 网关的 previous_response_id 只支持消息追加，
+        // 不支持工具输出关联：增量里带 function_call_output 会报
+        // "No tool call found for tool output with call_id ..."。
+        // 已知状态含 function_call 时禁用增量（回退全量，工具循环不受影响）。
+        if (session.responseItems.any { it.isFunctionCallItem() }) return null to null
         if (input.size <= prefix.size) return null to null
         if (!itemsEqual(input.take(prefix.size), prefix)) return null to null
-        val delta = input.drop(prefix.size)
-        // [实测] opencode.ai 网关 previous_response_id 不支持 fco 引用之前的 fc
-        //（增量带 fco 报 "No tool call found"），但支持"重发 fc+fco"（当新输入处理）：
-        // 需要重建的 fc = delta 中的新 fc + sentInput 中"delta 有对应 fco"的历史 fc
-        //（历史 fc 仅在其 fco 出现在增量里时才重发，避免无谓重传）；
-        // 每个 fc 前必须补占位 reasoning（规则与全量一致——双 fc 无占位实测 400）。
-        val deltaFcs = delta.filter { it.isFunctionCallItem() }
-        val sentInputFcs = prefix.filter { it.isFunctionCallItem() }
-        val needRebuildFcs = (deltaFcs + sentInputFcs.filter { fc ->
-            delta.any { it.isFunctionCallOutputWithCallId(fc.callIdOrNull()) }
-        }).distinctBy { it.callIdOrNull() }
-        if (needRebuildFcs.isNotEmpty()) {
-            val rebuilt = buildList {
-                needRebuildFcs.forEach { fc ->
-                    add(placeholderReasoningItem())
-                    add(fc)
-                    // fco 从完整历史（prefix + delta）按 call_id 匹配
-                    val fco = (prefix + delta).firstOrNull {
-                        it.isFunctionCallOutputWithCallId(fc.callIdOrNull())
-                    }
-                    if (fco != null) {
-                        add(fco)
-                    }
-                }
-                // 剩余新增：跳过 delta 里的 fc 与已重建的 fco，其余（新 user 消息等）保留
-                delta.forEach { item ->
-                    val isFc = item.isFunctionCallItem()
-                    val isRebuiltFco = item.isFunctionCallOutput() &&
-                        needRebuildFcs.any { it.callIdOrNull() == item.callIdOrNull() }
-                    if (!isFc && !isRebuiltFco) {
-                        add(item)
-                    }
-                }
-            }
-            return session.previousResponseId to rebuilt
-        }
-        return session.previousResponseId to delta
+        return session.previousResponseId to input.drop(prefix.size)
     }
 
     /**
-     * 记录一次成功响应：sentInput = 本次完整 input（App 构建顺序）。
+     * 记录一次成功响应：sentInput = 本次完整 input，responseItems = 本次输出 items。
      */
     fun update(requestBody: JsonObject, responseId: String, responseItems: List<JsonElement>) {
         val input = requestBody["input"] as? JsonArray ?: return
@@ -109,6 +77,7 @@ internal class IncrementalSessions {
         sessions[bucketKey(items)] = Session(
             previousResponseId = responseId,
             sentInput = items,
+            responseItems = responseItems,
             requestSignature = requestSignature(requestBody),
             lastUsedAt = System.currentTimeMillis(),
         )
@@ -147,35 +116,6 @@ internal class IncrementalSessions {
         return obj["type"]?.let { type ->
             (type as? JsonPrimitive)?.contentOrNull == "function_call"
         } ?: false
-    }
-
-    private fun JsonElement.isFunctionCallOutput(): Boolean {
-        val obj = this as? JsonObject ?: return false
-        return obj["type"]?.let { type ->
-            (type as? JsonPrimitive)?.contentOrNull == "function_call_output"
-        } ?: false
-    }
-
-    private fun JsonElement.isFunctionCallOutputWithCallId(callId: String?): Boolean {
-        if (callId == null) return false
-        val obj = this as? JsonObject ?: return false
-        if (obj["type"]?.let { (it as? JsonPrimitive)?.contentOrNull } != "function_call_output") return false
-        return obj["call_id"]?.let { (it as? JsonPrimitive)?.contentOrNull } == callId
-    }
-
-    private fun JsonElement.callIdOrNull(): String? {
-        val obj = this as? JsonObject ?: return null
-        return obj["call_id"]?.let { (it as? JsonPrimitive)?.contentOrNull }
-    }
-
-    private fun placeholderReasoningItem(): JsonObject = buildJsonObject {
-        put("type", "reasoning")
-        put("content", buildJsonArray {
-            add(buildJsonObject {
-                put("type", "reasoning_text")
-                put("text", "…")
-            })
-        })
     }
 
     /**

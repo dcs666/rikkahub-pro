@@ -57,10 +57,9 @@ class IncrementalSessionsTest {
         val (prevId, delta) = sessions.resolve(fullInput, body(fullInput))
         assertNotNull(prevId)
         assertEquals("resp_1", prevId)
-        // 增量 = 全部新增 items（assistant 消息 + 新 user 消息）
-        assertEquals(2, delta!!.size)
-        assertEquals("message", delta[0].jsonObject["type"]!!.jsonPrimitive.content)
-        assertEquals("继续", delta[1].jsonObject["content"]!!.jsonPrimitive.content)
+        // 增量只有新 user 消息
+        assertEquals(1, delta!!.size)
+        assertEquals("继续", delta[0].jsonObject["content"]!!.jsonPrimitive.content)
     }
 
     @Test
@@ -93,51 +92,23 @@ class IncrementalSessionsTest {
     }
 
     @Test
-    fun `tool call round trip uses rebuilt increment`() {
-        // [实测] opencode.ai 网关 previous_response_id 不支持 fco 引用之前的 fc，
-        // 但支持"重发 fc+fco"（当新输入处理）——增量重建为 [占位,fc,fco] + 剩余
+    fun `tool call round trip falls back to full send`() {
+        // [实测] opencode.ai 网关 previous_response_id 不支持工具输出关联：
+        // 已知状态含 function_call 时禁用增量，回退全量（工具循环正确性不受影响）
         val sessions = IncrementalSessions()
         val firstInput = listOf(userMsg("查天气"))
         val fcItem = parse("""{"type":"function_call","call_id":"c1","name":"get_weather","arguments":"{}"}""")
         sessions.update(body(firstInput), "resp_1", listOf(fcItem))
 
         // 工具执行后：完整 input = 首轮 + function_call + function_call_output + 新消息
-        val fcoItem = parse("""{"type":"function_call_output","call_id":"c1","output":"ok"}""")
-        val fullInput = firstInput + listOf(fcItem, fcoItem, userMsg("继续"))
+        val fullInput = firstInput + listOf(
+            fcItem,
+            parse("""{"type":"function_call_output","call_id":"c1","output":"ok"}"""),
+        )
         val (prevId, delta) = sessions.resolve(fullInput, body(fullInput))
-        assertNotNull(prevId)
-        assertEquals("resp_1", prevId)
-        // 重建增量 = [占位 reasoning, fc, fco]（新 user 消息在剩余里但本例无 fco 后新增？——有 userMsg("继续")）
-        assertEquals(4, delta!!.size)
-        assertEquals("reasoning", delta[0].jsonObject["type"]!!.jsonPrimitive.content)
-        assertEquals("function_call", delta[1].jsonObject["type"]!!.jsonPrimitive.content)
-        assertEquals("function_call_output", delta[2].jsonObject["type"]!!.jsonPrimitive.content)
-        assertEquals("继续", delta[3].jsonObject["content"]!!.jsonPrimitive.content)
-    }
-
-    @Test
-    fun `two tool calls rebuild with placeholder before each fc`() {
-        val sessions = IncrementalSessions()
-        val firstInput = listOf(userMsg("查天气"))
-        val fc1 = parse("""{"type":"function_call","call_id":"c1","name":"get_weather","arguments":"{}"}""")
-        val fc2 = parse("""{"type":"function_call","call_id":"c2","name":"get_weather","arguments":"{}"}""")
-        sessions.update(body(firstInput), "resp_1", listOf(fc1, fc2))
-
-        val fco1 = parse("""{"type":"function_call_output","call_id":"c1","output":"ok"}""")
-        val fco2 = parse("""{"type":"function_call_output","call_id":"c2","output":"ok"}""")
-        val fullInput = firstInput + listOf(fc1, fco1, fc2, fco2)
-        val (prevId, delta) = sessions.resolve(fullInput, body(fullInput))
-        assertNotNull(prevId)
-        // 重建增量 = [占位, fc1, fco1, 占位, fc2, fco2]
-        assertEquals(6, delta!!.size)
-        assertEquals("reasoning", delta[0].jsonObject["type"]!!.jsonPrimitive.content)
-        assertEquals("function_call", delta[1].jsonObject["type"]!!.jsonPrimitive.content)
-        assertEquals("c1", delta[1].jsonObject["call_id"]!!.jsonPrimitive.content)
-        assertEquals("function_call_output", delta[2].jsonObject["type"]!!.jsonPrimitive.content)
-        assertEquals("reasoning", delta[3].jsonObject["type"]!!.jsonPrimitive.content)
-        assertEquals("function_call", delta[4].jsonObject["type"]!!.jsonPrimitive.content)
-        assertEquals("c2", delta[4].jsonObject["call_id"]!!.jsonPrimitive.content)
-        assertEquals("function_call_output", delta[5].jsonObject["type"]!!.jsonPrimitive.content)
+        // 已知状态含 function_call → 无法增量 → 全量发送
+        assertNull(prevId)
+        assertNull(delta)
     }
 
     @Test
