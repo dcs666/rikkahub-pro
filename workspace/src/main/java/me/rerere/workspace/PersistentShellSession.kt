@@ -100,13 +100,19 @@ class PersistentShellSession(
         //    `#` 行尾/尾随反斜杠/未闭合引号只影响内层（返回非零退出码），
         //    sentinel 在独立行，永不被打断
         // 代价：每条命令多一次 fork+exec（毫秒级），相对 proot 秒级启动可忽略
+        // [PERF] sentinel 走 stderr（>&2）：glibc 的 stderr 默认 unbuffered → 立即
+        // 写入管道，读线程马上能检测到；stdout 保持块缓冲（见 buildSessionCommand，
+        // 已移除 stdbuf -oL）→ 编译/大输出按 4KB 批量 flush，write syscall 数从
+        // "每行一次"降到"每 4KB 一次"（10 万行输出 ≈ 100 倍削减），每条 write 在
+        // proot 下都要过 ptrace，这是 shell 性能的关键优化。退出码经外层 bash
+        // 捕获（bash -c 内 exit 不会跳过外层 sentinel 打印）。
         val script = buildString {
             append("cd -- ")
             append(context.prootCwd().shellQuote())
             append(" && bash -c ")
             append(context.command.shellQuote())
             append("\n__rikka_s=${'$'}?\n")
-            append("printf '\\000__RIKKA_DONE_%d__\\000' \"${'$'}__rikka_s\"\n")
+            append("printf '\\\\000__RIKKA_DONE_%d__\\\\000' \\\"${'$'}__rikka_s\\\" >&2\n")
         }
         runCatching {
             w.write(script)
@@ -143,7 +149,7 @@ class PersistentShellSession(
         val w = writer ?: return
         val r = reader ?: return
         runCatching {
-            w.write("printf '\\000__RIKKA_DONE_0__\\000'\n")
+            w.write("printf '\\\\000__RIKKA_DONE_0__\\\\000' >&2\n")
             w.flush()
             readUntilSentinel(r, WARMUP_TIMEOUT_MS)
         }.onFailure {
@@ -181,13 +187,11 @@ class PersistentShellSession(
             "TERM=xterm-256color",
             "LANG=C.UTF-8",
             "LC_ALL=C.UTF-8",
-            // [TURBO 修复] stdbuf -oL -eL：让 bash 的 stdout/stderr 走行缓冲。
-            // 根因：bash 非交互长驻、stdout 是 pipe 时，glibc 默认 block-buffered(4KB)。
-            // 短输出命令（cd/mkdir/短 echo/写文件/grep 无结果）连同结尾 sentinel（几十字节）
-            // 会留在缓冲区不 flush，读线程等不到 sentinel → "persistent shell command timed out"。
-            // 行缓冲后每行（含 \n）即 flush，sentinel 立即到达。已在 workspace proot 复现并验证。
-            // （一次性 proot 无此问题：bash 执行完即退出，退出时 flush 全部缓冲。）
-            "stdbuf", "-oL", "-eL",
+            // [PERF] 移除 stdbuf -oL -eL（行缓冲）：命令输出走 stdout 块缓冲
+            // （4KB 批量 flush），write syscall 数 = 输出字节/4KB 而非"每行一次"。
+            // proot 下每条 write 都过 ptrace 拦截，这是编译/大输出慢的关键因素。
+            // sentinel 改走 stderr（>&2，glibc stderr 默认 unbuffered 立即送达），
+            // 配合 redirectErrorStream(true) 单流读取，无超时风险。
             // 非交互 bash：stdin 是 pipe 时自动非交互地读命令执行，无 prompt。
             // --norc --noprofile 不加载 rc（更快更干净，AI 工具调用不依赖 alias/变量）。
             "bash", "--norc", "--noprofile",
