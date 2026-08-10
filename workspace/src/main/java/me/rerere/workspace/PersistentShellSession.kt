@@ -25,6 +25,7 @@ import java.nio.charset.StandardCharsets
  */
 class PersistentShellSession(
     private val patcher: RootfsPatcher = RootfsPatcher(),
+    private val extraEnv: Map<String, String> = emptyMap(),
 ) {
     private var process: Process? = null
     private var writer: OutputStreamWriter? = null
@@ -135,6 +136,8 @@ class PersistentShellSession(
                 environment()["PROOT_LOADER"] = loader.absolutePath
                 environment()["PROOT_TMP_DIR"] = context.tempDir.absolutePath
                 environment()["TMPDIR"] = context.tempDir.absolutePath
+                // 下载版 proot 的依赖库（libtalloc/libandroid-shmem）查找路径
+                extraEnv.forEach { (k, v) -> environment()[k] = v }
             }
             .start()
         process = p

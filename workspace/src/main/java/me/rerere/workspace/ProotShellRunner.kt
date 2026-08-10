@@ -16,7 +16,26 @@ data class WorkspaceBindMount(
 class ProotShellRunner(
     private val nativeLibraryDir: File,
     private val patcher: RootfsPatcher = RootfsPatcher(),
+    private val updater: ProotUpdater? = null,
 ) : WorkspaceShellRunner {
+    // [TURBO] 优先使用 ProotUpdater 下载的最新版 proot（termux 仓库预编译，
+    // 5.1.107.89 及以上，2026 年持续修复）；未就绪/失败时回退 APK 内置 proot。
+    private val prootBinDir: File? get() = updater?.binDir?.takeIf { updater.isReady() }
+
+    // 首次 execute 前触发一次 proot 更新检查（同步，IO 线程由调用方保证）。
+    // 失败静默（updateIfNeeded 内部已 catch），绝不影响 shell 功能。
+    @Volatile
+    private var updateAttempted = false
+
+    private fun ensureProotUpdated() {
+        if (updateAttempted) return
+        updateAttempted = true
+        runCatching { updater?.updateIfNeeded() }
+    }
+
+    /** 下载 proot 依赖库所在目录（LD_LIBRARY_PATH 指向这里） */
+    private fun ldLibraryPath(): String? = prootBinDir?.absolutePath
+
     // [A1 会话池] 按 workspace（linuxDir）缓存常驻 proot+bash 会话（LRU，上限 MAX_SESSIONS）。
     // 之前是全局单例：切换 workspace 时 boundLinuxDir 变化 → destroy + 冷启动（~1s）；
     // 且全局一把锁导致不同 workspace 的命令互相阻塞。
@@ -53,11 +72,21 @@ class ProotShellRunner(
                 }
             }
         }
-        return SessionEntry(PersistentShellSession(patcher), ReentrantLock(true))
-            .also { sessions[linuxDir] = it }
+        return SessionEntry(
+            PersistentShellSession(patcher, sessionEnv()),
+            ReentrantLock(true),
+        ).also { sessions[linuxDir] = it }
+    }
+
+    /** 下载版 proot 的依赖库查找路径（LD_LIBRARY_PATH），无下载版返回空 */
+    private fun sessionEnv(): Map<String, String> {
+        val ldPath = ldLibraryPath() ?: return emptyMap()
+        return mapOf("LD_LIBRARY_PATH" to ldPath)
     }
 
     override fun execute(context: WorkspaceShellContext): WorkspaceCommandResult {
+        // 首次调用时检查 proot 更新（下载失败静默回退内置）
+        ensureProotUpdated()
         if (!context.linuxDir.hasUsableRootfs()) {
             return WorkspaceCommandResult(
                 exitCode = 127,
@@ -66,8 +95,11 @@ class ProotShellRunner(
             )
         }
 
-        val proot = File(nativeLibraryDir, PROOT_EXEC)
-        val loader = File(nativeLibraryDir, PROOT_LOADER)
+        val useDownloaded = prootBinDir != null
+        val proot = if (useDownloaded) File(prootBinDir!!, "proot")
+        else File(nativeLibraryDir, PROOT_EXEC)
+        val loader = if (useDownloaded) File(prootBinDir!!, "loader")
+        else File(nativeLibraryDir, PROOT_LOADER)
         if (!proot.isFile) {
             return WorkspaceCommandResult(
                 exitCode = 127,
@@ -139,6 +171,8 @@ class ProotShellRunner(
                 environment()["PROOT_LOADER"] = loader.absolutePath
                 environment()["PROOT_TMP_DIR"] = context.tempDir.absolutePath
                 environment()["TMPDIR"] = context.tempDir.absolutePath
+                // 下载版 proot 的依赖库（libtalloc/libandroid-shmem）查找路径
+                sessionEnv().forEach { (k, v) -> environment()[k] = v }
             }
             .start()
         return process.readResult(context.timeoutMillis, context.stdin)
