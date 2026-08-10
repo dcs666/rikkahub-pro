@@ -76,7 +76,9 @@ class ProotUpdater(
                 return isReady()
             }
             val ok = downloadAndInstall(index)
-            markChecked()
+            // 只在成功时缓存检查时间：失败不 markChecked → 下次启动（或下轮
+            // updateIfNeeded）会重试，避免网络抖动后 24h 内不再尝试
+            if (ok) markChecked()
             ok
         } catch (e: Exception) {
             false

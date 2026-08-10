@@ -22,19 +22,30 @@ class ProotShellRunner(
     // 5.1.107.89 及以上，2026 年持续修复）；未就绪/失败时回退 APK 内置 proot。
     private val prootBinDir: File? get() = updater?.binDir?.takeIf { updater.isReady() }
 
-    // 首次 execute 前触发一次 proot 更新检查（同步，IO 线程由调用方保证）。
-    // 失败静默（updateIfNeeded 内部已 catch），绝不影响 shell 功能。
+    // 首次 execute 前异步触发一次 proot 更新检查（后台线程，不阻塞命令）。
+    // 更新完成后，后续 execute 的 prootBinDir 动态读取 → 自动切换到新版；
+    // 失败静默（updateIfNeeded 内部已 catch），不影响 shell 功能。
     @Volatile
     private var updateAttempted = false
+
+    private val updateExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "proot-updater").apply { isDaemon = true }
+    }
 
     private fun ensureProotUpdated() {
         if (updateAttempted) return
         updateAttempted = true
-        runCatching { updater?.updateIfNeeded() }
+        // 异步：不阻塞当前命令；线程单例，进程生命周期内只触发一次
+        updateExecutor.execute {
+            runCatching { updater?.updateIfNeeded() }
+        }
     }
 
     /** 下载 proot 依赖库所在目录（LD_LIBRARY_PATH 指向这里） */
     private fun ldLibraryPath(): String? = prootBinDir?.absolutePath
+
+    /** proot 二进制指纹（mtime+size）：用于检测 proot 更新后销毁旧会话重建 */
+    private fun prootFingerprint(proot: File): String = "${proot.lastModified()}-${proot.length()}"
 
     // [A1 会话池] 按 workspace（linuxDir）缓存常驻 proot+bash 会话（LRU，上限 MAX_SESSIONS）。
     // 之前是全局单例：切换 workspace 时 boundLinuxDir 变化 → destroy + 冷启动（~1s）；
@@ -48,6 +59,7 @@ class ProotShellRunner(
     private class SessionEntry(
         val session: PersistentShellSession,
         val lock: ReentrantLock,
+        val prootFingerprint: String,
     )
 
     // [A1-FIX] 淘汰改为手动扫描（不再用 removeEldestEntry）：
@@ -58,9 +70,16 @@ class ProotShellRunner(
     // 4 个并行工具打 4 个不同 workspace 时必然触发淘汰，命中忙会话的概率不低。
     // 现在：只淘汰「最久未用且空闲」的会话（destroy 立即完成，无阻塞）；全部忙碌时允许池
     // 暂时超限（有界于并发命令数），忙碌会话结束后下次插入会再淘汰。
+    // [TURBO] 另外：proot 运行时更新（ProotUpdater）后 proot 文件指纹变化，
+    // 旧会话（进程已加载旧版 proot）必须销毁重建才能让新版生效。
     @Synchronized
-    private fun sessionFor(linuxDir: File): SessionEntry {
-        sessions[linuxDir]?.let { return it }
+    private fun sessionFor(linuxDir: File, expectedFingerprint: String): SessionEntry {
+        sessions[linuxDir]?.let { entry ->
+            if (entry.prootFingerprint == expectedFingerprint) return entry
+            // proot 已更新：销毁旧会话（阻塞等待其当前命令结束），下次命令用新版
+            entry.session.destroy()
+            sessions.remove(linuxDir)
+        }
         if (sessions.size >= MAX_SESSIONS) {
             val iterator = sessions.entries.iterator()
             while (iterator.hasNext()) {
@@ -75,6 +94,7 @@ class ProotShellRunner(
         return SessionEntry(
             PersistentShellSession(patcher, sessionEnv()),
             ReentrantLock(true),
+            expectedFingerprint,
         ).also { sessions[linuxDir] = it }
     }
 
@@ -119,7 +139,7 @@ class ProotShellRunner(
         // - 同一 workspace 的持久会话与一次性路径串行（同 rootfs 的 patch/访问不并发，
         //   link2symlink 同进程内不支持并发 fork）
         // - 不同 workspace 的命令互不阻塞
-        val entry = sessionFor(context.linuxDir)
+        val entry = sessionFor(context.linuxDir, prootFingerprint(proot))
         val waitMs = context.timeoutMillis + 5_000L
         val acquired = entry.lock.tryLock(waitMs, TimeUnit.MILLISECONDS)
         if (!acquired) {
