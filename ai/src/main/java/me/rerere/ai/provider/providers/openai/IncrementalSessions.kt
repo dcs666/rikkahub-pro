@@ -77,11 +77,11 @@ internal class IncrementalSessions {
                         add(delta[fcoIndex])
                     }
                 }
-                // 剩余新增（已插入的 fco 不再重复）
-                delta.forEachIndexed { index, item ->
-                    if (!item.isFunctionCallOutput() || fcItems.none { it.callIdOrNull() == item.callIdOrNull() } ||
-                        delta.indexOfFirst { it.isFunctionCallOutputWithCallId(item.callIdOrNull()) } == index
-                    ) {
+                // 剩余新增（已插入的 fco 不再重复：匹配 fcItems 的 fco 已在前面插入）
+                delta.forEach { item ->
+                    val isInsertedFco = item.isFunctionCallOutput() &&
+                        fcItems.any { it.callIdOrNull() == item.callIdOrNull() }
+                    if (!isInsertedFco) {
                         add(item)
                     }
                 }
