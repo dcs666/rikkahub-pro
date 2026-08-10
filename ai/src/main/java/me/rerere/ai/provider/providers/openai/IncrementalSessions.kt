@@ -22,85 +22,103 @@ import java.util.concurrent.ConcurrentHashMap
  * 几十~几百 KB 降到"仅新增消息"，请求延迟（网关解析/校验/转发）与 token 成本同步下降。
  *
  * 会话识别：App 请求无 conversationId 参数（避免大改调用链签名），
- * 用「input 首条消息 hash」分桶 + 桶内按已知状态前缀精确匹配（JsonElement == 结构化比较）。
+ * 用「host + input 首条消息 hash」分桶 + 桶内按已知状态前缀精确匹配（JsonElement == 结构化比较）。
+ * host 前缀防止不同网关间串用 previous_response_id（P1-4）。
  * 同一对话首条消息通常唯一；极端情况（多个对话首条相同）靠精确匹配保证正确性。
  *
- * 会话数量上限：超过上限整体清空（增量是性能优化，非正确性依赖；简单淘汰即可）。
+ * 会话数量上限：LRU 淘汰最久未用（增量是性能优化，非正确性依赖）。
  */
 internal class IncrementalSessions {
 
     private data class Session(
         val previousResponseId: String,
-        /** 上次发送的完整 input（与请求体 input 一致） */
+        /** 上次发送的完整 input（App 构建顺序，与请求体 input 一致） */
         val sentInput: List<JsonElement>,
-        /** 上次响应的 output items（服务端已保存，无需重发） */
+        /** 上次响应的 output items（服务端已保存；用于过滤本次增量里的 assistant 回显） */
         val responseItems: List<JsonElement>,
         /** 非 input 请求属性签名（对齐 codex responses_request_properties_match） */
         val requestSignature: String,
-        val lastUsedAt: Long,
+        var lastUsedAt: Long,
     )
 
     private val sessions = ConcurrentHashMap<String, Session>()
     private val maxSessions = 32
+    // [F10] 严格递增序号（而非时间戳）保证 LRU 顺序唯一（同毫秒内多次 update 也正确）
+    private val clock = java.util.concurrent.atomic.AtomicLong(0)
 
     /**
      * 尝试解析增量：返回 (previousResponseId, 增量 items)；无法增量时返回 (null, null)。
+     *
+     * 规则（v1.8.10 收紧）：
+     * - 工具轮次（delta 含 function_call / function_call_output）一律回退全量：
+     *   opencode.ai 网关是"消息追加"语义，重发 fc+fco 会让服务端上下文里 fc 重复
+     *   （上次 output 一次 + 本次 input 一次），多轮工具循环后上下文膨胀/模型困惑；
+     *   增量收益主要在思维链重传，工具轮次全量发送更简单可靠（P0-1）。
+     * - 纯文本轮次增量 = delta 中"排除上次 output 的 assistant 回显"后的剩余：
+     *   App 会把上次回复回显进 input（UIMessage 历史），而服务端已保存该 output，
+     *   不回显重发则服务端上下文不重复（P0-1 纯文本变体）。
      */
-    fun resolve(input: List<JsonElement>, requestBody: JsonObject): Pair<String?, List<JsonElement>?> {
+    fun resolve(host: String, input: List<JsonElement>, requestBody: JsonObject): Pair<String?, List<JsonElement>?> {
         if (input.isEmpty()) return null to null
-        val bucket = bucketKey(input)
+        val bucket = bucketKey(host, input)
         val session = sessions[bucket] ?: return null to null
         // [codex 对齐] 非 input 请求属性必须与上次一致（model/instructions/tools/
         // reasoning/store/stream 等），否则 previous_response_id 会沿用旧参数
         if (session.requestSignature != requestSignature(requestBody)) return null to null
-        val prefix = session.sentInput + session.responseItems
-        // [实测] opencode.ai 网关的 previous_response_id 只支持消息追加，
-        // 不支持工具输出关联：增量里带 function_call_output 会报
-        // "No tool call found for tool output with call_id ..."。
-        // 已知状态含 function_call 时禁用增量（回退全量，工具循环不受影响）。
-        if (session.responseItems.any { it.isFunctionCallItem() }) return null to null
+        val prefix = session.sentInput
         if (input.size <= prefix.size) return null to null
         if (!itemsEqual(input.take(prefix.size), prefix)) return null to null
-        return session.previousResponseId to input.drop(prefix.size)
+        val delta = input.drop(prefix.size)
+        // [F1] 工具轮次回退全量：增量带 fc/fco 会导致服务端上下文重复累积
+        //（消息追加语义 + 重发 = fc 出现两次 + 占位 reasoning "…" 污染）
+        if (delta.any { it.isToolItem() }) return null to null
+        // [F11] 过滤服务端已有的 assistant 回显（上次 output 已保存，无需重发）
+        val filtered = delta.filterNot { item ->
+            session.responseItems.any { known -> known.isSameAssistantMessage(item) }
+        }
+        if (filtered.isEmpty()) return null to null
+        return session.previousResponseId to filtered
     }
 
     /**
-     * 记录一次成功响应：sentInput = 本次完整 input，responseItems = 本次输出 items。
+     * 记录一次成功响应：sentInput = 本次完整 input（App 构建顺序），
+     * responseItems = 本次输出 items（用于下次增量过滤 assistant 回显）。
      */
-    fun update(requestBody: JsonObject, responseId: String, responseItems: List<JsonElement>) {
+    fun update(host: String, requestBody: JsonObject, responseId: String, responseItems: List<JsonElement>) {
         val input = requestBody["input"] as? JsonArray ?: return
         val items = input.toList()
         if (items.isEmpty() || responseId.isBlank()) return
-        if (sessions.size >= maxSessions) {
-            sessions.clear()
+        val key = bucketKey(host, items)
+        if (!sessions.containsKey(key) && sessions.size >= maxSessions) {
+            // [F10] LRU：仅新会话触发淘汰（更新已有会话不误伤），淘汰最久未用
+            val oldestKey = sessions.entries.minByOrNull { it.value.lastUsedAt }?.key
+            if (oldestKey != null) sessions.remove(oldestKey)
         }
-        sessions[bucketKey(items)] = Session(
+        sessions[key] = Session(
             previousResponseId = responseId,
             sentInput = items,
             responseItems = responseItems,
             requestSignature = requestSignature(requestBody),
-            lastUsedAt = System.currentTimeMillis(),
+            lastUsedAt = clock.incrementAndGet(),
         )
     }
 
-    /**
-     * 使指定会话失效（增量请求失败时调用，防止持续用无效 previous_response_id 重试）。
-     */
-    fun invalidate(input: List<JsonElement>) {
+    /** 使指定会话失效（增量请求失败时调用，防止持续用无效 previous_response_id 重试）。 */
+    fun invalidate(host: String, input: List<JsonElement>) {
         if (input.isEmpty()) return
-        sessions.remove(bucketKey(input))
+        sessions.remove(bucketKey(host, input))
     }
 
     /** 会话数量（测试用） */
     fun size(): Int = sessions.size
 
-    private fun bucketKey(input: List<JsonElement>): String {
+    private fun bucketKey(host: String, input: List<JsonElement>): String {
         val first = input.firstOrNull()?.toString().orEmpty()
         var hash = 1125899906842597L
         for (ch in first) {
             hash = 31 * hash + ch.code
         }
-        return hash.toString()
+        return "$host|$hash"
     }
 
     private fun itemsEqual(a: List<JsonElement>, b: List<JsonElement>): Boolean {
@@ -111,11 +129,36 @@ internal class IncrementalSessions {
         return true
     }
 
-    private fun JsonElement.isFunctionCallItem(): Boolean {
+    private fun JsonElement.isToolItem(): Boolean {
         val obj = this as? JsonObject ?: return false
-        return obj["type"]?.let { type ->
-            (type as? JsonPrimitive)?.contentOrNull == "function_call"
-        } ?: false
+        val type = obj["type"] as? JsonPrimitive ?: return false
+        val content = type.contentOrNull ?: return false
+        return content == "function_call" || content == "function_call_output"
+    }
+
+    /**
+     * 判断两个 item 是否是"同一条 assistant 消息"（App 回显 vs 服务端 output 结构不同：
+     * App 无 type/id、content 可能是纯字符串，服务端有 type/id、content 是数组——
+     * 按 role + 文本序列比较，忽略结构差异）。
+     */
+    private fun JsonElement.isSameAssistantMessage(other: JsonElement): Boolean {
+        val texts = this.assistantTexts() ?: return false
+        val otherTexts = other.assistantTexts() ?: return false
+        return texts == otherTexts
+    }
+
+    /** 提取 assistant 消息的文本序列；非 assistant 消息返回 null。 */
+    private fun JsonElement.assistantTexts(): List<String>? {
+        val obj = this as? JsonObject ?: return null
+        if (obj["role"]?.let { (it as? JsonPrimitive)?.contentOrNull } != "assistant") return null
+        val content = obj["content"] ?: return emptyList()
+        return when (content) {
+            is JsonPrimitive -> listOf(content.content)
+            is JsonArray -> content.mapNotNull { item ->
+                (item as? JsonObject)?.get("text")?.let { (it as? JsonPrimitive)?.contentOrNull }
+            }
+            else -> null
+        }
     }
 
     /**

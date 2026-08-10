@@ -7,6 +7,8 @@ import kotlinx.coroutines.channels.onFailure
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonArrayBuilder
@@ -119,6 +121,12 @@ private fun summarizeInput(input: JsonElement?): String {
  */
 private const val REASONING_PLACEHOLDER = "…"
 
+/**
+ * [F2] 增量请求失败信号：streamText 外层捕获后自动回退全量重试一次
+ *（增量是性能优化，失败不应让用户看到报错；codex 同样失败后回退全量）。
+ */
+private class IncrementalFailedException(cause: Throwable?) : Exception(cause)
+
 class ResponseAPI(
     private val client: OkHttpClient,
     private val keyRoulette: KeyRoulette = KeyRoulette.default()
@@ -138,31 +146,28 @@ class ResponseAPI(
             params = params,
             stream = false,
         )
+        val host = providerSetting.baseUrl.toHttpUrl().host
         // 尝试增量：命中（历史与上次一致）→ previous_response_id + 仅新增 items；
         // 未命中（编辑/重试/新会话）→ 全量发送
-        val requestBody = applyIncremental(fullRequestBody)
-        val request = Request.Builder()
-            .url(buildEndpoint(providerSetting.baseUrl, "/responses"))
-            .headers(params.customHeaders.toHeaders())
-            .post(json.encodeToString(requestBody).toRequestBody("application/json".toMediaType()))
-            .addHeader(
-                "Authorization",
-                "Bearer ${keyRoulette.next(providerSetting.apiKey, providerSetting.id.toString())}"
-            )
-            .addHeader("Content-Type", "application/json")
-            .configureReferHeaders(providerSetting.baseUrl)
-            .build()
-
-
-        val response = client.newCall(request).await()
+        var requestBody = applyIncremental(host, fullRequestBody)
+        val isIncremental = requestBody.containsKey("previous_response_id")
+        var response = client.newCall(
+            buildRequest(providerSetting, params, requestBody)
+        ).await()
+        if (!response.isSuccessful && isIncremental) {
+            // [F2] 增量请求失败（如服务端 previous_response_id 过期/上下文超限）→
+            // 使会话失效 + 自动回退全量重试一次（否则用户直接看到报错）
+            invalidateIncremental(host, fullRequestBody)
+            requestBody = fullRequestBody
+            response = client.newCall(
+                buildRequest(providerSetting, params, requestBody)
+            ).await()
+        }
         val bodyStr = response.body?.string() ?: ""
         if (!response.isSuccessful) {
-            // 增量请求失败（如服务端 previous_response_id 过期）→ 使会话失效，
-            // 下次请求自动回退全量，防止持续用无效 id 重试
-            invalidateIncremental(fullRequestBody)
-            if (response.code == 400 && bodyStr.contains("reasoning")) {
-                // 诊断：Console Go 网关 thinking mode 校验失败时记录完整错误 + input 形状，
-                // 便于复现（错误：The reasoning_text in the thinking mode must be passed back）
+            if (response.code == 400) {
+                // 诊断：网关 400 时记录完整错误 + input 形状，便于复现
+                //（如 thinking mode reasoning_text 校验失败、previous_response_id 无效等）
                 // 注意用 Logging.log（App 内存日志），Log.w 只进 logcat 无法远程查看
                 Logging.log(TAG, "generateText 400 body=${bodyStr.take(4000)}")
                 Logging.log(TAG, "generateText 400 input=${requestBody["input"]?.toString()?.take(4000)}")
@@ -174,7 +179,7 @@ class ResponseAPI(
         // 记录会话状态（下次请求可增量）：sentInput=完整 input，responseItems=本次输出
         val outputItems = bodyJson["output"] as? JsonArray
         if (outputItems != null) {
-            recordIncremental(fullRequestBody, bodyJson["id"]?.jsonPrimitive?.contentOrNull, outputItems.toList())
+            recordIncremental(host, fullRequestBody, bodyJson["id"]?.jsonPrimitive?.contentOrNull, outputItems.toList())
         }
         val output = parseResponseOutput(bodyJson)
 
@@ -185,27 +190,47 @@ class ResponseAPI(
         providerSetting: ProviderSetting.OpenAI,
         messages: List<UIMessage>,
         params: TextGenerationParams
-    ): Flow<MessageChunk> = callbackFlow {
+    ): Flow<MessageChunk> = flow {
         val fullRequestBody = buildRequestBody(
             providerSetting = providerSetting,
             messages = messages,
             params = params,
             stream = true,
         )
-        val requestBody = applyIncremental(fullRequestBody)
+        val host = providerSetting.baseUrl.toHttpUrl().host
+        var requestBody = applyIncremental(host, fullRequestBody)
+        var attempt = 0
+        while (true) {
+            attempt++
+            val isIncremental = requestBody.containsKey("previous_response_id")
+            try {
+                emitAll(streamOnce(providerSetting, params, requestBody, fullRequestBody, host))
+                break
+            } catch (e: IncrementalFailedException) {
+                // [F2] 增量请求失败（400）→ 使会话失效 + 自动回退全量重试一次
+                //（否则用户直接看到报错；codex 同样失败后回退全量）
+                if (!isIncremental || attempt >= 2) throw e
+                invalidateIncremental(host, fullRequestBody)
+                requestBody = fullRequestBody
+            }
+        }
+        // trySend 在缓冲满时会静默丢弃 delta，导致回复中间缺字 (#1295)，因此缓冲必须无界
+    }.buffer(Channel.UNLIMITED)
+
+    private fun streamOnce(
+        providerSetting: ProviderSetting.OpenAI,
+        params: TextGenerationParams,
+        requestBody: JsonObject,
+        fullRequestBody: JsonObject,
+        host: String,
+    ): Flow<MessageChunk> = callbackFlow {
+        val isIncremental = requestBody.containsKey("previous_response_id")
         // 流式增量记录：收集 output_item.done 的完整 item + response id
         val streamOutputItems = mutableListOf<JsonElement>()
-        val request = Request.Builder()
-            .url(buildEndpoint(providerSetting.baseUrl, "/responses"))
-            .headers(params.customHeaders.toHeaders())
-            .post(json.encodeToString(requestBody).toRequestBody("application/json".toMediaType()))
-            .addHeader(
-                "Authorization",
-                "Bearer ${keyRoulette.next(providerSetting.apiKey, providerSetting.id.toString())}"
-            )
-            .configureReferHeaders(providerSetting.baseUrl)
-            .build()
-
+        // [F5] response.created 捕获 response id——某些网关用 [DONE] 结束而不发
+        // response.completed，此时也要记录会话（否则该网关永远无法增量）
+        var streamResponseId: String? = null
+        val request = buildRequest(providerSetting, params, requestBody)
 
         val listener = object : EventSourceListener() {
             override fun onEvent(
@@ -215,6 +240,10 @@ class ResponseAPI(
                 data: String
             ) {
                 if (data == "[DONE]") {
+                    // [F5] [DONE] 结束也记录增量会话（response.created 已捕获 id）
+                    streamResponseId?.let { rid ->
+                        recordIncremental(host, fullRequestBody, rid, streamOutputItems.toList())
+                    }
                     close()
                     return
                 }
@@ -223,13 +252,17 @@ class ResponseAPI(
                     val json = json.parseToJsonElement(data).jsonObject
                     // [codex 借鉴] 流式收集：output_item.done 有完整 item JSON；
                     // response.completed 有 response.id → 记录会话状态供下次增量
+                    if (type == "response.created") {
+                        streamResponseId = json["response"]?.jsonObject?.get("id")
+                            ?.jsonPrimitive?.contentOrNull
+                    }
                     if (type == "response.output_item.done") {
                         json["item"]?.let { streamOutputItems.add(it) }
                     }
                     if (type == "response.completed") {
                         val responseId = json["response"]?.jsonObject?.get("id")
                             ?.jsonPrimitive?.contentOrNull
-                        recordIncremental(fullRequestBody, responseId, streamOutputItems.toList())
+                        recordIncremental(host, fullRequestBody, responseId, streamOutputItems.toList())
                     }
                     val chunk = parseResponseDelta(json)
                     if (chunk != null) {
@@ -249,16 +282,22 @@ class ResponseAPI(
             }
 
             override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
-                // 增量请求失败 → 使会话失效，下次请求自动回退全量
+                // [F2] 增量请求失败（400，如 previous_response_id 过期）→ 使会话失效
+                // + 抛重试信号，外层自动回退全量重试一次
                 if (response?.code == 400) {
-                    invalidateIncremental(fullRequestBody)
+                    invalidateIncremental(host, fullRequestBody)
+                    if (isIncremental) {
+                        Logging.log(TAG, "onFailure: incremental request failed (400) → retry full")
+                        close(IncrementalFailedException(t))
+                        return
+                    }
                 }
                 var exception = t
 
                 val bodyRaw = response?.body?.stringSafe()
-                // 诊断：流式 400（如 thinking mode reasoning_text 校验失败）时把响应体 + 请求
-                // input 结构摘要打进 App 内存日志（Logging.log），Log.w 只进 logcat 无法远程查看
-                if ((bodyRaw?.contains("reasoning") == true) || response?.code == 400) {
+                // 诊断：400 时把响应体 + 请求 input 结构摘要打进 App 内存日志（Logging.log），
+                // Log.w 只进 logcat 无法远程查看
+                if (response?.code == 400) {
                     Logging.log(TAG, "onFailure code=${response?.code} body=${bodyRaw?.take(2000)}")
                     Logging.log(TAG, "onFailure request input-structure:\n${summarizeInput(requestBody["input"])}")
                 }
@@ -288,17 +327,37 @@ class ResponseAPI(
         awaitClose {
             eventSource.cancel()
         }
-        // trySend 在缓冲满时会静默丢弃 delta，导致回复中间缺字 (#1295)，因此缓冲必须无界
-    }.buffer(Channel.UNLIMITED)
+    }
+
+    /** 构建 /responses 请求（增量/全量共用，F2 重试复用） */
+    private fun buildRequest(
+        providerSetting: ProviderSetting.OpenAI,
+        params: TextGenerationParams,
+        requestBody: JsonObject,
+    ): Request = Request.Builder()
+        .url(buildEndpoint(providerSetting.baseUrl, "/responses"))
+        .headers(params.customHeaders.toHeaders())
+        .post(json.encodeToString(requestBody).toRequestBody("application/json".toMediaType()))
+        .addHeader(
+            "Authorization",
+            "Bearer ${keyRoulette.next(providerSetting.apiKey, providerSetting.id.toString())}"
+        )
+        .addHeader("Content-Type", "application/json")
+        .configureReferHeaders(providerSetting.baseUrl)
+        .build()
 
     /**
      * [codex 借鉴] 尝试把请求体转为增量：命中增量会话时
      * 用 previous_response_id + 仅新增 items（+ store=true），否则原样返回。
      */
-    private fun applyIncremental(fullRequestBody: JsonObject): JsonObject {
+    private fun applyIncremental(host: String, fullRequestBody: JsonObject): JsonObject {
+        // [F3] 只有 store=true 的 host（opencode.ai）有增量能力：
+        // 其他 host（OpenAI 官方/DeepSeek 直连等）服务端不保存 response，
+        // previous_response_id 必然 400（invalid_response_id），一律全量
+        if (fullRequestBody["store"]?.jsonPrimitive?.contentOrNull != "true") return fullRequestBody
         val input = fullRequestBody["input"] as? JsonArray ?: return fullRequestBody
         val items = input.toList()
-        val (previousResponseId, deltaItems) = incrementalSessions.resolve(items, fullRequestBody)
+        val (previousResponseId, deltaItems) = incrementalSessions.resolve(host, items, fullRequestBody)
         if (previousResponseId == null || deltaItems == null) return fullRequestBody
         val newBody = fullRequestBody.toMutableMap().apply {
             put("previous_response_id", JsonPrimitive(previousResponseId))
@@ -311,19 +370,20 @@ class ResponseAPI(
 
     /** 记录一次成功响应到增量会话（sentInput=完整 input，responseItems=本次输出 items） */
     private fun recordIncremental(
+        host: String,
         fullRequestBody: JsonObject,
         responseId: String?,
         responseItems: List<JsonElement>,
     ) {
         if (responseId.isNullOrBlank()) return
         val input = fullRequestBody["input"] as? JsonArray ?: return
-        incrementalSessions.update(fullRequestBody, responseId, responseItems)
+        incrementalSessions.update(host, fullRequestBody, responseId, responseItems)
     }
 
     /** 增量请求失败时使当前会话失效（防持续用无效 previous_response_id 重试） */
-    private fun invalidateIncremental(fullRequestBody: JsonObject) {
+    private fun invalidateIncremental(host: String, fullRequestBody: JsonObject) {
         val input = fullRequestBody["input"] as? JsonArray ?: return
-        incrementalSessions.invalidate(input.toList())
+        incrementalSessions.invalidate(host, input.toList())
     }
 
     internal fun buildRequestBody(
