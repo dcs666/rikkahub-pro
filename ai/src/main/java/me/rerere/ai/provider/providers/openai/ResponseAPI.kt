@@ -124,6 +124,31 @@ private const val REASONING_PLACEHOLDER = "…"
 /** [L3] 工具输出回传上限：超长截断（对齐 opencode TOOL_OUTPUT_MAX_CHARS=2000 思路，取 2500） */
 private const val MAX_TOOL_OUTPUT_CHARS = 2500
 
+// ===== [L3] opencode compaction 机制照抄（compaction.ts / overflow.ts / token.ts）=====
+/** token 估算：opencode Token.estimate = chars / 4（token.ts CHARS_PER_TOKEN=4） */
+private const val CHARS_PER_TOKEN = 4
+
+/** overflow 预留 buffer：opencode overflow.ts COMPACTION_BUFFER=20_000 */
+private const val COMPACTION_BUFFER = 20_000
+
+/** 模型上下文窗口：App 无 model.limit 元数据，deepseek 系取 128K（如不准可做成配置） */
+private const val CONTEXT_LIMIT = 128_000
+
+/** prune 保护线：opencode PRUNE_PROTECT=40_000（累计估算超此值的更老工具输出才清空） */
+private const val PRUNE_PROTECT = 40_000
+
+/** prune 最小清理量：opencode PRUNE_MINIMUM=20_000（清理量不达此值不应用） */
+private const val PRUNE_MINIMUM = 20_000
+
+/** 最近保护轮数：opencode DEFAULT_TAIL_TURNS=2（最近 2 个 user turn 完全不 prune/截断） */
+private const val TAIL_TURNS = 2
+
+/** 受保护工具：opencode PRUNE_PROTECTED_TOOLS=["skill"] */
+private val PRUNE_PROTECTED_TOOLS = setOf("skill")
+
+/** 清空占位文本：opencode serialize() 对 compacted 工具输出用此文案 */
+private const val CLEARED_TOOL_OUTPUT = "[Old tool result content cleared]"
+
 /**
  * [F2] 增量请求失败信号：streamText 外层捕获后自动回退全量重试一次
  *（增量是性能优化，失败不应让用户看到报错；codex 同样失败后回退全量）。
@@ -544,8 +569,51 @@ class ResponseAPI(
         }.mergeCustomBody(params.customBody)
     }
 
-    internal fun buildMessages(
-        messages: List<UIMessage>,
+    /** [L3] token 估算：对齐 opencode Token.estimate = chars / 4 */
+    private fun estimateTokens(part: UIMessagePart): Int {
+        val text = when (part) {
+            is UIMessagePart.Text -> part.text
+            is UIMessagePart.Reasoning -> part.reasoning
+            is UIMessagePart.Tool -> part.output.filterIsInstance<UIMessagePart.Text>()
+                .joinToString("\n") { it.text }
+            else -> ""
+        }
+        return text.length / CHARS_PER_TOKEN
+    }
+
+    /**
+     * [L3] prune 判定：照抄 opencode compaction.ts prune()——
+     * 从最新往最旧遍历，最近 TAIL_TURNS(2) 个 user turn 完全保护；
+     * 更早的工具输出按估算 token 累计，超过 PRUNE_PROTECT(40K) 的部分
+     * 标记为待清空（发送时替换为 [Old tool result content cleared]）；
+     * 仅当总清理量 > PRUNE_MINIMUM(20K) 才真正应用。skill 工具豁免。
+     * 返回需要清空的 toolCallId 集合。
+     */
+    private fun pruneOldToolOutputs(messages: List<UIMessage>): Set<String> {
+        var total = 0
+        var pruned = 0
+        var turns = 0
+        val toPrune = mutableListOf<String>()
+        for (msgIndex in messages.indices.reversed()) {
+            val msg = messages[msgIndex]
+            if (msg.role == MessageRole.USER) turns++
+            if (turns < TAIL_TURNS) continue
+            for (part in msg.parts.reversed()) {
+                val tool = part as? UIMessagePart.Tool ?: continue
+                if (!tool.isExecuted) continue
+                if (tool.toolName in PRUNE_PROTECTED_TOOLS) continue
+                val estimate = tool.output.filterIsInstance<UIMessagePart.Text>()
+                    .joinToString("\n") { it.text }.length / CHARS_PER_TOKEN
+                total += estimate
+                if (total <= PRUNE_PROTECT) continue
+                pruned += estimate
+                toPrune.add(tool.toolCallId)
+            }
+        }
+        return if (pruned > PRUNE_MINIMUM) toPrune.toSet() else emptySet()
+    }
+
+    internal fun buildMessages(messages: List<UIMessage>,
         usePlainReasoningContent: Boolean = false,
         useReasoningTextArray: Boolean = false,
         forcePlaceholderReasoning: Boolean = false,
@@ -560,13 +628,21 @@ class ResponseAPI(
         var reasoningIndex = 0
         // [L3] 对齐 opencode compaction 语义（compaction.ts turns()）：1 轮 = 1 个 user
         // 消息到下一个 user 消息之间（含中间所有工具调用）。最近 2 轮内的工具输出
-        // 完整保留（当前决策链需要完整工具结果），更早的才截断（4000 字符）。
+        // 完整保留（当前决策链需要完整工具结果），更早的才截断。
         // opencode 默认 tail_turns=2，同一轮内多次工具调用全部保留——按 user 分段
         // 而非按 assistant 工具消息计数，避免误伤同一轮内的工具链。
         val userTurns = filtered.mapIndexedNotNull { index, m ->
             if (m.role == MessageRole.USER) index else null
         }
-        val keepToolFrom = if (userTurns.size <= 2) 0 else userTurns[userTurns.size - 2]
+        val keepToolFrom = if (userTurns.size <= TAIL_TURNS) 0 else userTurns[userTurns.size - TAIL_TURNS]
+        // [L3] overflow 判定（opencode overflow.ts isOverflow）：估算总 token 接近
+        // 上下文上限时才触发历史截断——短对话完全不截，长对话自动收紧
+        val totalTokens = filtered.sumOf { message -> message.parts.sumOf { estimateTokens(it) } }
+        val overflow = totalTokens >= CONTEXT_LIMIT - COMPACTION_BUFFER
+        // [L3] prune 判定（opencode compaction.ts prune()）：倒序遍历，最近 2 轮保护，
+        // 更早工具输出累计估算超 PRUNE_PROTECT(40K) 的部分 → 清空为
+        // [Old tool result content cleared]；清理量 > PRUNE_MINIMUM(20K) 才应用
+        val clearedTools = pruneOldToolOutputs(filtered)
         filtered.forEachIndexed { index, message ->
             if (message.role == MessageRole.ASSISTANT) {
                 val hasReasoning = message.parts.any { it is UIMessagePart.Reasoning }
@@ -585,6 +661,8 @@ class ResponseAPI(
                     forcePlaceholderReasoning,
                     keepReasoning,
                     keepToolOutput,
+                    overflow,
+                    clearedTools,
                 )
             } else {
                 addUserItems(message)
@@ -599,6 +677,8 @@ class ResponseAPI(
         forcePlaceholderReasoning: Boolean = false,
         keepReasoning: Boolean = true,
         keepToolOutput: Boolean = true,
+        overflow: Boolean = false,
+        clearedTools: Set<String> = emptySet(),
     ) {
         val groups = groupPartsByToolBoundary(message.parts)
         val contentBuffer = mutableListOf<UIMessagePart>()
@@ -775,19 +855,21 @@ class ResponseAPI(
                                 }
                             } else {
                                 // [FIX] 空输出时给占位文本，避免提供商拒绝空 output
-                                // [L3] 工具输出压缩：超 2500 字符截断（对齐 opencode
-                                // TOOL_OUTPUT_MAX_CHARS 思路），防止大工具结果
-                                //（git diff/文件内容）导致请求体膨胀；
-                                // 最近 2 轮工具输出完整保留（keepToolOutput）——
-                                // 当前工具链决策需要完整结果，历史才截断
+                                // [L3] 工具输出处理（照抄 opencode compaction 语义，优先级从高到低）：
+                                // ① prune 清空：超预算的旧工具输出整体替换为
+                                //    [Old tool result content cleared]（opencode prune()）
+                                // ② overflow 截断：对话估算总 token 接近上下文上限时，
+                                //    非最近 2 轮的超长输出截断（opencode serialize truncate）
+                                // ③ 完整保留：最近 2 轮 / 未 overflow 时不截断
                                 val text = tool.output.filterIsInstance<UIMessagePart.Text>()
                                     .joinToString("\n") { it.text }
-                                val trimmed = if (!keepToolOutput && text.length > MAX_TOOL_OUTPUT_CHARS) {
-                                    text.take(MAX_TOOL_OUTPUT_CHARS) + "\n[truncated]"
-                                } else {
-                                    text
+                                val output = when {
+                                    tool.toolCallId in clearedTools -> CLEARED_TOOL_OUTPUT
+                                    !keepToolOutput && overflow && text.length > MAX_TOOL_OUTPUT_CHARS ->
+                                        text.take(MAX_TOOL_OUTPUT_CHARS) + "\n[truncated]"
+                                    else -> text
                                 }
-                                put("output", trimmed.ifBlank { "[Tool returned no output]" })
+                                put("output", output.ifBlank { "[Tool returned no output]" })
                             }
                         })
                         fcSinceReasoning++
