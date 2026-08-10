@@ -28,8 +28,8 @@ android {
         applicationId = "dev.nebula.turbo"
         minSdk = 26
         targetSdk = 37
-        versionCode = 195
-        versionName = "2.5.15"
+        versionCode = 196
+        versionName = "2.5.16"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

@@ -157,6 +157,11 @@ class ResponseAPI(
         if (!response.isSuccessful && isIncremental) {
             // [F2] 增量请求失败（如服务端 previous_response_id 过期/上下文超限）→
             // 使会话失效 + 自动回退全量重试一次（否则用户直接看到报错）
+            // [F12] 先记录失败原因 + 关闭失败响应（body 未读，close 释放连接，
+            // 否则每次增量失败泄漏一个 OkHttp 连接）
+            val failBody = response.body?.stringSafe().orEmpty()
+            Logging.log(TAG, "incremental failed (${response.code}) → retry full: ${failBody.take(2000)}")
+            response.close()
             invalidateIncremental(host, fullRequestBody)
             requestBody = fullRequestBody
             response = client.newCall(
@@ -284,13 +289,15 @@ class ResponseAPI(
             override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
                 // [F2] 增量请求失败（400，如 previous_response_id 过期）→ 使会话失效
                 // + 抛重试信号，外层自动回退全量重试一次
-                if (response?.code == 400) {
+                if (response?.code == 400 && isIncremental) {
+                    // [F13] 读 body 记诊断（body 未读就 close 会丢失败原因）
+                    val failBody = response.body?.stringSafe().orEmpty()
+                    Logging.log(TAG, "onFailure code=400 body=${failBody.take(2000)}")
+                    Logging.log(TAG, "onFailure request input-structure:\n${summarizeInput(requestBody["input"])}")
                     invalidateIncremental(host, fullRequestBody)
-                    if (isIncremental) {
-                        Logging.log(TAG, "onFailure: incremental request failed (400) → retry full")
-                        close(IncrementalFailedException(t))
-                        return
-                    }
+                    Logging.log(TAG, "onFailure: incremental request failed (400) → retry full")
+                    close(IncrementalFailedException(t))
+                    return
                 }
                 var exception = t
 

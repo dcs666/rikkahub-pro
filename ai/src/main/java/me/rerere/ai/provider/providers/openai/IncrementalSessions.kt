@@ -72,9 +72,11 @@ internal class IncrementalSessions {
         // [F1] 工具轮次回退全量：增量带 fc/fco 会导致服务端上下文重复累积
         //（消息追加语义 + 重发 = fc 出现两次 + 占位 reasoning "…" 污染）
         if (delta.any { it.isToolItem() }) return null to null
-        // [F11] 过滤服务端已有的 assistant 回显（上次 output 已保存，无需重发）
+        // [F11] 过滤服务端已有的 assistant 回显（上次 output 已保存，无需重发）：
+        // message 回显 + reasoning 回显都过滤（reasoning 是思维链，体积最大，
+        // 不过滤则增量退化为"思维链照样重传"，核心收益丢失）
         val filtered = delta.filterNot { item ->
-            session.responseItems.any { known -> known.isSameAssistantMessage(item) }
+            session.responseItems.any { known -> known.isEchoOf(item) }
         }
         if (filtered.isEmpty()) return null to null
         return session.previousResponseId to filtered
@@ -137,13 +139,41 @@ internal class IncrementalSessions {
     }
 
     /**
-     * 判断两个 item 是否是"同一条 assistant 消息"（App 回显 vs 服务端 output 结构不同：
-     * App 无 type/id、content 可能是纯字符串，服务端有 type/id、content 是数组——
-     * 按 role + 文本序列比较，忽略结构差异）。
+     * 判断 delta 中的 item 是否是对"服务端已知 output item"的回显（应过滤）。
+     * 按 type 分发：
+     * - message：App 回显（无 type、content 纯字符串或数组）vs 服务端 output
+     *   （type=message、content 数组）——按 role + 文本序列比较
+     * - reasoning：App 回显（content 数组 reasoning_text 或明文）vs 服务端 output
+     *   （type=reasoning、content 数组）——按 type + 文本序列比较
+     * 其他类型（function_call 等）不参与（工具轮次已回退全量）。
      */
+    private fun JsonElement.isEchoOf(known: JsonElement): Boolean {
+        val knownObj = known as? JsonObject ?: return false
+        val knownType = knownObj["type"]?.let { (it as? JsonPrimitive)?.contentOrNull }
+        return when (knownType) {
+            "message" -> this.isSameAssistantMessage(known)
+            "reasoning" -> this.isSameReasoningItem(known)
+            else -> false
+        }
+    }
+
+    /** 判断两个 item 是否是"同一条 assistant 消息"（App 回显 vs 服务端 output 结构不同：
+     * App 无 type/id、content 可能是纯字符串，服务端有 type/id、content 是数组——
+     * 按 role + 文本序列比较，忽略结构差异）。 */
     private fun JsonElement.isSameAssistantMessage(other: JsonElement): Boolean {
         val texts = this.assistantTexts() ?: return false
         val otherTexts = other.assistantTexts() ?: return false
+        return texts == otherTexts
+    }
+
+    /** 判断两个 item 是否是"同一条 reasoning"（App 回显 vs 服务端 output） */
+    private fun JsonElement.isSameReasoningItem(other: JsonElement): Boolean {
+        val obj = this as? JsonObject ?: return false
+        if (obj["type"]?.let { (it as? JsonPrimitive)?.contentOrNull } != "reasoning") return false
+        val otherObj = other as? JsonObject ?: return false
+        if (otherObj["type"]?.let { (it as? JsonPrimitive)?.contentOrNull } != "reasoning") return false
+        val texts = this.contentTexts() ?: return false
+        val otherTexts = other.contentTexts() ?: return false
         return texts == otherTexts
     }
 
@@ -151,6 +181,12 @@ internal class IncrementalSessions {
     private fun JsonElement.assistantTexts(): List<String>? {
         val obj = this as? JsonObject ?: return null
         if (obj["role"]?.let { (it as? JsonPrimitive)?.contentOrNull } != "assistant") return null
+        return contentTexts()
+    }
+
+    /** 提取 content 字段的文本序列（纯字符串 → 单元素；数组 → 逐项 text） */
+    private fun JsonElement.contentTexts(): List<String>? {
+        val obj = this as? JsonObject ?: return null
         val content = obj["content"] ?: return emptyList()
         return when (content) {
             is JsonPrimitive -> listOf(content.content)

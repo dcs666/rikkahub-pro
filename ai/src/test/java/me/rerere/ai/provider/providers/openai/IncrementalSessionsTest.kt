@@ -275,6 +275,45 @@ class IncrementalSessionsTest {
     }
 
     @Test
+    fun `reasoning echo is filtered`() {
+        // [修复 F16] thinking 模式：上次 output 的 reasoning（思维链）回显必须被过滤，
+        // 否则增量退化为"思维链照样重传"（服务端上下文思维链重复 + 增量收益丢失）
+        val sessions = IncrementalSessions()
+        val firstInput = listOf(userMsg("你好"))
+        // 服务端 output：reasoning item + message item（思考模式典型响应）
+        val outReasoning = parse("""{"type":"reasoning","id":"r1","content":[{"type":"reasoning_text","text":"让我想想"}]}""")
+        val outMessage = parse("""{"type":"message","role":"assistant","content":[{"type":"output_text","text":"在的"}]}""")
+        sessions.update(host, body(firstInput), "resp_1", listOf(outReasoning, outMessage))
+
+        // 第二轮：App 回显 reasoning（无 id、content 数组）+ message 回显 + 新 user 消息
+        val echoReasoning = parse("""{"type":"reasoning","content":[{"type":"reasoning_text","text":"让我想想"}]}""")
+        val fullInput = firstInput + listOf(echoReasoning, assistantMsg("在的"), userMsg("继续"))
+        val (prevId, delta) = sessions.resolve(host, fullInput, body(fullInput))
+        assertNotNull(prevId)
+        assertEquals("resp_1", prevId)
+        // 增量 = 仅新 user 消息（reasoning 回显 + message 回显都被过滤）
+        assertEquals(1, delta!!.size)
+        assertEquals("继续", delta[0].jsonObject["content"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `reasoning echo with plain content is filtered`() {
+        // [修复 F16] DeepSeek 明文 content 形式（usePlainReasoningContent）的回显也能过滤
+        val sessions = IncrementalSessions()
+        val firstInput = listOf(userMsg("你好"))
+        val outReasoning = parse("""{"type":"reasoning","id":"r1","content":"明文思维链"}""")
+        val outMessage = parse("""{"type":"message","role":"assistant","content":[{"type":"output_text","text":"在的"}]}""")
+        sessions.update(host, body(firstInput), "resp_1", listOf(outReasoning, outMessage))
+
+        val echoReasoning = parse("""{"type":"reasoning","content":"明文思维链"}""")
+        val fullInput = firstInput + listOf(echoReasoning, assistantMsg("在的"), userMsg("继续"))
+        val (prevId, delta) = sessions.resolve(host, fullInput, body(fullInput))
+        assertNotNull(prevId)
+        assertEquals(1, delta!!.size)
+        assertEquals("继续", delta[0].jsonObject["content"]!!.jsonPrimitive.content)
+    }
+
+    @Test
     fun `lru evicts oldest session when full`() {
         // [修复 F10] 超过上限时淘汰最久未用，而非整体清空
         val sessions = IncrementalSessions()
