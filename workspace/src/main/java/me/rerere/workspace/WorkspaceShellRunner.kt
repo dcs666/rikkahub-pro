@@ -36,7 +36,9 @@ class HostShellRunner : WorkspaceShellRunner {
 }
 
 // 单个流保留的最大字符数, 防止命令疯狂输出导致 OOM 或撑爆 LLM 上下文
-const val MAX_OUTPUT_CHARS = 128 * 1024
+// [TURBO] 128KB → 600KB：对齐 opencode MAX_CAPTURE_BYTES=1MB 思路，
+// 减少大输出（git diff/编译日志）被截断导致的重复调用
+const val MAX_OUTPUT_CHARS = 600 * 1024
 
 fun Process.readResult(timeoutMillis: Long, stdin: ByteArray? = null): WorkspaceCommandResult {
     val stdout = StreamCollector(inputStream)
