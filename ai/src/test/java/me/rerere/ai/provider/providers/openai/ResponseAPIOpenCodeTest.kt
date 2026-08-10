@@ -167,8 +167,8 @@ class ResponseAPIOpenCodeTest {
     }
 
     @Test
-    fun `tool output over 4000 chars is truncated`() {
-        // [L3] 工具输出压缩：超 4000 字符截断 + [truncated] 标记（仅对非最近 2 轮）
+    fun `tool output over 2500 chars is truncated`() {
+        // [L3] 工具输出压缩：超 2500 字符截断 + [truncated] 标记（仅对非最近 2 轮）
         // 对齐 opencode compaction：1 轮 = 1 个 user 消息段；构造 3 轮，
         // 第 1 轮超长（应截断），第 2/3 轮在最近 2 轮内（不截断）
         val longOutput = "x".repeat(5000)
@@ -221,7 +221,7 @@ class ResponseAPIOpenCodeTest {
         assertEquals(3, fcos.size)
         // 第 1 轮（最旧）：截断
         val old = fcos[0].jsonObject["output"]?.jsonPrimitive?.content
-        assertTrue(old != null && old!!.length <= 4000 + "\n[truncated]".length)
+        assertTrue(old != null && old!!.length <= 2500 + "\n[truncated]".length)
         assertTrue(old!!.endsWith("[truncated]"))
         // 第 2、3 轮（最近 2 轮内）：完整保留
         val recent = fcos[1].jsonObject["output"]?.jsonPrimitive?.content
@@ -403,9 +403,9 @@ class ResponseAPIOpenCodeTest {
     }
 
     @Test
-    fun `tool output at exactly 4000 chars is not truncated`() {
-        // [L3] 边界：恰好 4000 字符不截断
-        val exactOutput = "x".repeat(4000)
+    fun `tool output at exactly 2500 chars is not truncated`() {
+        // [L3] 边界：恰好 2500 字符不截断
+        val exactOutput = "x".repeat(2500)
         val assistant = UIMessage(
             role = MessageRole.ASSISTANT,
             parts = listOf(
@@ -420,7 +420,7 @@ class ResponseAPIOpenCodeTest {
         val items = api.buildMessages(listOf(assistant))
         val fco = items.jsonArray.first { it.jsonObject["type"]?.jsonPrimitive?.content == "function_call_output" }
         val output = fco.jsonObject["output"]?.jsonPrimitive?.content
-        assertEquals(4000, output?.length)
+        assertEquals(2500, output?.length)
         assertTrue(!output!!.endsWith("[truncated]"))
     }
 

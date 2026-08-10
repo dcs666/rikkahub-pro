@@ -121,8 +121,8 @@ private fun summarizeInput(input: JsonElement?): String {
  */
 private const val REASONING_PLACEHOLDER = "…"
 
-/** [L3] 工具输出回传上限：超长截断（对齐 opencode TOOL_OUTPUT_MAX_CHARS=2000 思路，取 4000） */
-private const val MAX_TOOL_OUTPUT_CHARS = 4000
+/** [L3] 工具输出回传上限：超长截断（对齐 opencode TOOL_OUTPUT_MAX_CHARS=2000 思路，取 2500） */
+private const val MAX_TOOL_OUTPUT_CHARS = 2500
 
 /**
  * [F2] 增量请求失败信号：streamText 外层捕获后自动回退全量重试一次
@@ -775,7 +775,7 @@ class ResponseAPI(
                                 }
                             } else {
                                 // [FIX] 空输出时给占位文本，避免提供商拒绝空 output
-                                // [L3] 工具输出压缩：超 4000 字符截断（对齐 opencode
+                                // [L3] 工具输出压缩：超 2500 字符截断（对齐 opencode
                                 // TOOL_OUTPUT_MAX_CHARS 思路），防止大工具结果
                                 //（git diff/文件内容）导致请求体膨胀；
                                 // 最近 2 轮工具输出完整保留（keepToolOutput）——
