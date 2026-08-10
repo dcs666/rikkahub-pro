@@ -204,6 +204,126 @@ class ResponseAPIOpenCodeTest {
     }
 
     @Test
+    fun `tool-heavy turns do not evict latest reasoning`() {
+        // [L1-FIX] 工具轮次（无 reasoning）不应计入保留窗口：1 轮思考 + 4 轮工具调用
+        // 时，唯一/最新思考必须保留完整（旧实现按 assistant 消息计数会把思考挤掉）
+        val msgs = mutableListOf<UIMessage>()
+        msgs.add(UIMessage.user("research and summarize"))
+        msgs.add(
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(
+                    UIMessagePart.Reasoning(reasoning = "plan the research"),
+                    UIMessagePart.Text("let me search")
+                )
+            )
+        )
+        // 4 轮工具调用（assistant 消息，无 reasoning）
+        for (i in 1..4) {
+            msgs.add(
+                UIMessage(
+                    role = MessageRole.ASSISTANT,
+                    parts = listOf(
+                        UIMessagePart.Tool(
+                            toolName = "shell",
+                            toolCallId = "call_$i",
+                            input = "cmd $i",
+                            output = listOf(UIMessagePart.Text("result $i"))
+                        )
+                    )
+                )
+            )
+        }
+        msgs.add(UIMessage.user("explain your approach"))
+        val items = api.buildMessages(msgs, useReasoningTextArray = true)
+        val reasoningItems = items.jsonArray.filter { it.jsonObject["type"]?.jsonPrimitive?.content == "reasoning" }
+        // 应只有 1 个 reasoning（思考轮次），且内容完整
+        assertEquals(1, reasoningItems.size)
+        val text = reasoningItems[0].jsonObject["content"]!!.jsonArray[0].jsonObject["text"]?.jsonPrimitive?.content
+        assertEquals("plan the research", text)
+    }
+
+    @Test
+    fun `plain reasoning content old turns placeholder`() {
+        // [L1] DeepSeek 明文路径（usePlainReasoningContent）：旧轮次占位符
+        val msgs = mutableListOf<UIMessage>()
+        for (i in 0 until 5) {
+            msgs.add(UIMessage.user("question $i"))
+            msgs.add(
+                UIMessage(
+                    role = MessageRole.ASSISTANT,
+                    parts = listOf(
+                        UIMessagePart.Reasoning(reasoning = "thinking trace $i"),
+                        UIMessagePart.Text("answer $i")
+                    )
+                )
+            )
+        }
+        val items = api.buildMessages(msgs, usePlainReasoningContent = true)
+        val reasoningItems = items.jsonArray.filter { it.jsonObject["type"]?.jsonPrimitive?.content == "reasoning" }
+        assertEquals(5, reasoningItems.size)
+        assertEquals("…", reasoningItems[0].jsonObject["content"]?.jsonPrimitive?.content)
+        for (i in 1 until 5) {
+            assertEquals(
+                "thinking trace $i",
+                reasoningItems[i].jsonObject["content"]?.jsonPrimitive?.content
+            )
+        }
+    }
+
+    @Test
+    fun `summary branch old turns placeholder without encrypted content`() {
+        // [L1] OpenAI 官方 summary 分支：旧轮次 summary_text 占位
+        val msgs = mutableListOf<UIMessage>()
+        for (i in 0 until 5) {
+            msgs.add(UIMessage.user("question $i"))
+            msgs.add(
+                UIMessage(
+                    role = MessageRole.ASSISTANT,
+                    parts = listOf(
+                        UIMessagePart.Reasoning(reasoning = "thinking trace $i"),
+                        UIMessagePart.Text("answer $i")
+                    )
+                )
+            )
+        }
+        val items = api.buildMessages(msgs)
+        val reasoningItems = items.jsonArray.filter { it.jsonObject["type"]?.jsonPrimitive?.content == "reasoning" }
+        assertEquals(5, reasoningItems.size)
+        // 最早一轮：占位 + 无 encrypted_content
+        val first = reasoningItems[0].jsonObject
+        val summaryText = first["summary"]!!.jsonArray[0].jsonObject["text"]?.jsonPrimitive?.content
+        assertEquals("…", summaryText)
+        assertNull(first["encrypted_content"])
+        // 最近一轮：完整
+        val last = reasoningItems[4].jsonObject
+        val lastText = last["summary"]!!.jsonArray[0].jsonObject["text"]?.jsonPrimitive?.content
+        assertEquals("thinking trace 4", lastText)
+    }
+
+    @Test
+    fun `tool output at exactly 4000 chars is not truncated`() {
+        // [L3] 边界：恰好 4000 字符不截断
+        val exactOutput = "x".repeat(4000)
+        val assistant = UIMessage(
+            role = MessageRole.ASSISTANT,
+            parts = listOf(
+                UIMessagePart.Tool(
+                    toolName = "shell",
+                    toolCallId = "call_exact",
+                    input = "cat file",
+                    output = listOf(UIMessagePart.Text(exactOutput))
+                )
+            )
+        )
+        val items = api.buildMessages(listOf(assistant))
+        val fco = items.jsonArray.first { it.jsonObject["type"]?.jsonPrimitive?.content == "function_call_output" }
+        val output = fco.jsonObject["output"]?.jsonPrimitive?.content
+        assertEquals(4000, output?.length)
+        assertTrue(!output!!.endsWith("[truncated]"))
+    }
+
+    @Test
     fun `opencode host buildRequestBody uses reasoning_text for history`() {
         // 走真实路径：host=opencode.ai 时历史 reasoning item 必须是 reasoning_text 数组
         val assistant = UIMessage(

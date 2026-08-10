@@ -551,15 +551,21 @@ class ResponseAPI(
         forcePlaceholderReasoning: Boolean = false,
     ) = buildJsonArray {
         val filtered = messages.filter { it.isValidToUpload() && it.role != MessageRole.SYSTEM }
-        val assistantCount = filtered.count { it.role == MessageRole.ASSISTANT }
-        var assistantIndex = 0
+        // [L1-FIX] 按"含思维链的消息"计数而非全部 assistant 消息：工具轮次（fc+fco）
+        // 没有 reasoning，若按 assistant 计数，工具密集场景（1 思考 + ≥4 工具轮次）
+        // 会把唯一/最新一轮思考挤出窗口 → 最新思考被占位，追问"思路"时质量受损
+        val reasoningCount = filtered.count {
+            it.role == MessageRole.ASSISTANT && it.parts.any { p -> p is UIMessagePart.Reasoning }
+        }
+        var reasoningIndex = 0
         filtered.forEach { message ->
             if (message.role == MessageRole.ASSISTANT) {
-                assistantIndex++
-                // [L1] 思维链压缩：仅最近 4 轮 assistant 消息保留完整思维链，
+                val hasReasoning = message.parts.any { it is UIMessagePart.Reasoning }
+                if (hasReasoning) reasoningIndex++
+                // [L1] 思维链压缩：仅最近 4 条含思维链的消息保留完整思维链，
                 // 更早的用占位符（网关只校验非空；历史思维链对生成质量无益——
                 // opencode 官方甚至对历史消息补空 reasoning）
-                val keepReasoning = assistantIndex > assistantCount - 4
+                val keepReasoning = !hasReasoning || reasoningIndex > reasoningCount - 4
                 addAssistantItems(
                     message,
                     usePlainReasoningContent,
