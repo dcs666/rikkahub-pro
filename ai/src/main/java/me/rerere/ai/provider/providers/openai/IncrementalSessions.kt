@@ -4,6 +4,8 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import java.util.concurrent.ConcurrentHashMap
 
@@ -54,14 +56,38 @@ internal class IncrementalSessions {
         // reasoning/store/stream 等），否则 previous_response_id 会沿用旧参数
         if (session.requestSignature != requestSignature(requestBody)) return null to null
         val prefix = session.sentInput + session.responseItems
-        // [实测] opencode.ai 网关的 previous_response_id 只支持消息追加，
-        // 不支持工具输出关联：增量里带 function_call_output 会报
-        // "No tool call found for tool output with call_id ..."。
-        // 已知状态含 function_call 时禁用增量（回退全量，工具循环不受影响）。
-        if (session.responseItems.any { it.isFunctionCallItem() }) return null to null
         if (input.size <= prefix.size) return null to null
         if (!itemsEqual(input.take(prefix.size), prefix)) return null to null
-        return session.previousResponseId to input.drop(prefix.size)
+        val delta = input.drop(prefix.size)
+        // [实测] opencode.ai 网关 previous_response_id 不支持 fco 引用之前的 fc
+        //（增量带 fco 报 "No tool call found"），但支持"重发 fc+fco"（当新输入处理）：
+        // 增量 = [占位 reasoning + fc + fco] 逐对 + 剩余新增（每个 fc 前必须补
+        // 占位 reasoning，规则与全量一致——双 fc 无占位实测 400）。
+        val fcItems = session.responseItems.filter { it.isFunctionCallItem() }
+        if (fcItems.isNotEmpty()) {
+            val rebuilt = buildList {
+                fcItems.forEach { fc ->
+                    add(placeholderReasoningItem())
+                    add(fc)
+                    // 匹配对应 fco（按 call_id），从增量里取出来插到 fc 后
+                    val callId = fc.callIdOrNull()
+                    val fcoIndex = delta.indexOfFirst { it.isFunctionCallOutputWithCallId(callId) }
+                    if (fcoIndex >= 0) {
+                        add(delta[fcoIndex])
+                    }
+                }
+                // 剩余新增（已插入的 fco 不再重复）
+                delta.forEachIndexed { index, item ->
+                    if (!item.isFunctionCallOutput() || fcItems.none { it.callIdOrNull() == item.callIdOrNull() } ||
+                        delta.indexOfFirst { it.isFunctionCallOutputWithCallId(item.callIdOrNull()) } == index
+                    ) {
+                        add(item)
+                    }
+                }
+            }
+            return session.previousResponseId to rebuilt
+        }
+        return session.previousResponseId to delta
     }
 
     /**
@@ -116,6 +142,35 @@ internal class IncrementalSessions {
         return obj["type"]?.let { type ->
             (type as? JsonPrimitive)?.contentOrNull == "function_call"
         } ?: false
+    }
+
+    private fun JsonElement.isFunctionCallOutput(): Boolean {
+        val obj = this as? JsonObject ?: return false
+        return obj["type"]?.let { type ->
+            (type as? JsonPrimitive)?.contentOrNull == "function_call_output"
+        } ?: false
+    }
+
+    private fun JsonElement.isFunctionCallOutputWithCallId(callId: String?): Boolean {
+        if (callId == null) return false
+        val obj = this as? JsonObject ?: return false
+        if (obj["type"]?.let { (it as? JsonPrimitive)?.contentOrNull } != "function_call_output") return false
+        return obj["call_id"]?.let { (it as? JsonPrimitive)?.contentOrNull } == callId
+    }
+
+    private fun JsonElement.callIdOrNull(): String? {
+        val obj = this as? JsonObject ?: return null
+        return obj["call_id"]?.let { (it as? JsonPrimitive)?.contentOrNull }
+    }
+
+    private fun placeholderReasoningItem(): JsonObject = buildJsonObject {
+        put("type", "reasoning")
+        put("content", buildJsonArray {
+            add(buildJsonObject {
+                put("type", "reasoning_text")
+                put("text", "…")
+            })
+        })
     }
 
     /**
