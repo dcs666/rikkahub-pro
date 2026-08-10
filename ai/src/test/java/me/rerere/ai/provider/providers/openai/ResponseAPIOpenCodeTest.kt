@@ -112,9 +112,41 @@ class ResponseAPIOpenCodeTest {
 
     @Test
     fun `old reasoning beyond last 4 turns is placeholder`() {
-        // [L1] 思维链压缩：最近 4 轮 assistant 保留完整思维链，更早的用占位符
+        // [L1] 思维链压缩（overflow 时）：最近 4 轮 assistant 保留完整思维链，更早的用占位符
         val msgs = mutableListOf<UIMessage>()
         // 5 轮 assistant（每轮带思维链），夹在 user 消息之间
+        for (i in 0 until 5) {
+            msgs.add(UIMessage.user("question $i"))
+            msgs.add(
+                UIMessage(
+                    role = MessageRole.ASSISTANT,
+                    parts = listOf(
+                        UIMessagePart.Reasoning(reasoning = "thinking trace $i"),
+                        UIMessagePart.Text("answer $i")
+                    )
+                )
+            )
+        }
+        msgs.add(UIMessage.user("final"))
+        // 触发 overflow：超大 user 消息（450K 字符 ≈ 112.5K tokens ≥ 108K）
+        msgs.add(UIMessage.user("x".repeat(450_000)))
+        val items = api.buildMessages(msgs, useReasoningTextArray = true)
+        val reasoningItems = items.jsonArray.filter { it.jsonObject["type"]?.jsonPrimitive?.content == "reasoning" }
+        assertEquals(5, reasoningItems.size)
+        // 最早 1 轮（thinking trace 0）→ 占位符
+        val first = reasoningItems[0].jsonObject["content"]!!.jsonArray[0].jsonObject
+        assertEquals("…", first["text"]?.jsonPrimitive?.content)
+        // 最近 4 轮 → 完整保留
+        for (i in 1 until 5) {
+            val text = reasoningItems[i].jsonObject["content"]!!.jsonArray[0].jsonObject["text"]?.jsonPrimitive?.content
+            assertEquals("thinking trace $i", text)
+        }
+    }
+
+    @Test
+    fun `no overflow keeps all reasoning full`() {
+        // [L1] 照抄 opencode：未 overflow 时思维链全量保留（不占位）
+        val msgs = mutableListOf<UIMessage>()
         for (i in 0 until 5) {
             msgs.add(UIMessage.user("question $i"))
             msgs.add(
@@ -131,11 +163,7 @@ class ResponseAPIOpenCodeTest {
         val items = api.buildMessages(msgs, useReasoningTextArray = true)
         val reasoningItems = items.jsonArray.filter { it.jsonObject["type"]?.jsonPrimitive?.content == "reasoning" }
         assertEquals(5, reasoningItems.size)
-        // 最早 1 轮（thinking trace 0）→ 占位符
-        val first = reasoningItems[0].jsonObject["content"]!!.jsonArray[0].jsonObject
-        assertEquals("…", first["text"]?.jsonPrimitive?.content)
-        // 最近 4 轮 → 完整保留
-        for (i in 1 until 5) {
+        for (i in 0 until 5) {
             val text = reasoningItems[i].jsonObject["content"]!!.jsonArray[0].jsonObject["text"]?.jsonPrimitive?.content
             assertEquals("thinking trace $i", text)
         }
@@ -398,7 +426,7 @@ class ResponseAPIOpenCodeTest {
 
     @Test
     fun `plain reasoning content old turns placeholder`() {
-        // [L1] DeepSeek 明文路径（usePlainReasoningContent）：旧轮次占位符
+        // [L1] DeepSeek 明文路径（usePlainReasoningContent）：overflow 时旧轮次占位符
         val msgs = mutableListOf<UIMessage>()
         for (i in 0 until 5) {
             msgs.add(UIMessage.user("question $i"))
@@ -412,6 +440,7 @@ class ResponseAPIOpenCodeTest {
                 )
             )
         }
+        msgs.add(UIMessage.user("x".repeat(450_000)))  // 触发 overflow
         val items = api.buildMessages(msgs, usePlainReasoningContent = true)
         val reasoningItems = items.jsonArray.filter { it.jsonObject["type"]?.jsonPrimitive?.content == "reasoning" }
         assertEquals(5, reasoningItems.size)
@@ -426,7 +455,7 @@ class ResponseAPIOpenCodeTest {
 
     @Test
     fun `summary branch old turns placeholder without encrypted content`() {
-        // [L1] OpenAI 官方 summary 分支：旧轮次 summary_text 占位
+        // [L1] OpenAI 官方 summary 分支：overflow 时旧轮次 summary_text 占位
         val msgs = mutableListOf<UIMessage>()
         for (i in 0 until 5) {
             msgs.add(UIMessage.user("question $i"))
@@ -440,6 +469,7 @@ class ResponseAPIOpenCodeTest {
                 )
             )
         }
+        msgs.add(UIMessage.user("x".repeat(450_000)))  // 触发 overflow
         val items = api.buildMessages(msgs)
         val reasoningItems = items.jsonArray.filter { it.jsonObject["type"]?.jsonPrimitive?.content == "reasoning" }
         assertEquals(5, reasoningItems.size)

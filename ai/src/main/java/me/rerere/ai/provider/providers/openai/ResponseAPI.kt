@@ -574,8 +574,13 @@ class ResponseAPI(
         val text = when (part) {
             is UIMessagePart.Text -> part.text
             is UIMessagePart.Reasoning -> part.reasoning
-            is UIMessagePart.Tool -> part.output.filterIsInstance<UIMessagePart.Text>()
-                .joinToString("\n") { it.text }
+            is UIMessagePart.Tool -> {
+                val output = part.output.filterIsInstance<UIMessagePart.Text>()
+                    .joinToString("\n") { it.text }
+                // 工具调用本身（input）+ 输出都计入（opencode tokens.total 含全部内容）
+                part.input + "\n" + output
+            }
+            is UIMessagePart.ToolCall -> part.arguments
             else -> ""
         }
         return text.length / CHARS_PER_TOKEN
@@ -647,10 +652,14 @@ class ResponseAPI(
             if (message.role == MessageRole.ASSISTANT) {
                 val hasReasoning = message.parts.any { it is UIMessagePart.Reasoning }
                 if (hasReasoning) reasoningIndex++
-                // [L1] 思维链压缩：仅最近 4 条含思维链的消息保留完整思维链，
-                // 更早的用占位符（网关只校验非空；历史思维链对生成质量无益——
-                // opencode 官方甚至对历史消息补空 reasoning）
-                val keepReasoning = !hasReasoning || reasoningIndex > reasoningCount - 4
+                // [L1] 思维链压缩（照抄 opencode transform.ts + 适配）：
+                // opencode 发送时全量保留历史思维链（interleaved 搬 providerOptions），
+                // 压缩发生在 compaction 摘要化；我们无 LLM 摘要层 → 适配为：
+                // 仅 overflow（估算总 token ≥ context−20K）时触发压缩——
+                // 保留最近 4 条含思维链的消息完整，更早的用占位符（网关只校验
+                // 非空；历史思维链对生成质量无益——opencode 官方对缺失 reasoning
+                // 的消息也只补空字符串）；未 overflow 时全量保留（对齐 opencode）
+                val keepReasoning = !hasReasoning || !overflow || reasoningIndex > reasoningCount - 4
                 // [L3] 最近 2 轮（user 分段）内工具输出不截断
                 val hasTool = message.parts.any { it is UIMessagePart.Tool && it.isExecuted }
                 val keepToolOutput = !hasTool || index >= keepToolFrom
