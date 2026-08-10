@@ -558,7 +558,16 @@ class ResponseAPI(
             it.role == MessageRole.ASSISTANT && it.parts.any { p -> p is UIMessagePart.Reasoning }
         }
         var reasoningIndex = 0
-        filtered.forEach { message ->
+        // [L3] 对齐 opencode compaction 语义（compaction.ts turns()）：1 轮 = 1 个 user
+        // 消息到下一个 user 消息之间（含中间所有工具调用）。最近 2 轮内的工具输出
+        // 完整保留（当前决策链需要完整工具结果），更早的才截断（4000 字符）。
+        // opencode 默认 tail_turns=2，同一轮内多次工具调用全部保留——按 user 分段
+        // 而非按 assistant 工具消息计数，避免误伤同一轮内的工具链。
+        val userTurns = filtered.mapIndexedNotNull { index, m ->
+            if (m.role == MessageRole.USER) index else null
+        }
+        val keepToolFrom = if (userTurns.size <= 2) 0 else userTurns[userTurns.size - 2]
+        filtered.forEachIndexed { index, message ->
             if (message.role == MessageRole.ASSISTANT) {
                 val hasReasoning = message.parts.any { it is UIMessagePart.Reasoning }
                 if (hasReasoning) reasoningIndex++
@@ -566,12 +575,16 @@ class ResponseAPI(
                 // 更早的用占位符（网关只校验非空；历史思维链对生成质量无益——
                 // opencode 官方甚至对历史消息补空 reasoning）
                 val keepReasoning = !hasReasoning || reasoningIndex > reasoningCount - 4
+                // [L3] 最近 2 轮（user 分段）内工具输出不截断
+                val hasTool = message.parts.any { it is UIMessagePart.Tool && it.isExecuted }
+                val keepToolOutput = !hasTool || index >= keepToolFrom
                 addAssistantItems(
                     message,
                     usePlainReasoningContent,
                     useReasoningTextArray,
                     forcePlaceholderReasoning,
                     keepReasoning,
+                    keepToolOutput,
                 )
             } else {
                 addUserItems(message)
@@ -585,6 +598,7 @@ class ResponseAPI(
         useReasoningTextArray: Boolean = false,
         forcePlaceholderReasoning: Boolean = false,
         keepReasoning: Boolean = true,
+        keepToolOutput: Boolean = true,
     ) {
         val groups = groupPartsByToolBoundary(message.parts)
         val contentBuffer = mutableListOf<UIMessagePart>()
@@ -763,10 +777,12 @@ class ResponseAPI(
                                 // [FIX] 空输出时给占位文本，避免提供商拒绝空 output
                                 // [L3] 工具输出压缩：超 4000 字符截断（对齐 opencode
                                 // TOOL_OUTPUT_MAX_CHARS 思路），防止大工具结果
-                                //（git diff/文件内容）导致请求体膨胀
+                                //（git diff/文件内容）导致请求体膨胀；
+                                // 最近 2 轮工具输出完整保留（keepToolOutput）——
+                                // 当前工具链决策需要完整结果，历史才截断
                                 val text = tool.output.filterIsInstance<UIMessagePart.Text>()
                                     .joinToString("\n") { it.text }
-                                val trimmed = if (text.length > MAX_TOOL_OUTPUT_CHARS) {
+                                val trimmed = if (!keepToolOutput && text.length > MAX_TOOL_OUTPUT_CHARS) {
                                     text.take(MAX_TOOL_OUTPUT_CHARS) + "\n[truncated]"
                                 } else {
                                     text

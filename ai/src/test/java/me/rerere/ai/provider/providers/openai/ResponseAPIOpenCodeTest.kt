@@ -168,25 +168,67 @@ class ResponseAPIOpenCodeTest {
 
     @Test
     fun `tool output over 4000 chars is truncated`() {
-        // [L3] 工具输出压缩：超 4000 字符截断 + [truncated] 标记
+        // [L3] 工具输出压缩：超 4000 字符截断 + [truncated] 标记（仅对非最近 2 轮）
+        // 对齐 opencode compaction：1 轮 = 1 个 user 消息段；构造 3 轮，
+        // 第 1 轮超长（应截断），第 2/3 轮在最近 2 轮内（不截断）
         val longOutput = "x".repeat(5000)
-        val assistant = UIMessage(
-            role = MessageRole.ASSISTANT,
-            parts = listOf(
-                UIMessagePart.Tool(
-                    toolName = "shell",
-                    toolCallId = "call_1",
-                    input = "cat file",
-                    output = listOf(UIMessagePart.Text(longOutput))
+        val msgs = mutableListOf<UIMessage>()
+        msgs.add(UIMessage.user("round 1"))
+        msgs.add(
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(
+                    UIMessagePart.Tool(
+                        toolName = "shell",
+                        toolCallId = "call_old",
+                        input = "cat bigfile",
+                        output = listOf(UIMessagePart.Text(longOutput))
+                    )
                 )
             )
         )
-        val items = api.buildMessages(listOf(assistant))
-        val fco = items.jsonArray.first { it.jsonObject["type"]?.jsonPrimitive?.content == "function_call_output" }
-        val output = fco.jsonObject["output"]?.jsonPrimitive?.content
-        assertTrue(output != null && output!!.length <= 4000 + "\n[truncated]".length)
-        assertTrue(output!!.endsWith("[truncated]"))
-        // 短输出不截断
+        msgs.add(UIMessage.user("round 2"))
+        msgs.add(
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(
+                    UIMessagePart.Tool(
+                        toolName = "shell",
+                        toolCallId = "call_recent",
+                        input = "cat file2",
+                        output = listOf(UIMessagePart.Text(longOutput))
+                    )
+                )
+            )
+        )
+        msgs.add(UIMessage.user("round 3"))
+        msgs.add(
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(
+                    UIMessagePart.Tool(
+                        toolName = "shell",
+                        toolCallId = "call_latest",
+                        input = "cat file3",
+                        output = listOf(UIMessagePart.Text(longOutput))
+                    )
+                )
+            )
+        )
+        msgs.add(UIMessage.user("done"))
+        val items = api.buildMessages(msgs)
+        val fcos = items.jsonArray.filter { it.jsonObject["type"]?.jsonPrimitive?.content == "function_call_output" }
+        assertEquals(3, fcos.size)
+        // 第 1 轮（最旧）：截断
+        val old = fcos[0].jsonObject["output"]?.jsonPrimitive?.content
+        assertTrue(old != null && old!!.length <= 4000 + "\n[truncated]".length)
+        assertTrue(old!!.endsWith("[truncated]"))
+        // 第 2、3 轮（最近 2 轮内）：完整保留
+        val recent = fcos[1].jsonObject["output"]?.jsonPrimitive?.content
+        assertEquals(5000, recent?.length)
+        val latest = fcos[2].jsonObject["output"]?.jsonPrimitive?.content
+        assertEquals(5000, latest?.length)
+        // 短输出永不截断（即使很旧）
         val shortAssistant = UIMessage(
             role = MessageRole.ASSISTANT,
             parts = listOf(
@@ -201,6 +243,65 @@ class ResponseAPIOpenCodeTest {
         val items2 = api.buildMessages(listOf(shortAssistant))
         val fco2 = items2.jsonArray.first { it.jsonObject["type"]?.jsonPrimitive?.content == "function_call_output" }
         assertEquals("hi", fco2.jsonObject["output"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `same user turn keeps all tool outputs`() {
+        // [L3] 对齐 opencode turns()：同一轮（1 个 user 消息段）内多次工具调用全部保留
+        val msgs = mutableListOf<UIMessage>()
+        msgs.add(UIMessage.user("run a long tool chain"))
+        for (i in 1..5) {
+            msgs.add(
+                UIMessage(
+                    role = MessageRole.ASSISTANT,
+                    parts = listOf(
+                        UIMessagePart.Tool(
+                            toolName = "shell",
+                            toolCallId = "call_$i",
+                            input = "cmd $i",
+                            output = listOf(UIMessagePart.Text("y".repeat(5000)))
+                        )
+                    )
+                )
+            )
+        }
+        val items = api.buildMessages(msgs)
+        val fcos = items.jsonArray.filter { it.jsonObject["type"]?.jsonPrimitive?.content == "function_call_output" }
+        assertEquals(5, fcos.size)
+        for (i in 0 until 5) {
+            val out = fcos[i].jsonObject["output"]?.jsonPrimitive?.content
+            assertEquals(5000, out?.length)
+        }
+    }
+
+    @Test
+    fun `recent two user turns keep full output`() {
+        // [L3] 边界：恰好 2 轮（2 个 user 段）时全部保留完整
+        val msgs = mutableListOf<UIMessage>()
+        msgs.add(UIMessage.user("run"))
+        for (i in 1..2) {
+            msgs.add(
+                UIMessage(
+                    role = MessageRole.ASSISTANT,
+                    parts = listOf(
+                        UIMessagePart.Tool(
+                            toolName = "shell",
+                            toolCallId = "call_$i",
+                            input = "cmd $i",
+                            output = listOf(UIMessagePart.Text("y".repeat(5000)))
+                        )
+                    )
+                )
+            )
+            msgs.add(UIMessage.user("continue $i"))
+        }
+        val items = api.buildMessages(msgs)
+        val fcos = items.jsonArray.filter { it.jsonObject["type"]?.jsonPrimitive?.content == "function_call_output" }
+        assertEquals(2, fcos.size)
+        for (i in 0 until 2) {
+            val out = fcos[i].jsonObject["output"]?.jsonPrimitive?.content
+            assertEquals(5000, out?.length)
+        }
     }
 
     @Test
