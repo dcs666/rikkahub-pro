@@ -569,7 +569,13 @@ class ResponseAPI(
         }.mergeCustomBody(params.customBody)
     }
 
-    /** [L3] token 估算：对齐 opencode Token.estimate = chars / 4 */
+    /**
+     * [L3] token 估算：适配 opencode Token.estimate（chars/4）。
+     * opencode 的 overflow 判定用服务端真实 tokens.total（含中文精确计数），
+     * 其本地 estimate 仅用于预算分配；我们无服务端计数 → 用加权估算兜底：
+     * ASCII 4 字符 ≈ 1 token（对齐 opencode），非 ASCII（中文等）1 字符 ≈ 1 token
+     * （真实分布），否则中文对话估算严重偏小、overflow 触发太晚。
+     */
     private fun estimateTokens(part: UIMessagePart): Int {
         val text = when (part) {
             is UIMessagePart.Text -> part.text
@@ -581,9 +587,16 @@ class ResponseAPI(
                 part.input + "\n" + output
             }
             is UIMessagePart.ToolCall -> part.arguments
+            // 图片以 data URL 内嵌时体积巨大，按字符估算计入（避免溢出判定偏小）
+            is UIMessagePart.Image -> part.url
             else -> ""
         }
-        return text.length / CHARS_PER_TOKEN
+        var ascii = 0
+        var nonAscii = 0
+        for (ch in text) {
+            if (ch.code <= 0x7F) ascii++ else nonAscii++
+        }
+        return ascii / CHARS_PER_TOKEN + nonAscii
     }
 
     /**
@@ -840,7 +853,13 @@ class ResponseAPI(
                             put("type", "function_call_output")
                             put("call_id", tool.toolCallId)
                             val hasImage = tool.output.any { it is UIMessagePart.Image }
-                            if (hasImage) {
+                            if (tool.toolCallId in clearedTools) {
+                                // [L3-FIX] prune 清空优先于一切（含图片输出）：
+                                // opencode serialize 对 compacted 工具统一替换
+                                // [Old tool result content cleared]——图片 base64 可能
+                                // 巨大，必须同样清空，否则绕过体积控制
+                                put("output", CLEARED_TOOL_OUTPUT)
+                            } else if (hasImage) {
                                 putJsonArray("output") {
                                     tool.output.forEach { part ->
                                         when (part) {
