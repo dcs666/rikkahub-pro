@@ -184,7 +184,7 @@ class ResponseAPIOpenCodeTest {
         val items = api.buildMessages(listOf(assistant))
         val fco = items.jsonArray.first { it.jsonObject["type"]?.jsonPrimitive?.content == "function_call_output" }
         val output = fco.jsonObject["output"]?.jsonPrimitive?.content
-        assertTrue(output != null && output!!.length <= 4000 + "[truncated]".length)
+        assertTrue(output != null && output!!.length <= 4000 + "\n[truncated]".length)
         assertTrue(output!!.endsWith("[truncated]"))
         // 短输出不截断
         val shortAssistant = UIMessage(
