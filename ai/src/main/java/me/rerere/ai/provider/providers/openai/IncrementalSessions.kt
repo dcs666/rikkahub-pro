@@ -76,7 +76,7 @@ internal class IncrementalSessions {
         // message 回显 + reasoning 回显都过滤（reasoning 是思维链，体积最大，
         // 不过滤则增量退化为"思维链照样重传"，核心收益丢失）
         val filtered = delta.filterNot { item ->
-            session.responseItems.any { known -> known.isEchoOf(item) }
+            session.responseItems.any { known -> item.isEchoOf(known) }
         }
         if (filtered.isEmpty()) return null to null
         return session.previousResponseId to filtered

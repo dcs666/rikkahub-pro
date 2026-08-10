@@ -149,7 +149,7 @@ class ResponseAPI(
         val host = providerSetting.baseUrl.toHttpUrl().host
         // 尝试增量：命中（历史与上次一致）→ previous_response_id + 仅新增 items；
         // 未命中（编辑/重试/新会话）→ 全量发送
-        var requestBody = applyIncremental(host, fullRequestBody)
+        var requestBody = applyIncremental(host, fullRequestBody, params.model.modelId)
         val isIncremental = requestBody.containsKey("previous_response_id")
         var response = client.newCall(
             buildRequest(providerSetting, params, requestBody)
@@ -203,7 +203,7 @@ class ResponseAPI(
             stream = true,
         )
         val host = providerSetting.baseUrl.toHttpUrl().host
-        var requestBody = applyIncremental(host, fullRequestBody)
+        var requestBody = applyIncremental(host, fullRequestBody, params.model.modelId)
         var attempt = 0
         while (true) {
             attempt++
@@ -267,7 +267,20 @@ class ResponseAPI(
                     if (type == "response.completed") {
                         val responseId = json["response"]?.jsonObject?.get("id")
                             ?.jsonPrimitive?.contentOrNull
-                        recordIncremental(host, fullRequestBody, responseId, streamOutputItems.toList())
+                        // [opencode 网关] 透传路径上游会发 output_item.done（streamOutputItems
+                        // 收集）；但转换路径（上游 anthropic/google/chat）只发 output_text.delta /
+                        // output_item.added / completed——没有 done → streamOutputItems 为空 →
+                        // responseItems 空 → 回显过滤失效（增量退化）。
+                        // 兜底：completed 事件若带完整 response.output（OpenAI 官方透传带），
+                        // 直接用作输出 items。
+                        val completedOutput = json["response"]?.jsonObject?.get("output")
+                            ?.let { it as? JsonArray }
+                        val items = if (completedOutput != null && completedOutput.isNotEmpty()) {
+                            completedOutput.toList()
+                        } else {
+                            streamOutputItems.toList()
+                        }
+                        recordIncremental(host, fullRequestBody, responseId, items)
                     }
                     val chunk = parseResponseDelta(json)
                     if (chunk != null) {
@@ -357,11 +370,22 @@ class ResponseAPI(
      * [codex 借鉴] 尝试把请求体转为增量：命中增量会话时
      * 用 previous_response_id + 仅新增 items（+ store=true），否则原样返回。
      */
-    private fun applyIncremental(host: String, fullRequestBody: JsonObject): JsonObject {
-        // [F3] 只有 store=true 的 host（opencode.ai）有增量能力：
+    private fun applyIncremental(host: String, fullRequestBody: JsonObject, modelId: String?): JsonObject {
+        // [F3] 只有 store=true 的 host 才可能有增量能力：
         // 其他 host（OpenAI 官方/DeepSeek 直连等）服务端不保存 response，
         // previous_response_id 必然 400（invalid_response_id），一律全量
         if (fullRequestBody["store"]?.jsonPrimitive?.contentOrNull != "true") return fullRequestBody
+        // [2026-08-10 实测] opencode.ai 网关（/zen/v1 与 /zen/go/v1，deepseek 系）
+        // 会静默丢弃 previous_response_id：请求返回 200 但服务端不关联上下文，
+        // 只发新消息时模型失忆（强测试：设秘密词 → 增量问秘密词答不出；
+        // 之前"答对 6"是常识弱测试误判）。增量白名单留空 = 全禁用，
+        // 待未来有实测支持 previous_response_id 的网关再启用。
+        // （claude/gemini 前缀黑名单保留作防御：这些模型上游走 anthropic/google
+        // 转换，previous_response_id 同样被丢弃且 function_call 取 .id 而非 call_id）
+        val incrementalHosts: Set<String> = emptySet()
+        if (host !in incrementalHosts) return fullRequestBody
+        val model = modelId.orEmpty().lowercase()
+        if (model.startsWith("claude") || model.startsWith("gemini")) return fullRequestBody
         val input = fullRequestBody["input"] as? JsonArray ?: return fullRequestBody
         val items = input.toList()
         val (previousResponseId, deltaItems) = incrementalSessions.resolve(host, items, fullRequestBody)
