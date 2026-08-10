@@ -431,3 +431,33 @@
 - FIXES 计数 67（#57 系列 11 个真实修复）
 - 判定：[COMPLETE] 代码同步、CI 全绿、无活跃构建
 - 待用户验证：v1.8.8 装后 rd5 全场景（含工具轮次）增量效果
+
+## v1.8.9 回退 + v1.9.0 审查修复（2026-08-10，52f56fd → v1.9.0-turbo）
+### v1.8.9-turbo（f135af31，2.5.13/194）：回退 v1.8.8 工具轮次准增量
+- 原因：v1.8.8 工具轮次增量在真实使用中出问题（用户实测回退），IncrementalSessions 恢复 1.8.7 版
+- 回退范围：仅 IncrementalSessions.kt/Test/build.gradle（保留纯文本增量 + fc 禁用增量）
+
+### v1.8.7→v1.8.8 代码审查发现 11 个 bug（52f56fd 全部修复）
+- **P0-1 工具轮次上下文重复**：网关"消息追加"语义下，增量重发 fc+fco 导致服务端上下文 fc×2
+  （上次 output 一次 + 本次 input 一次）+ 占位 reasoning "…" 累积；多轮工具循环后上下文膨胀/模型困惑。
+  修复：delta 含 fc/fco 一律回退全量，删除 needRebuildFcs 重建逻辑与占位累积（F1/F6/F7）
+- **P0-2 增量失败无回退**：非流式 400 → invalidate + throw（用户直接报错），流式同。
+  修复：失败自动重试全量一次（IncrementalFailedException 信号 + streamOnce 拆分）（F2）
+- **P0-3 非 opencode.ai 也走增量**：store=false 的 host（OpenAI 官方/DeepSeek 直连）服务端不保存
+  response，previous_response_id 必 400。修复：applyIncremental 检查 store==true（F3）
+- **P1-4 跨 host 串用会话**：bucketKey 仅首条消息 hash + signature 无 host，切换 host 同签名命中
+  → previous_response_id 发错网关。修复：bucketKey 加 host 前缀（F4）
+- **P1-5 流式 [DONE] 不记录会话**：某些网关 [DONE] 结束不发 response.completed → 永不增量。
+  修复：response.created 捕获 id，[DONE] 时也记录（F5）
+- **P2-9 update 死参数**：v1.8.8 删 responseItems 存储但参数未删。修复：恢复存储用于回显过滤（F8）
+- **P2-10 400 诊断盲区**：非流式 Logging 硬编码 contains("reasoning")，previous_response_id 类
+  400 无日志。修复：400 全部记日志（F9）
+- **P2-11 sessions 超限全清**：多对话互相踢出。修复：LRU 淘汰最旧（仅新会话触发）（F10）
+- **F11 纯文本回显 a1 重复**：App 把上次回复回显进 input，服务端已保存 output → 增量重发重复。
+  修复：delta 过滤与上次 output 匹配的 assistant 回显（role+文本序列比较，兼容结构差异）
+- 测试：11 用例（工具回退×2/回显过滤×3/host 隔离/LRU/原 7 用例适配），CI 双绿 52f56fd
+- 发布：v1.9.0-turbo（2.5.15/195），tag 52f56fd
+
+### 当前状态（2026-08-10 11:5x）
+- FIXES 计数 78（+11：52f56fd 审查修复）
+- 判定：发布链进行中（v1.9.0-turbo tag 已推，Release 运行中）
