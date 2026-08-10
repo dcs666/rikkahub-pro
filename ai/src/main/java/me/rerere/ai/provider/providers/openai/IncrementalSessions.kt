@@ -60,33 +60,33 @@ internal class IncrementalSessions {
         val delta = input.drop(prefix.size)
         // [实测] opencode.ai 网关 previous_response_id 不支持 fco 引用之前的 fc
         //（增量带 fco 报 "No tool call found"），但支持"重发 fc+fco"（当新输入处理）：
-        // 已知状态含 function_call 时重建增量 = [占位 reasoning + fc + fco] 逐对
-        // + 剩余新增（每个 fc 前必须补占位 reasoning，规则与全量一致——双 fc 无占位
-        // 实测 400）。fc 从完整历史提取（App 顺序），fco 按 call_id 匹配（历史或新增）。
-        val allItems = prefix + delta
-        val fcItems = allItems.filter { it.isFunctionCallItem() }
-        if (fcItems.isNotEmpty()) {
+        // 需要重建的 fc = delta 中的新 fc + sentInput 中"delta 有对应 fco"的历史 fc
+        //（历史 fc 仅在其 fco 出现在增量里时才重发，避免无谓重传）；
+        // 每个 fc 前必须补占位 reasoning（规则与全量一致——双 fc 无占位实测 400）。
+        val deltaFcs = delta.filter { it.isFunctionCallItem() }
+        val sentInputFcs = prefix.filter { it.isFunctionCallItem() }
+        val needRebuildFcs = (deltaFcs + sentInputFcs.filter { fc ->
+            delta.any { it.isFunctionCallOutputWithCallId(fc.callIdOrNull()) }
+        }).distinctBy { it.callIdOrNull() }
+        if (needRebuildFcs.isNotEmpty()) {
             val rebuilt = buildList {
-                val consumedFco = mutableSetOf<String>()
-                fcItems.forEach { fc ->
+                needRebuildFcs.forEach { fc ->
                     add(placeholderReasoningItem())
                     add(fc)
-                    // fco 按 call_id 从历史或新增中匹配（取第一个未消费的）
-                    val callId = fc.callIdOrNull()
-                    val fcoIndex = allItems.indexOfFirst {
-                        it.isFunctionCallOutputWithCallId(callId) && callId !in consumedFco
+                    // fco 从完整历史（prefix + delta）按 call_id 匹配
+                    val fco = (prefix + delta).firstOrNull {
+                        it.isFunctionCallOutputWithCallId(fc.callIdOrNull())
                     }
-                    if (fcoIndex >= 0) {
-                        add(allItems[fcoIndex])
-                        callId?.let { consumedFco.add(it) }
+                    if (fco != null) {
+                        add(fco)
                     }
                 }
-                // 剩余新增：delta 中未被 fc 配对消费的 fco 与其他新 items
+                // 剩余新增：跳过 delta 里的 fc 与已重建的 fco，其余（新 user 消息等）保留
                 delta.forEach { item ->
-                    val isConsumedFco = item.isFunctionCallOutput() &&
-                        fcItems.any { it.callIdOrNull() == item.callIdOrNull() } &&
-                        item.callIdOrNull() in consumedFco
-                    if (!isConsumedFco) {
+                    val isFc = item.isFunctionCallItem()
+                    val isRebuiltFco = item.isFunctionCallOutput() &&
+                        needRebuildFcs.any { it.callIdOrNull() == item.callIdOrNull() }
+                    if (!isFc && !isRebuiltFco) {
                         add(item)
                     }
                 }
