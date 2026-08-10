@@ -34,10 +34,8 @@ internal class IncrementalSessions {
 
     private data class Session(
         val previousResponseId: String,
-        /** 上次发送的完整 input（与请求体 input 一致） */
+        /** 上次发送的完整 input（App 构建顺序，与请求体 input 一致） */
         val sentInput: List<JsonElement>,
-        /** 上次响应的 output items（服务端已保存，无需重发） */
-        val responseItems: List<JsonElement>,
         /** 非 input 请求属性签名（对齐 codex responses_request_properties_match） */
         val requestSignature: String,
         val lastUsedAt: Long,
@@ -56,32 +54,39 @@ internal class IncrementalSessions {
         // [codex 对齐] 非 input 请求属性必须与上次一致（model/instructions/tools/
         // reasoning/store/stream 等），否则 previous_response_id 会沿用旧参数
         if (session.requestSignature != requestSignature(requestBody)) return null to null
-        val prefix = session.sentInput + session.responseItems
+        val prefix = session.sentInput
         if (input.size <= prefix.size) return null to null
         if (!itemsEqual(input.take(prefix.size), prefix)) return null to null
         val delta = input.drop(prefix.size)
         // [实测] opencode.ai 网关 previous_response_id 不支持 fco 引用之前的 fc
         //（增量带 fco 报 "No tool call found"），但支持"重发 fc+fco"（当新输入处理）：
-        // 增量 = [占位 reasoning + fc + fco] 逐对 + 剩余新增（每个 fc 前必须补
-        // 占位 reasoning，规则与全量一致——双 fc 无占位实测 400）。
-        val fcItems = session.responseItems.filter { it.isFunctionCallItem() }
+        // 已知状态含 function_call 时重建增量 = [占位 reasoning + fc + fco] 逐对
+        // + 剩余新增（每个 fc 前必须补占位 reasoning，规则与全量一致——双 fc 无占位
+        // 实测 400）。fc 从完整历史提取（App 顺序），fco 按 call_id 匹配（历史或新增）。
+        val allItems = prefix + delta
+        val fcItems = allItems.filter { it.isFunctionCallItem() }
         if (fcItems.isNotEmpty()) {
             val rebuilt = buildList {
+                val consumedFco = mutableSetOf<String>()
                 fcItems.forEach { fc ->
                     add(placeholderReasoningItem())
                     add(fc)
-                    // 匹配对应 fco（按 call_id），从增量里取出来插到 fc 后
+                    // fco 按 call_id 从历史或新增中匹配（取第一个未消费的）
                     val callId = fc.callIdOrNull()
-                    val fcoIndex = delta.indexOfFirst { it.isFunctionCallOutputWithCallId(callId) }
+                    val fcoIndex = allItems.indexOfFirst {
+                        it.isFunctionCallOutputWithCallId(callId) && callId !in consumedFco
+                    }
                     if (fcoIndex >= 0) {
-                        add(delta[fcoIndex])
+                        add(allItems[fcoIndex])
+                        callId?.let { consumedFco.add(it) }
                     }
                 }
-                // 剩余新增（已插入的 fco 不再重复：匹配 fcItems 的 fco 已在前面插入）
+                // 剩余新增：delta 中未被 fc 配对消费的 fco 与其他新 items
                 delta.forEach { item ->
-                    val isInsertedFco = item.isFunctionCallOutput() &&
-                        fcItems.any { it.callIdOrNull() == item.callIdOrNull() }
-                    if (!isInsertedFco) {
+                    val isConsumedFco = item.isFunctionCallOutput() &&
+                        fcItems.any { it.callIdOrNull() == item.callIdOrNull() } &&
+                        item.callIdOrNull() in consumedFco
+                    if (!isConsumedFco) {
                         add(item)
                     }
                 }
@@ -92,7 +97,7 @@ internal class IncrementalSessions {
     }
 
     /**
-     * 记录一次成功响应：sentInput = 本次完整 input，responseItems = 本次输出 items。
+     * 记录一次成功响应：sentInput = 本次完整 input（App 构建顺序）。
      */
     fun update(requestBody: JsonObject, responseId: String, responseItems: List<JsonElement>) {
         val input = requestBody["input"] as? JsonArray ?: return
@@ -104,7 +109,6 @@ internal class IncrementalSessions {
         sessions[bucketKey(items)] = Session(
             previousResponseId = responseId,
             sentInput = items,
-            responseItems = responseItems,
             requestSignature = requestSignature(requestBody),
             lastUsedAt = System.currentTimeMillis(),
         )
