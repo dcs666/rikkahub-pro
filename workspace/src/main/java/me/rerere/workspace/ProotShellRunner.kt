@@ -17,12 +17,6 @@ class ProotShellRunner(
     private val nativeLibraryDir: File,
     private val patcher: RootfsPatcher = RootfsPatcher(),
 ) : WorkspaceShellRunner {
-    // [PERF] proroot（coderredlab，LD_PRELOAD 方案，zero ptrace overhead，接近原生速度）
-    // 优先于传统 proot（ptrace 每条 syscall 拦截）。参数兼容：-0 == --root-id、
-    // --link2symlink 一致。proprietary 但免费使用（APK 内可分发，仅需 attribution，
-    // 见 LICENSE/第三方声明）。libproroot.so 存在即启用，否则回退 libproot_exec.so。
-    private val useProroot: Boolean by lazy { File(nativeLibraryDir, PROROOT_EXEC).isFile }
-
     // [A1 会话池] 按 workspace（linuxDir）缓存常驻 proot+bash 会话（LRU，上限 MAX_SESSIONS）。
     // 之前是全局单例：切换 workspace 时 boundLinuxDir 变化 → destroy + 冷启动（~1s）；
     // 且全局一把锁导致不同 workspace 的命令互相阻塞。
@@ -72,9 +66,8 @@ class ProotShellRunner(
             )
         }
 
-        val proot = if (useProroot) File(nativeLibraryDir, PROROOT_EXEC)
-        else File(nativeLibraryDir, PROOT_EXEC)
-        val loader = if (useProroot) null else File(nativeLibraryDir, PROOT_LOADER)
+        val proot = File(nativeLibraryDir, PROOT_EXEC)
+        val loader = File(nativeLibraryDir, PROOT_LOADER)
         if (!proot.isFile) {
             return WorkspaceCommandResult(
                 exitCode = 127,
@@ -82,7 +75,7 @@ class ProotShellRunner(
                 stderr = "proot executable not found: ${proot.absolutePath}",
             )
         }
-        if (!useProroot && !loader!!.isFile) {
+        if (!loader.isFile) {
             return WorkspaceCommandResult(
                 exitCode = 127,
                 stdout = "",
@@ -136,20 +129,15 @@ class ProotShellRunner(
     private fun executeOneShot(
         context: WorkspaceShellContext,
         proot: File,
-        loader: File?,
+        loader: File,
     ): WorkspaceCommandResult {
         patcher.patch(context.linuxDir)
-        val process = ProcessBuilder(buildCommand(context, proot, loader))
+        val process = ProcessBuilder(buildCommand(context, proot))
             .directory(context.filesDir)
             .redirectErrorStream(false)
             .apply {
-                if (loader != null) {
-                    environment()["PROOT_LOADER"] = loader.absolutePath
-                    environment()["PROOT_TMP_DIR"] = context.tempDir.absolutePath
-                } else {
-                    // proroot：PROROOT_TMP_DIR 用于运行时配置文件（app filesDir 语义一致）
-                    environment()["PROROOT_TMP_DIR"] = context.tempDir.absolutePath
-                }
+                environment()["PROOT_LOADER"] = loader.absolutePath
+                environment()["PROOT_TMP_DIR"] = context.tempDir.absolutePath
                 environment()["TMPDIR"] = context.tempDir.absolutePath
             }
             .start()
@@ -159,18 +147,12 @@ class ProotShellRunner(
     private fun buildCommand(
         context: WorkspaceShellContext,
         proot: File,
-        loader: File?,
     ): List<String> {
         val command = mutableListOf(
             proot.absolutePath,
-        )
-        if (loader != null) {
-            command += listOf("--root-id", "--link2symlink", "--kill-on-exit")
-        } else {
-            // proroot 参数风格：-0 == --root-id；不支持 --kill-on-exit
-            command += listOf("-0", "--link2symlink")
-        }
-        command += listOf(
+            "--root-id",
+            "--link2symlink",
+            "--kill-on-exit",
             "-r",
             context.linuxDir.absolutePath,
             "-w",
@@ -235,8 +217,6 @@ class ProotShellRunner(
     private companion object {
         private const val PROOT_EXEC = "libproot_exec.so"
         private const val PROOT_LOADER = "libproot_loader.so"
-        /** proroot（coderredlab）零 ptrace 方案：存在即优先使用 */
-        private const val PROROOT_EXEC = "libproroot.so"
         private val WORKSPACE_DIR = WorkspaceManager.ROOTFS_WORKSPACE_DIR
         // [A1] 常驻会话池上限：LRU 淘汰最久未用的会话（每个会话 = 一个 proot+bash 进程，
         // 进程数有界，防止多 workspace 堆积）

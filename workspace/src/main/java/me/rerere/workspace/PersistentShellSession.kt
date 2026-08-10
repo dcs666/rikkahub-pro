@@ -74,7 +74,7 @@ class PersistentShellSession(
     fun execute(
         context: WorkspaceShellContext,
         proot: File,
-        loader: File?,
+        loader: File,
     ): WorkspaceCommandResult {
         ensureStarted(context, proot, loader)
         val w = writer ?: error("persistent shell: writer unavailable")
@@ -124,21 +124,16 @@ class PersistentShellSession(
         return readUntilSentinel(r, context.timeoutMillis)
     }
 
-    private fun ensureStarted(context: WorkspaceShellContext, proot: File, loader: File?) {
+    private fun ensureStarted(context: WorkspaceShellContext, proot: File, loader: File) {
         if (process?.isAlive == true && boundLinuxDir == context.linuxDir) return
         destroy()
         patcher.patch(context.linuxDir)
-        val p = ProcessBuilder(buildSessionCommand(context, proot, loader))
+        val p = ProcessBuilder(buildSessionCommand(context, proot))
             .directory(context.filesDir)
             .redirectErrorStream(true) // stderr 合并 stdout，单流读取
             .apply {
-                if (loader != null) {
-                    environment()["PROOT_LOADER"] = loader.absolutePath
-                    environment()["PROOT_TMP_DIR"] = context.tempDir.absolutePath
-                } else {
-                    // proroot：运行时配置文件目录
-                    environment()["PROROOT_TMP_DIR"] = context.tempDir.absolutePath
-                }
+                environment()["PROOT_LOADER"] = loader.absolutePath
+                environment()["PROOT_TMP_DIR"] = context.tempDir.absolutePath
                 environment()["TMPDIR"] = context.tempDir.absolutePath
             }
             .start()
@@ -163,17 +158,12 @@ class PersistentShellSession(
         }
     }
 
-    private fun buildSessionCommand(context: WorkspaceShellContext, proot: File, loader: File?): List<String> {
+    private fun buildSessionCommand(context: WorkspaceShellContext, proot: File): List<String> {
         val command = mutableListOf(
             proot.absolutePath,
-        )
-        if (loader != null) {
-            command += listOf("--root-id", "--link2symlink", "--kill-on-exit")
-        } else {
-            // proroot 参数风格：-0 == --root-id；不支持 --kill-on-exit
-            command += listOf("-0", "--link2symlink")
-        }
-        command += listOf(
+            "--root-id",
+            "--link2symlink",
+            "--kill-on-exit",
             "-r", context.linuxDir.absolutePath,
             "-w", context.prootCwd(),
             "-b", "${context.filesDir.absolutePath}:$WORKSPACE_DIR",
