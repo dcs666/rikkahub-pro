@@ -8,6 +8,7 @@ import me.rerere.ai.provider.CustomHeader
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.rikkahub.data.ai.tools.local.LocalToolOption
+import me.rerere.rikkahub.data.db.entity.MemoryCategory
 import me.rerere.rikkahub.utils.SimpleCache
 import java.util.concurrent.TimeUnit
 import kotlin.uuid.Uuid
