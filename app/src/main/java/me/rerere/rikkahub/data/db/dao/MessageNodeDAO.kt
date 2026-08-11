@@ -37,6 +37,10 @@ interface MessageNodeDAO {
     @Query("DELETE FROM message_node WHERE conversation_id = :conversationId")
     suspend fun deleteByConversation(conversationId: String)
 
+    // [B] 增量保存用：按 id 批量删除（不再全删全插）
+    @Query("DELETE FROM message_node WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<String>)
+
     @Query("DELETE FROM message_node WHERE id = :nodeId")
     suspend fun deleteById(nodeId: String)
 

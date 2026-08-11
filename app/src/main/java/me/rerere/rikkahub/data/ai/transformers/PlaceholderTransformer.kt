@@ -142,6 +142,12 @@ object PlaceholderTransformer : InputMessageTransformer, KoinComponent {
         ctx: TransformerContext,
         settingsStore: SettingsStore
     ): String {
+        // [C] 快速路径：占位符形如 {key} / {{key}}，必须有成对花括号。
+        // 普通文本（尤其中文对话）几乎不含花括号，一次 indexOf 扫描即可跳过
+        // 全部 12 次 replace（每轮对每条消息每个 Text part 都执行）。
+        // 单边花括号（仅 { 或仅 }）同样不可能构成占位符，安全跳过。
+        if (text.indexOf('{') < 0 || text.indexOf('}') < 0) return text
+
         var result = text
 
         val ctx = PlaceholderCtx(

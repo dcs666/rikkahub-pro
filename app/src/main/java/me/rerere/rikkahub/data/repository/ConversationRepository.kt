@@ -300,9 +300,9 @@ class ConversationRepository(
             conversationDAO.update(
                 conversationToConversationEntity(conversation)
             )
-            // 删除旧的节点，插入新的节点
-            messageNodeDAO.deleteByConversation(conversation.id.toString())
-            saveMessageNodes(conversation.id.toString(), conversation.messageNodes)
+            // [B] 增量节点保存：只写变更节点（原来全删全插——长对话每次保存
+            // 重写全部节点，生成一轮 = delete 全部 + insert 全部）
+            saveMessageNodesIncremental(conversation.id.toString(), conversation.messageNodes)
         }
         messageFtsManager.indexConversation(conversation)
     }
@@ -501,6 +501,52 @@ class ConversationRepository(
             )
         }
         messageNodeDAO.insertAll(entities)
+    }
+
+    /**
+     * [B] 增量节点保存（updateConversation 专用）：原实现全删全插——长对话
+     * （几百节点）每次保存都 delete 全部 + insert 全部，生成一轮的落库成本
+     * 与节点数线性增长。
+     *
+     * MessageNode.id 是创建时生成的 Uuid，节点内容更新走 copy（id 保留）→
+     * 可用 id 做差异：
+     * - 新增节点（新消息）→ 库中无此 id → INSERT
+     * - 变更节点（流式文本/工具输出更新）→ id 相同但内容不同 → INSERT(REPLACE)
+     * - 移除节点（删除/回退消息）→ 库中有但新列表无 → DELETE
+     *
+     * 内容比较用 messages JSON 字符串（kotlinx 序列化顺序稳定，相同内容产出
+     * 相同字符串；UIMessage 的 createdAt 等时间字段在创建时固定、不随 copy 变），
+     * 不反序列化 → 零解析开销。
+     */
+    private suspend fun saveMessageNodesIncremental(conversationId: String, nodes: List<MessageNode>) {
+        // 事务内读取现有节点（只读行，不反序列化 messages JSON）
+        val existing = messageNodeDAO.getNodesOfConversation(conversationId)
+        val existingById = existing.associateBy { it.id }
+        val newEntities = nodes.mapIndexed { index, node ->
+            MessageNodeEntity(
+                id = node.id.toString(),
+                conversationId = conversationId,
+                nodeIndex = index,
+                messages = JsonInstant.encodeToString(node.messages),
+                selectIndex = node.selectIndex
+            )
+        }
+        val toUpsert = newEntities.filter { entity ->
+            val old = existingById[entity.id]
+            old == null ||
+                old.nodeIndex != entity.nodeIndex ||
+                old.messages != entity.messages ||
+                old.selectIndex != entity.selectIndex
+        }
+        val newIds = newEntities.mapTo(HashSet()) { it.id }
+        val toDelete = existing.filter { it.id !in newIds }
+        if (toDelete.isNotEmpty()) {
+            messageNodeDAO.deleteByIds(toDelete.map { it.id })
+        }
+        if (toUpsert.isNotEmpty()) {
+            // REPLACE 语义：新增与变更统一处理
+            messageNodeDAO.insertAll(toUpsert)
+        }
     }
 }
 
