@@ -183,7 +183,7 @@ internal fun parseAnnotations(jsonArray: JsonArray): List<UIMessageAnnotation> {
     }
 }
 
-internal fun parseTokenUsage(jsonObject: JsonObject?): TokenUsage? {
+internal fun parseChatCompletionsTokenUsage(jsonObject: JsonObject?): TokenUsage? {
     if (jsonObject == null) return null
     return TokenUsage(
         promptTokens = jsonObject["prompt_tokens"]?.jsonPrimitive?.intOrNull ?: 0,

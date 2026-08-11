@@ -111,7 +111,7 @@ class ChatCompletionsAPI(
             ?.jsonPrimitive
             ?.content
             ?: "unknown"
-        val usage = parseTokenUsage(bodyJson["usage"] as? JsonObject)
+        val usage = parseChatCompletionsTokenUsage(bodyJson["usage"] as? JsonObject)
 
         MessageChunk(
             id = id,
@@ -196,7 +196,7 @@ class ChatCompletionsAPI(
                                     )
                                 }
                             }
-                            val usage = parseTokenUsage(it["usage"] as? JsonObject)
+                            val usage = parseChatCompletionsTokenUsage(it["usage"] as? JsonObject)
 
                             val messageChunk = MessageChunk(
                                 id = id,
