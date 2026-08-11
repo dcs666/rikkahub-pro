@@ -50,10 +50,10 @@ jobs:
             // master push 后十几秒内触发，而 Build APK 需 ~12min。旧逻辑查不到
             // "已完成的成功 run" 就直接失败 → 发布 run 23s 内死掉、build 12 分钟后
             // 才成功。改为轮询等待：build run 尚在进行时每 3min 重查一次
-            // （最长 20min，job timeout 30min 兜底）；该 SHA 的 build run 全部
+            // （最长 4min，job timeout 30min 兜底）；该 SHA 的 build run 全部
             // 完成且无一成功（build 失败）时提前报错，避免空等。
             const findOk = (runs) => runs.find(r => r.status === 'completed' && r.conclusion === 'success');
-            const deadline = Date.now() + 20 * 60 * 1000;
+            const deadline = Date.now() + 4 * 60 * 1000;
             let run = null;
             while (Date.now() < deadline) {
               const { data } = await github.rest.actions.listWorkflowRuns({
@@ -81,7 +81,7 @@ jobs:
             if (!run) {
               // throw 会标记 job 失败并中断后续步骤（setFailed 不中断步骤链）
               throw new Error(
-                `No successful Build APK run found for ${commitSha} (${ref}) within 20min. ` +
+                `No successful Build APK run found for ${commitSha} (${ref}) within 4min. ` +
                 `Wait for the push CI (Unit Tests + Build APK) to pass before releasing.`
               );
             }
