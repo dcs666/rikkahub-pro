@@ -89,6 +89,8 @@
   <string name="assistant_page_local_tools_time_info_title">Информация о времени</string>
   <string name="assistant_page_local_tools_tts_desc">Позвольте ИИ озвучить текст с помощью выбранного вами сервиса TTS</string>
   <string name="assistant_page_local_tools_tts_title">Преобразование текста в речь</string>
+  <string name="task_keepalive_title">Фоновые задачи</string>
+  <string name="task_keepalive_desc">Активно задач: %d</string>
   <string name="memory_category_fact">Факт</string>
   <string name="memory_category_preference">Предпочтение</string>
   <string name="memory_category_session">Сессия</string>

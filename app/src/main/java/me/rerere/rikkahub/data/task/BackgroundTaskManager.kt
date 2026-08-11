@@ -14,6 +14,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
@@ -25,6 +26,7 @@ import kotlinx.serialization.json.Json
 import me.rerere.rikkahub.data.event.AppEvent
 import me.rerere.rikkahub.data.event.AppEventBus
 import me.rerere.rikkahub.service.ChatService
+import me.rerere.rikkahub.service.TaskKeepAliveService
 import me.rerere.rikkahub.utils.JsonInstant
 import org.koin.java.KoinJavaComponent.getKoin
 import java.io.IOException
@@ -86,6 +88,10 @@ class BackgroundTaskManager(
     @Volatile
     private var stateFlowObserving = false
 
+    // [TURBO M1] 保活观察协程只启动一次
+    @Volatile
+    private var keepAliveObserving = false
+
     // [OPT] 软状态（进程内存，重启丢失可接受）：连续失败计数 / 连续 not_found 计数 /
     // rate limit 退避截止时间。不进 DB 是为了避免 schema 迁移。
     private val consecutiveFailures = java.util.concurrent.ConcurrentHashMap<String, Int>()
@@ -121,6 +127,18 @@ class BackgroundTaskManager(
      * poller 与 cleanup 独立幂等：任一协程意外退出后再次调用 start() 只重启缺失的那个。
      */
     fun start() {
+        // [TURBO M1] 任务保活：有活跃任务时拉起前台服务，防止进程被回收导致任务中断。
+        // 服务自身观察 activeTaskCount，归零后自停（见 TaskKeepAliveService）。
+        if (!keepAliveObserving) {
+            keepAliveObserving = true
+            scope.launch {
+                _activeTaskCount.collectLatest { count ->
+                    if (count > 0) {
+                        TaskKeepAliveService.start(app)
+                    }
+                }
+            }
+        }
         if (pollerJob?.isActive != true) {
             pollerJob = scope.launch {
                 Log.i(TAG, "Task poller started")

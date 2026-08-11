@@ -89,6 +89,8 @@
   <string name="assistant_page_local_tools_time_info_title">시간 정보</string>
   <string name="assistant_page_local_tools_tts_desc">AI가 선택한 TTS 서비스를 사용해 텍스트를 음성으로 읽어줍니다</string>
   <string name="assistant_page_local_tools_tts_title">텍스트 음성 변환</string>
+  <string name="task_keepalive_title">백그라운드 작업 실행 중</string>
+  <string name="task_keepalive_desc">활성 작업 %d개</string>
   <string name="memory_category_fact">사실</string>
   <string name="memory_category_preference">선호</string>
   <string name="memory_category_session">세션</string>

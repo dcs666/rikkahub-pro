@@ -89,6 +89,8 @@
   <string name="assistant_page_local_tools_time_info_title">Time Info</string>
   <string name="assistant_page_local_tools_tts_desc">Let the AI read text aloud to you using your selected TTS service</string>
   <string name="assistant_page_local_tools_tts_title">Text to Speech</string>
+  <string name="task_keepalive_title">Background Tasks Running</string>
+  <string name="task_keepalive_desc">%d task(s) active</string>
   <string name="memory_category_fact">Fact</string>
   <string name="memory_category_preference">Preference</string>
   <string name="memory_category_session">Session</string>

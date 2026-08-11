@@ -89,6 +89,8 @@
   <string name="assistant_page_local_tools_time_info_title">時刻情報</string>
   <string name="assistant_page_local_tools_tts_desc">AIが選択したTTSサービスを使ってテキストを読み上げます</string>
   <string name="assistant_page_local_tools_tts_title">テキスト読み上げ</string>
+  <string name="task_keepalive_title">バックグラウンドタスク実行中</string>
+  <string name="task_keepalive_desc">%d 件のタスクがアクティブ</string>
   <string name="memory_category_fact">事実</string>
   <string name="memory_category_preference">好み</string>
   <string name="memory_category_session">セッション</string>

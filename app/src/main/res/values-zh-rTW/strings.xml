@@ -89,6 +89,8 @@
   <string name="assistant_page_local_tools_time_info_title">時間資訊</string>
   <string name="assistant_page_local_tools_tts_desc">讓 AI 使用您所選的 TTS 服務為您朗讀文字</string>
   <string name="assistant_page_local_tools_tts_title">文字轉語音</string>
+  <string name="task_keepalive_title">背景任務執行中</string>
+  <string name="task_keepalive_desc">%d 個任務活躍</string>
   <string name="memory_category_fact">事實</string>
   <string name="memory_category_preference">偏好</string>
   <string name="memory_category_session">會話</string>
