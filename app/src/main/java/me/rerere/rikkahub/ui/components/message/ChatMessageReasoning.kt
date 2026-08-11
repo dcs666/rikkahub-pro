@@ -97,7 +97,9 @@ private fun rememberReasoningState(reasoning: UIMessagePart.Reasoning): Pair<Rea
         if (loading) {
             if (!state.expandState.expanded && settings.displaySetting.showThinkingContent)
                 state.expandState = ReasoningCardState.Preview
-            scrollState.animateScrollTo(scrollState.maxValue)
+            // [PERF F2] 流式期间每 chunk 触发 animateScrollTo 动画（~500ms 插值）会与
+            // 内容重组叠加成持续卡顿；内容追加时只需跟随底部，用即时 scrollTo 即可。
+            scrollState.scrollTo(scrollState.maxValue)
         } else {
             if (state.expandState.expanded) {
                 state.expandState = if (settings.displaySetting.autoCloseThinking)
@@ -112,7 +114,9 @@ private fun rememberReasoningState(reasoning: UIMessagePart.Reasoning): Pair<Rea
         if (loading) {
             while (isActive) {
                 state.duration = (reasoning.finishedAt ?: Clock.System.now()) - reasoning.createdAt
-                delay(50)
+                // [PERF F6] 50ms 更新会以 20fps 频率触发标题 label 重组 + shimmer 重绘，
+                // 与流式渲染叠加；200ms（5fps）对 0.1s 精度显示完全足够。
+                delay(200)
             }
         }
     }
@@ -176,6 +180,12 @@ private fun ReasoningContent(
                 ),
                 style = reasoningTextStyle,
                 modifier = Modifier.fillMaxSize(),
+                // [PERF F1] 思维链流式降级：与正文对齐。reasoning 最长可达 ~200KB，
+                // 流式期间每 chunk（32ms）更新一次；此前未传 streaming → 每 chunk 后台
+                // 解析完成后全量重组整棵完整 markdown 树 = "生成时顿"主因之一。
+                // 降级渲染成本低一个数量级；生成结束 streaming=false 时 data 已后台预热，
+                // 切完整渲染零解析零跳变。
+                streaming = loading,
             )
         }
         // 流式生成期间不启用 SelectionContainer，避免 selectable 列表并发修改导致的
@@ -216,7 +226,7 @@ fun ChainOfThoughtScope.ChatMessageReasoningStep(
         },
         label = {
             if (showThinkingTitle) {
-                ReasoningTitle(title = thinkingTitle!!)
+                ReasoningTitle(title = thinkingTitle!!, isLoading = loading)
             } else {
                 Text(
                     text = stringResource(
@@ -256,23 +266,36 @@ fun ChainOfThoughtScope.ChatMessageReasoningStep(
 
 
 @Composable
-private fun ReasoningTitle(title: String) {
+private fun ReasoningTitle(title: String, isLoading: Boolean) {
     val chatFontFamily = LocalTextStyle.current.fontFamily
-    AnimatedContent(
-        targetState = title,
-        transitionSpec = {
-            (slideInVertically { height -> height } + fadeIn()).togetherWith(
-                slideOutVertically { height -> -height } + fadeOut()
-            )
-        }
-    ) {
+    // [PERF F4] 流式期间标题每 chunk 变化会触发 AnimatedContent 过渡动画（slide+fade），
+    // 与内容重组叠加成卡顿；loading 时用普通 Text 直接替换，结束后再启用过渡。
+    if (isLoading) {
         Text(
-            text = it,
+            text = title,
             style = MaterialTheme.typography.titleSmall.copy(fontFamily = chatFontFamily),
             color = MaterialTheme.colorScheme.secondary,
             modifier = Modifier
                 .padding(horizontal = 4.dp)
                 .shimmer(true),
         )
+    } else {
+        AnimatedContent(
+            targetState = title,
+            transitionSpec = {
+                (slideInVertically { height -> height } + fadeIn()).togetherWith(
+                    slideOutVertically { height -> -height } + fadeOut()
+                )
+            }
+        ) {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.titleSmall.copy(fontFamily = chatFontFamily),
+                color = MaterialTheme.colorScheme.secondary,
+                modifier = Modifier
+                    .padding(horizontal = 4.dp)
+                    .shimmer(true),
+            )
+        }
     }
 }

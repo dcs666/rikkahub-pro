@@ -344,8 +344,10 @@ private fun MessagePartsBlock(
             is MessagePartBlock.ThinkingBlock -> {
                 if (block.steps.isNotEmpty()) {
                     val isReasoningOnlyBlock = block.steps.fastAll { it is ThinkingStep.ReasoningStep }
+                    // [PERF F3] 流式期间思维链卡片尺寸每 chunk 变化，animateContentSize 会
+                    // 持续触发布局动画与内容重组叠加；loading 时禁用（对齐正文 contentModifier 做法）。
                     ChainOfThought(
-                        modifier = Modifier.animateContentSize(),
+                        modifier = if (loading) Modifier else Modifier.animateContentSize(),
                         steps = block.steps,
                         collapsedAdaptiveWidth = isReasoningOnlyBlock,
                         cardColors = CardDefaults.cardColors(
