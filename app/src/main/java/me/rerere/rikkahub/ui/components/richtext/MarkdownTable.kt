@@ -39,8 +39,9 @@ import me.rerere.rikkahub.ui.modifier.onClick
 import org.intellij.markdown.ast.ASTNode
 import org.intellij.markdown.flavours.gfm.GFMElementTypes
 import org.intellij.markdown.flavours.gfm.GFMTokenTypes
-import kotlin.time.Clock
-import kotlin.time.TimeZone
+import kotlinx.datetime.Clock
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 
 // ==================== [F4] Markdown 表格渲染（自 Markdown.kt 拆出） ====================
 

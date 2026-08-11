@@ -50,6 +50,7 @@ import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.GenerationChunk
 import me.rerere.rikkahub.data.ai.GenerationHandler
 import me.rerere.rikkahub.data.ai.mcp.McpManager
+import me.rerere.rikkahub.data.ai.mcp.McpTool
 import me.rerere.rikkahub.data.ai.tools.createConversationTools
 import me.rerere.rikkahub.data.ai.tools.local.LocalTools
 import me.rerere.rikkahub.data.ai.tools.createSearchTools
@@ -683,7 +684,7 @@ class ChatService(
         assistant: Assistant,
         conversation: Conversation,
         settings: Settings,
-        allMcpTools: List<Triple<String, String, Tool>>,
+        allMcpTools: List<Triple<Uuid, String, McpTool>>,
     ): List<Tool>? {
         val fingerprint = buildString {
             append(assistant.id).append('|')

@@ -850,7 +850,7 @@ private fun parseFontFamily(fontFamily: String): FontFamily? {
     }
 }
 
-internal fun parseColor(colorString: String): Color? {
+private fun parseColor(colorString: String): Color? {
     return try {
         when {
             colorString.startsWith("#") -> {

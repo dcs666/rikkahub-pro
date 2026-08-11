@@ -37,9 +37,8 @@ object DocumentAsPromptTransformer : InputMessageTransformer {
         val content: String,
     )
 
-    private companion object {
-        const val MAX_CACHED_DOCUMENTS = 32
-    }
+    // [A] 缓存容量上限：32 份 × 200K 字符 ≈ 6.4MB
+    private const val MAX_CACHED_DOCUMENTS = 32
 
     override suspend fun transform(
         ctx: TransformerContext,

@@ -414,7 +414,6 @@ internal fun SpanStyle.asTextStyle(): TextStyle {
 }
 
 internal fun buildFontTagStyle(
-internal fun buildFontTagStyle(
     element: Element,
     density: Density,
     baseFontSize: TextUnit,
@@ -441,5 +440,72 @@ internal fun buildFontTagStyle(
 
     return resolvedStyle.takeIf {
         color != null || styleAttr != null || sizeAttr != null
+    }
+}
+
+// [F5] parseColor：从 MarkdownNew.kt 复制（同包 SimpleHtmlBlock 有同名 private 函数，}internal 会冲突——本文件私有副本，互不影响）
+private fun parseColor(colorString: String): Color? {
+    return try {
+        when {
+            colorString.startsWith("#") -> {
+                val hex = colorString.removePrefix("#")
+                when (hex.length) {
+                    6 -> Color("#$hex".toColorInt())
+                    3 -> {
+                        val r = hex[0].toString().repeat(2)
+                        val g = hex[1].toString().repeat(2)
+                        val b = hex[2].toString().repeat(2)
+                        Color("#$r$g$b".toColorInt())
+                    }
+
+                    else -> null
+                }
+            }
+
+            colorString.startsWith("rgb(") -> {
+                val rgb = colorString.removePrefix("rgb(").removeSuffix(")")
+                val values = rgb.split(",").map { it.trim().toIntOrNull() }
+                if (values.size == 3 && values.all { it != null && it in 0..255 }) {
+                    Color(values[0]!!, values[1]!!, values[2]!!)
+                } else null
+            }
+
+            colorString.startsWith("rgba(") -> {
+                val rgba = colorString.removePrefix("rgba(").removeSuffix(")")
+                val values = rgba.split(",").map { it.trim() }
+                if (values.size == 4) {
+                    val r = values[0].toIntOrNull()
+                    val g = values[1].toIntOrNull()
+                    val b = values[2].toIntOrNull()
+                    val a = values[3].toFloatOrNull()
+                    if (r != null && g != null && b != null && a != null &&
+                        r in 0..255 && g in 0..255 && b in 0..255 && a in 0f..1f
+                    ) {
+                        Color(r, g, b, (a * 255).toInt())
+                    } else null
+                } else null
+            }
+
+            else -> {
+                when (colorString.lowercase()) {
+                    "red" -> Color.Red
+                    "green" -> Color.Green
+                    "blue" -> Color.Blue
+                    "black" -> Color.Black
+                    "white" -> Color.White
+                    "gray", "grey" -> Color.Gray
+                    "yellow" -> Color.Yellow
+                    "cyan" -> Color.Cyan
+                    "magenta" -> Color.Magenta
+                    "orange" -> Color(0xFFFFA500)
+                    "purple" -> Color(0xFF800080)
+                    "brown" -> Color(0xFFA52A2A)
+                    "pink" -> Color(0xFFFFC0CB)
+                    else -> null
+                }
+            }
+        }
+    } catch (_: Exception) {
+        null
     }
 }
