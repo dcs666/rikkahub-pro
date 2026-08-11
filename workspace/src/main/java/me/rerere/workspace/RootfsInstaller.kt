@@ -60,6 +60,13 @@ class RootfsInstaller(
                 "Failed to move rootfs into workspace"
             }
             patcher.patch(linuxDir)
+            // [FIX] 安装后结构校验（回归防护）：rootfs 必须满足 hasUsableRootfs 的
+            // 检查条件（linuxDir/bin/sh 可解析），否则安装"成功"但 shell 永远报
+            // "Rootfs is not installed"（v1.9.5 symlink 相对化 bug 曾导致此现象）。
+            require(File(linuxDir, "bin/sh").isFile) {
+                "Installed rootfs is not usable: missing ${File(linuxDir, "bin/sh")} " +
+                    "(tar symlink extraction failed?)"
+            }
             onProgress(RootfsInstallProgress(stage = RootfsInstallStage.INSTALLED))
         } finally {
             archive.delete()

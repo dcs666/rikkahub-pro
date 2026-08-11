@@ -131,7 +131,12 @@ internal object TarExtractor {
             require(resolved.path == rootFile.path || resolved.path.startsWith(rootFile.path + File.separator)) {
                 "Symlink escapes rootfs: ${target.name}"
             }
-            rootFile.toPath().relativize(resolved.toPath()).toFile()
+            // [FIX] 相对化基准必须是链接所在目录 (target.parentFile)，不是 rootfs 根：
+            // symlink 内容按 POSIX 语义相对「链接所在目录」解析。v1.9.5 重构（提取
+            // TarExtractor 供 ProotUpdater 共用）时误改为 rootFile，导致深层 symlink
+            // 内容多出一级路径（usr/bin/sh -> "usr/bin/dash" 而非 "dash"）全部 dangling，
+            // rootfs 装完 bin/sh 不可用（"Rootfs is not installed" / 状态被降级 DISABLED）。
+            (target.parentFile ?: root).toPath().relativize(resolved.toPath()).toFile()
         }
         target.delete()
         Files.createSymbolicLink(target.toPath(), linkTarget.toPath())

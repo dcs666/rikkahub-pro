@@ -81,6 +81,15 @@ class ExampleUnitTest {
             assertEquals("echo hello\n", File(linuxDir, "bin/hello").readText())
             assertTrue(File(linuxDir, "bin/hello").canExecute())
             assertTrue(Files.isSymbolicLink(File(linuxDir, "usr/bin/hello-link").toPath()))
+            // [FIX] 回归防护：symlink 相对化基准错误（v1.9.5 rootFile）会让深层链接
+            // dangling（usr/bin/hello-link -> "bin/hello" 而非 "../../bin/hello"），
+            // 必须能解析到真实文件，且安装产物通过 hasRootfs 检查
+            assertTrue(
+                "hello-link must resolve to real file, readlink: " +
+                    Files.readSymbolicLink(File(linuxDir, "usr/bin/hello-link").toPath()),
+                File(linuxDir, "usr/bin/hello-link").isFile,
+            )
+            assertTrue("installed rootfs must pass hasRootfs", manager.hasRootfs(root))
         } finally {
             server.stop(0)
         }
