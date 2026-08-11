@@ -68,6 +68,7 @@ import me.rerere.rikkahub.data.ai.transformers.TimeReminderTransformer
 import me.rerere.rikkahub.data.ai.transformers.WorkspaceReminderTransformer
 import me.rerere.rikkahub.data.event.AppEvent
 import me.rerere.rikkahub.data.event.AppEventBus
+import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.findProvider
@@ -90,7 +91,9 @@ import me.rerere.rikkahub.utils.applyPlaceholders
 import me.rerere.rikkahub.utils.throttleLatest
 import me.rerere.workspace.WorkspaceShellStatus
 import java.time.Instant
+import java.time.LocalDate
 import java.util.Locale
+import java.util.LinkedHashMap
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.uuid.Uuid
 
@@ -98,6 +101,8 @@ private const val TAG = "ChatService"
 // [FIX] 用户消息字符上限：与翻译输入（GenerationHandler.MAX_TRANSLATE_INPUT_CHARS）
 // 和文档注入（DocumentAsPromptTransformer.MAX_DOCUMENT_CHARS）的 200K 约定一致。
 private const val MAX_USER_MESSAGE_CHARS = 200_000
+// [P2] 工具集缓存最多缓存的会话数（LRU 淘汰最久未用的会话）
+private const val TOOL_CACHE_MAX_SESSIONS = 20
 
 internal fun backgroundTextGenerationParams(
     model: Model,
@@ -164,6 +169,20 @@ class ChatService(
     private val sessions = ConcurrentHashMap<Uuid, ConversationSession>()
     private val _sessionsVersion = MutableStateFlow(0L)
 
+    /**
+     * [P2] 工具集会话级缓存：每次生成都全量重建工具对象（MCP 包装 + workspace 工具 +
+     * search/skill/conversation 工具）是无谓开销（几十 ms 级，但每轮生成都付）。
+     * 用「配置指纹」判断是否可复用：指纹覆盖所有影响工具集的配置项，
+     * 任何一项变化（含日期——search 工具描述内嵌今天日期）都会触发重建。
+     * LRU 上限 TOOL_CACHE_MAX_SESSIONS 个会话，防长期会话堆积。
+     */
+    private val toolCache =
+        object : LinkedHashMap<Uuid, Pair<String, List<Tool>>>(16, 0.75f, true) {
+            override fun removeEldestEntry(
+                eldest: MutableMap.MutableEntry<Uuid, Pair<String, List<Tool>>>,
+            ): Boolean = size > TOOL_CACHE_MAX_SESSIONS
+        }
+
     // 错误状态
     private val _errors = MutableStateFlow<List<ChatError>>(emptyList())
     val errors: StateFlow<List<ChatError>> = _errors.asStateFlow()
@@ -228,6 +247,8 @@ class ChatService(
             _sessionsVersion.value++
             Log.i(TAG, "removeSession: $conversationId (remaining: ${sessions.size})")
         }
+        // [P2] 会话移除时同步清理其工具缓存，避免残留
+        toolCache.remove(conversationId)
     }
 
     // ---- 引用管理 ----
@@ -549,61 +570,13 @@ class ChatService(
                     add(workspaceReminderTransformer)
                 },
                 outputTransformers = outputTransformers,
-                tools = buildList {
-                    if (assistant.enableWebSearch) {
-                        addAll(createSearchTools(settings))
-                    }
-                    addAll(localTools.getTools(assistant.localTools, conversationId.toString()))
-                    if (assistant.enableRecentChatsReference) {
-                        addAll(createConversationTools(conversationRepo, assistant.id))
-                    }
-                    addAll(createWorkspaceToolsIfReady(assistant.workspaceId?.toString(), conversation.workspaceCwd))
-                    if (assistant.enabledSkills.isNotEmpty()) {
-                        addAll(
-                            createSkillTools(
-                                enabledSkills = assistant.enabledSkills,
-                                allSkills = skillManager.listSkills(),
-                            )
-                        )
-                    }
-                    allMcpTools.also { allTools ->
-                        val invalidNames = allTools
-                            .map { it.second }
-                            .distinct()
-                            // [FIX] 工具名规范允许 - 和 _（OpenAI/Anthropic 均按
-                            // ^[a-zA-Z0-9_-]+$ 校验）：只查字母数字会把 my-server 之类的
-                            // 合法 MCP 服务器名误判为 invalid → 工具整体不可用
-                            .filter { name ->
-                                name.isEmpty() || !name.all {
-                                    it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '-' || it == '_'
-                                }
-                            }
-                        if (invalidNames.isNotEmpty()) {
-                            addError(
-                                error = IllegalStateException(
-                                    context.getString(
-                                        R.string.error_mcp_invalid_server_name,
-                                        invalidNames.joinToString(", ")
-                                    )
-                                ),
-                                conversationId = conversationId,
-                            )
-                            return
-                        }
-                    }.forEach { (serverId, serverName, tool) ->
-                        add(
-                            Tool(
-                                name = "mcp__${serverName}__${tool.name}",
-                                description = tool.description ?: "",
-                                parameters = { tool.inputSchema },
-                                needsApproval = { tool.needsApproval },
-                                execute = {
-                                    mcpManager.callTool(serverId, tool.name, it.jsonObject)
-                                },
-                            )
-                        )
-                    }
-                },
+                tools = buildCachedTools(
+                    conversationId = conversationId,
+                    assistant = assistant,
+                    conversation = conversation,
+                    settings = settings,
+                    allMcpTools = allMcpTools,
+                ) ?: return,
             ).onCompletion {
                 // 可能被取消了，或者意外结束，兜底更新
                 val updatedConversation = getConversationFlow(conversationId).value.copy(
@@ -696,6 +669,106 @@ class ChatService(
             return emptyList()
         }
         return createWorkspaceTools(workspaceId, workspaceRepository, cwd)
+    }
+
+    /**
+     * [P2] 工具集构建（带会话级缓存）：
+     * - 配置指纹覆盖：assistant 相关开关、localTools、skills、workspace 绑定、
+     *   MCP 服务器名列表、搜索服务配置、日期（search 工具描述内嵌今天日期）。
+     *   任一变化 → 重建；否则复用缓存的工具对象列表（每轮生成省一次全量构建）。
+     * - 返回 null 表示 MCP 服务器名非法（已 addError），调用方应中止本次生成。
+     */
+    private suspend fun buildCachedTools(
+        conversationId: Uuid,
+        assistant: Assistant,
+        conversation: Conversation,
+        settings: Settings,
+        allMcpTools: List<Triple<String, String, Tool>>,
+    ): List<Tool>? {
+        val fingerprint = buildString {
+            append(assistant.id).append('|')
+            append(assistant.localTools).append('|')
+            append(assistant.enableWebSearch).append('|')
+            append(assistant.enableRecentChatsReference).append('|')
+            append(assistant.workspaceId).append('|')
+            append(conversation.workspaceCwd).append('|')
+            append(assistant.enabledSkills).append('|')
+            // 搜索服务配置（execute 闭包运行时读 settings 快照，配置变化需重建）
+            append(settings.searchServiceSelected).append('|')
+            append(settings.searchServices.joinToString(",") { it.displayName }).append('|')
+            // MCP 服务器（serverId:serverName 排序列表，服务器启停/重命名需重建）
+            append(allMcpTools.joinToString(",") { "${it.first}:${it.second}" }).append('|')
+            // 日期（search 工具 description 内嵌 LocalDate.now()）
+            append(LocalDate.now())
+        }
+        synchronized(toolCache) {
+            toolCache[conversationId]?.let { (cachedFingerprint, cachedTools) ->
+                if (cachedFingerprint == fingerprint) {
+                    return cachedTools
+                }
+            }
+        }
+
+        // MCP 服务器名校验（与旧逻辑一致）：非法名字 → 报错中止
+        val invalidNames = allMcpTools
+            .map { it.second }
+            .distinct()
+            // [FIX] 工具名规范允许 - 和 _（OpenAI/Anthropic 均按
+            // ^[a-zA-Z0-9_-]+$ 校验）：只查字母数字会把 my-server 之类的
+            // 合法 MCP 服务器名误判为 invalid → 工具整体不可用
+            .filter { name ->
+                name.isEmpty() || !name.all {
+                    it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '-' || it == '_'
+                }
+            }
+        if (invalidNames.isNotEmpty()) {
+            addError(
+                error = IllegalStateException(
+                    context.getString(
+                        R.string.error_mcp_invalid_server_name,
+                        invalidNames.joinToString(", ")
+                    )
+                ),
+                conversationId = conversationId,
+            )
+            return null
+        }
+
+        val tools = buildList {
+            if (assistant.enableWebSearch) {
+                addAll(createSearchTools(settings))
+            }
+            addAll(localTools.getTools(assistant.localTools, conversationId.toString()))
+            if (assistant.enableRecentChatsReference) {
+                addAll(createConversationTools(conversationRepo, assistant.id))
+            }
+            addAll(createWorkspaceToolsIfReady(assistant.workspaceId?.toString(), conversation.workspaceCwd))
+            if (assistant.enabledSkills.isNotEmpty()) {
+                addAll(
+                    createSkillTools(
+                        enabledSkills = assistant.enabledSkills,
+                        allSkills = skillManager.listSkills(),
+                    )
+                )
+            }
+            allMcpTools.forEach { (serverId, serverName, tool) ->
+                add(
+                    Tool(
+                        name = "mcp__${serverName}__${tool.name}",
+                        description = tool.description ?: "",
+                        parameters = { tool.inputSchema },
+                        needsApproval = { tool.needsApproval },
+                        execute = {
+                            mcpManager.callTool(serverId, tool.name, it.jsonObject)
+                        },
+                    )
+                )
+            }
+        }
+        synchronized(toolCache) {
+            toolCache[conversationId] = fingerprint to tools
+        }
+        return tools
     }
 
     // ---- 检查无效消息 ----
