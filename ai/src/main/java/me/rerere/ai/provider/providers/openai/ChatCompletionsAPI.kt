@@ -66,7 +66,7 @@ import okhttp3.sse.EventSourceListener
 import okhttp3.sse.EventSources
 import kotlin.time.Clock
 
-internal const val TAG = "ChatCompletionsAPI"
+internal const val CHAT_COMPLETIONS_TAG = "ChatCompletionsAPI"
 
 class ChatCompletionsAPI(
     private val client: OkHttpClient,
@@ -170,7 +170,7 @@ class ChatCompletionsAPI(
                         .forEach {
                             if (it["error"] != null) {
                                 val error = it["error"]!!.parseErrorDetail()
-                                Log.e(TAG, "Provider returned error in stream: ${error.message}")
+                                Log.e(CHAT_COMPLETIONS_TAG, "Provider returned error in stream: ${error.message}")
                                 throw error
                             }
                             val id = it["id"]?.jsonPrimitive?.contentOrNull ?: ""
@@ -205,13 +205,13 @@ class ChatCompletionsAPI(
                                 usage = usage
                             )
                             trySend(messageChunk).onFailure { e ->
-                                Log.w(TAG, "onEvent: chunk dropped (${e?.message})")
+                                Log.w(CHAT_COMPLETIONS_TAG, "onEvent: chunk dropped (${e?.message})")
                             }
                         }
                 } catch (e: Throwable) {
                     // 事件数据非法/流内错误/未知格式时不能悬挂：
                     // 以异常结束 flow，让调用方收到错误提示
-                    Log.w(TAG, "onEvent: failed to process event data: $data", e)
+                    Log.w(CHAT_COMPLETIONS_TAG, "onEvent: failed to process event data: $data", e)
                     close(e)
                 }
             }
@@ -224,10 +224,10 @@ class ChatCompletionsAPI(
                     if (!bodyRaw.isNullOrBlank()) {
                         val bodyElement = Json.parseToJsonElement(bodyRaw)
                         exception = bodyElement.parseErrorDetail()
-                        Log.e(TAG, "onFailure: $exception")
+                        Log.e(CHAT_COMPLETIONS_TAG, "onFailure: $exception")
                     }
                 } catch (e: Throwable) {
-                    Log.w(TAG, "onFailure: failed to parse from $bodyRaw")
+                    Log.w(CHAT_COMPLETIONS_TAG, "onFailure: failed to parse from $bodyRaw")
                     exception = e
                 } finally {
                     close(exception)
