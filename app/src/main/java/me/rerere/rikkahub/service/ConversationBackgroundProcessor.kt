@@ -7,9 +7,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlin.uuid.Uuid
-import me.rerere.ai.core.UIMessage
-import me.rerere.ai.core.toMessageNode
-import me.rerere.ai.core.toText
+import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ProviderManager
 import me.rerere.ai.provider.TextGenerationParams
@@ -20,6 +18,7 @@ import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.datastore.getCurrentChatModel
 import me.rerere.rikkahub.data.model.Conversation
+import me.rerere.rikkahub.data.model.toMessageNode
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.utils.applyPlaceholders
 import java.util.Locale
@@ -39,7 +38,7 @@ class ConversationBackgroundProcessor(
     private val conversationRepo: ConversationRepository,
     private val onSaveConversation: suspend (Uuid, Conversation) -> Unit,
     private val onUpdateConversation: (Uuid, Conversation) -> Unit,
-    private val onGetSessionConversation: (Uuid) -> Conversation?,
+    private val onGetSessionConversation: suspend (Uuid) -> Conversation?,
 ) {
     suspend fun generateTitle(
         conversationId: Uuid,
