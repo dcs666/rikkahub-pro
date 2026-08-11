@@ -198,7 +198,7 @@ class ResponseAPIDeepSeekTest {
         val response = responseWithReasoningAndMessage(
             """{"type":"reasoning","id":"rs_1","content":"thinking trace"}"""
         )
-        val chunk = api.parseResponseOutput(response)
+        val chunk = parseResponseOutput(response)
         val reasoning = reasoningParts(chunk)
         assertEquals(1, reasoning.size)
         assertEquals("thinking trace", reasoning[0].reasoning)
@@ -210,7 +210,7 @@ class ResponseAPIDeepSeekTest {
         val response = responseWithReasoningAndMessage(
             """{"type":"reasoning","id":"rs_1","content":[{"type":"reasoning_text","text":"thinking trace"}]}"""
         )
-        val chunk = api.parseResponseOutput(response)
+        val chunk = parseResponseOutput(response)
         val reasoning = reasoningParts(chunk)
         assertEquals(1, reasoning.size)
         assertEquals("thinking trace", reasoning[0].reasoning)
@@ -222,7 +222,7 @@ class ResponseAPIDeepSeekTest {
         val response = responseWithReasoningAndMessage(
             """{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"thinking trace"}]}"""
         )
-        val chunk = api.parseResponseOutput(response)
+        val chunk = parseResponseOutput(response)
         val reasoning = reasoningParts(chunk)
         assertEquals(1, reasoning.size)
         assertEquals("thinking trace", reasoning[0].reasoning)
@@ -234,7 +234,7 @@ class ResponseAPIDeepSeekTest {
         val response = responseWithReasoningAndMessage(
             """{"type":"reasoning","id":"rs_1"}"""
         )
-        val chunk = api.parseResponseOutput(response)
+        val chunk = parseResponseOutput(response)
         assertTrue(reasoningParts(chunk).isEmpty())
     }
 
@@ -246,7 +246,7 @@ class ResponseAPIDeepSeekTest {
         val event = Json.parseToJsonElement(
             """{"type":"response.incomplete","item_id":"evt_1","response":{"status":"incomplete"}}"""
         ).jsonObject
-        val chunk = api.parseResponseDelta(event)
+        val chunk = parseResponseDelta(event)
         assertEquals("length", chunk?.choices?.getOrNull(0)?.finishReason)
     }
 
@@ -256,7 +256,7 @@ class ResponseAPIDeepSeekTest {
         val event = Json.parseToJsonElement(
             """{"type":"response.failed","response":{"error":{"type":"server_error","message":"boom"}}}"""
         ).jsonObject
-        api.parseResponseDelta(event)
+        parseResponseDelta(event)
     }
 
     @Test
@@ -269,7 +269,7 @@ class ResponseAPIDeepSeekTest {
             put("status", "incomplete")
             put("output", response["output"]!!)
         }
-        val chunk = api.parseResponseOutput(body)
+        val chunk = parseResponseOutput(body)
         assertEquals("length", chunk.choices[0].finishReason)
         assertEquals("thinking trace", reasoningParts(chunk)[0].reasoning)
     }
@@ -285,6 +285,6 @@ class ResponseAPIDeepSeekTest {
                 put("message", "boom")
             })
         }
-        api.parseResponseOutput(response)
+        parseResponseOutput(response)
     }
 }
