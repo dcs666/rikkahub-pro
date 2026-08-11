@@ -159,7 +159,6 @@ private val INLINE_LATEX_REGEX = Regex("\\\\\\((.+?)\\\\\\)")
 private val BLOCK_LATEX_REGEX = Regex("\\\\\\[(.+?)\\\\\\]", RegexOption.DOT_MATCHES_ALL)
 val THINKING_REGEX = Regex("<think>([\\s\\S]*?)(?:</think>|$)", RegexOption.DOT_MATCHES_ALL)
 private val CODE_BLOCK_REGEX = Regex("```[\\s\\S]*?```|`[^`\n]*`", RegexOption.DOT_MATCHES_ALL)
-private val BREAK_LINE_REGEX = Regex("(?i)<br\\s*/?>")
 private val LATEX_BLOCK_LINE_BREAK_REGEX = Regex("""[ \t]*\r?\n[ \t]*""")
 
 // 预处理markdown内容
@@ -762,19 +761,6 @@ internal fun MarkdownNode(
             }
         }
     }
-}
-
-@Composable
-private fun ASTNode.nextSibling(): ASTNode? {
-    val brother = this.parent?.children ?: return null
-    for (i in brother.indices) {
-        if (brother[i] == this) {
-            if (i + 1 < brother.size) {
-                return brother[i + 1]
-            }
-        }
-    }
-    return null
 }
 
 internal fun ASTNode.findChildOfTypeRecursive(vararg types: IElementType): ASTNode? {

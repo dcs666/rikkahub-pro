@@ -465,3 +465,17 @@ if (startOffset == -1 || endOffset == -1) {
 }
 return text.substring(startOffset, endOffset)
 }
+
+private val BREAK_LINE_REGEX = Regex("(?i)<br\\s*/?>")
+
+private fun ASTNode.nextSibling(): ASTNode? {
+    val brother = this.parent?.children ?: return null
+    for (i in brother.indices) {
+        if (brother[i] == this) {
+            if (i + 1 < brother.size) {
+                return brother[i + 1]
+            }
+        }
+    }
+    return null
+}
