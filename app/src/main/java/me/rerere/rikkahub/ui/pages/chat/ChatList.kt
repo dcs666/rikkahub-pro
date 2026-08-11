@@ -425,6 +425,7 @@ private fun ChatListNormal(
             }
             }
         }
+            }
 
         Box(
             modifier = Modifier
