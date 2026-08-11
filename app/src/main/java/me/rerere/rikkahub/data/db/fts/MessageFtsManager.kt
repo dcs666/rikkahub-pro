@@ -71,6 +71,68 @@ class MessageFtsManager(private val database: AppDatabase) {
         db.execSQL("DELETE FROM message_fts")
     }
 
+    /**
+     * [F2] 节点级增量索引：只重建变更/新增节点的 FTS 行，删除已移除节点的行。
+     * 原来 updateConversation 后全量 DELETE + 全量 INSERT（长对话每次保存都重新
+     * 索引全部消息）；增量后只处理变化节点（通常 1-2 个），长对话保存路径
+     * 从"全量重索引"降到"常量级"。
+     *
+     * 与全量 [indexConversation] 语义等价（按 node_id 精确替换），单事务内完成。
+     *
+     * @param upsertNodes   新增/内容变更的节点（先删同 node_id 旧行再插新行）
+     * @param deletedNodeIds 已移除的节点（删除其行）
+     * @param title/updateAt 当前会话标题与更新时间（FTS 行冗余存储，随节点刷新）
+     */
+    suspend fun indexMessageNodesDelta(
+        conversationId: String,
+        title: String,
+        updateAt: Long,
+        upsertNodes: List<MessageNode>,
+        deletedNodeIds: List<String>,
+    ) = withContext(Dispatchers.IO) {
+        if (upsertNodes.isEmpty() && deletedNodeIds.isEmpty()) return@withContext
+        db.beginTransaction()
+        try {
+            if (deletedNodeIds.isNotEmpty()) {
+                deleteFtsRowsByNodeIds(deletedNodeIds)
+            }
+            upsertNodes.forEach { node ->
+                // 先删同 node_id 的旧行（节点内容变更/顺序调整后重插保证一致）
+                deleteFtsRowsByNodeIds(listOf(node.id.toString()))
+                node.messages.forEach { message ->
+                    val text = message.extractFtsText()
+                    if (text.isNotBlank()) {
+                        db.execSQL(
+                            "INSERT INTO message_fts(text, node_id, message_id, conversation_id, title, update_at) VALUES (?, ?, ?, ?, ?, ?)",
+                            arrayOf(
+                                text,
+                                node.id.toString(),
+                                message.id.toString(),
+                                conversationId,
+                                title,
+                                updateAt.toString(),
+                            )
+                        )
+                    }
+                }
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    /** 按 node_id 批量删 FTS 行（SQLite 绑定变量上限 999，分批执行）。 */
+    private fun deleteFtsRowsByNodeIds(nodeIds: List<String>) {
+        nodeIds.chunked(500).forEach { chunk ->
+            val placeholders = chunk.joinToString(",") { "?" }
+            db.execSQL(
+                "DELETE FROM message_fts WHERE node_id IN ($placeholders)",
+                chunk.toTypedArray(),
+            )
+        }
+    }
+
     suspend fun search(
         keyword: String,
         sort: MessageSearchSort = MessageSearchSort.RELEVANCE,

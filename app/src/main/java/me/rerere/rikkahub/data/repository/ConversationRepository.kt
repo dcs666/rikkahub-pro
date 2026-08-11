@@ -11,8 +11,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.rerere.ai.ui.UIMessage
+import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.data.db.AppDatabase
 import me.rerere.rikkahub.data.db.fts.MessageFtsManager
 import me.rerere.rikkahub.data.db.fts.MessageSearchSort
@@ -25,6 +27,7 @@ import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.MessageNode
 import me.rerere.rikkahub.utils.JsonInstant
+import android.util.Log
 import java.time.Instant
 import kotlin.uuid.Uuid
 
@@ -35,6 +38,8 @@ class ConversationRepository(
     private val database: AppDatabase,
     private val filesManager: FilesManager,
     private val messageFtsManager: MessageFtsManager,
+    // [F3] FTS 索引异步化用的应用级协程作用域（fire-and-forget，失败静默由全量重建兜底）
+    private val appScope: AppScope,
 ) {
     companion object {
         private const val PAGE_SIZE = 20
@@ -296,7 +301,7 @@ class ConversationRepository(
     }
 
     suspend fun updateConversation(conversation: Conversation) {
-        database.withTransaction {
+        val delta = database.withTransaction {
             conversationDAO.update(
                 conversationToConversationEntity(conversation)
             )
@@ -304,7 +309,22 @@ class ConversationRepository(
             // 重写全部节点，生成一轮 = delete 全部 + insert 全部）
             saveMessageNodesIncremental(conversation.id.toString(), conversation.messageNodes)
         }
-        messageFtsManager.indexConversation(conversation)
+        // [F2+F3] FTS 索引：节点级增量 + 异步化。保存路径不再同步等待 FTS
+        // （长对话全量重索引从保存路径移除；搜索短暂滞后可接受，崩溃不一致
+        // 由 rebuildAllIndexes/下次全量索引兜底）。
+        appScope.launch {
+            runCatching {
+                messageFtsManager.indexMessageNodesDelta(
+                    conversationId = conversation.id.toString(),
+                    title = conversation.title,
+                    updateAt = conversation.updateAt.toEpochMilli(),
+                    upsertNodes = delta.upsert,
+                    deletedNodeIds = delta.deletedIds,
+                )
+            }.onFailure {
+                Log.w(TAG, "updateConversation: FTS delta index failed", it)
+            }
+        }
     }
 
     suspend fun deleteConversation(conversation: Conversation, deleteFiles: Boolean = true) {
@@ -517,8 +537,14 @@ class ConversationRepository(
      * 内容比较用 messages JSON 字符串（kotlinx 序列化顺序稳定，相同内容产出
      * 相同字符串；UIMessage 的 createdAt 等时间字段在创建时固定、不随 copy 变），
      * 不反序列化 → 零解析开销。
+     *
+     * 返回 [MessageNodeDelta]：变更节点（供 FTS 增量索引，含原始 MessageNode）
+     * 与删除节点 id 列表。
      */
-    private suspend fun saveMessageNodesIncremental(conversationId: String, nodes: List<MessageNode>) {
+    private suspend fun saveMessageNodesIncremental(
+        conversationId: String,
+        nodes: List<MessageNode>,
+    ): MessageNodeDelta {
         // 事务内读取现有节点（只读行，不反序列化 messages JSON）
         val existing = messageNodeDAO.getNodesOfConversation(conversationId)
         val existingById = existing.associateBy { it.id }
@@ -531,12 +557,19 @@ class ConversationRepository(
                 selectIndex = node.selectIndex
             )
         }
-        val toUpsert = newEntities.filter { entity ->
+        val upsertNodes = mutableListOf<MessageNode>()
+        val toUpsert = newEntities.mapNotNull { entity ->
             val old = existingById[entity.id]
-            old == null ||
+            if (old == null ||
                 old.nodeIndex != entity.nodeIndex ||
                 old.messages != entity.messages ||
                 old.selectIndex != entity.selectIndex
+            ) {
+                upsertNodes.add(nodes[entity.nodeIndex])
+                entity
+            } else {
+                null
+            }
         }
         val newIds = newEntities.mapTo(HashSet()) { it.id }
         val toDelete = existing.filter { it.id !in newIds }
@@ -547,8 +580,18 @@ class ConversationRepository(
             // REPLACE 语义：新增与变更统一处理
             messageNodeDAO.insertAll(toUpsert)
         }
+        return MessageNodeDelta(
+            upsert = upsertNodes,
+            deletedIds = toDelete.map { it.id },
+        )
     }
 }
+
+/** [B] 节点增量保存的结果：变更节点与删除节点 id（供 FTS 增量索引）。 */
+private data class MessageNodeDelta(
+    val upsert: List<MessageNode>,
+    val deletedIds: List<String>,
+)
 
 /**
  * 轻量级的会话查询结果，不包含 nodes 和 suggestions 字段

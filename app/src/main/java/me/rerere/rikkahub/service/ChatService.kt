@@ -693,6 +693,9 @@ class ChatService(
             append(assistant.workspaceId).append('|')
             append(conversation.workspaceCwd).append('|')
             append(assistant.enabledSkills).append('|')
+            // [F1] 技能目录指纹（子目录数 + 最新 mtime）：技能内容编辑后同会话
+            // 内工具描述立即刷新（listSkills 结果已按同一指纹缓存）
+            append(skillManager.skillsFingerprint()).append('|')
             // 搜索服务配置（execute 闭包运行时读 settings 快照，配置变化需重建）
             append(settings.searchServiceSelected).append('|')
             append(settings.searchServices.joinToString(",") { it.displayName }).append('|')

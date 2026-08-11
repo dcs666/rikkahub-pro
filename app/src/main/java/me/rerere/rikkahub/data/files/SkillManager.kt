@@ -13,6 +13,37 @@ class SkillManager(
 ) {
     companion object {
         private const val TAG = "SkillManager"
+
+        // [F1] listSkills 结果缓存：技能目录的聚合指纹（子目录数 + 最新 mtime），
+        // 指纹不变则复用缓存结果，避免每次调用全量扫描磁盘 + 读 SKILL.md + 解析。
+        private const val SKILLS_FINGERPRINT_SEPARATOR = ";"
+    }
+
+    // [F1] 技能列表缓存：指纹（目录状态）→ 解析结果。
+    // 写入路径（saveSkill/deleteSkill/saveSkillFileBytesAtomically/deleteSkillFile）
+    // 显式清缓存；外部直接改文件系统时指纹变化自动失效。
+    @Volatile
+    private var skillsCacheFingerprint: String? = null
+
+    @Volatile
+    private var skillsCache: List<SkillMetadata>? = null
+
+    /**
+     * [F1] 技能目录聚合指纹：目录存在性 + 子目录数 + 最新 mtime。
+     * 任何技能文件/目录的增删改都会改变 mtime → 指纹变化 → 缓存失效。
+     * 供 buildCachedTools 配置指纹使用（技能编辑后同会话内工具描述立即刷新）。
+     */
+    fun skillsFingerprint(): String {
+        val dir = getSkillsDir()
+        if (!dir.exists()) return "none"
+        val children = dir.listFiles() ?: return "empty"
+        var latestMtime = 0L
+        for (child in children) {
+            if (child.lastModified() > latestMtime) latestMtime = child.lastModified()
+        }
+        return buildString {
+            append(children.size).append(SKILLS_FINGERPRINT_SEPARATOR).append(latestMtime)
+        }
     }
 
     fun getSkillsDir(): File {
@@ -22,8 +53,13 @@ class SkillManager(
     }
 
     fun listSkills(): List<SkillMetadata> {
+        // [F1] 指纹不变 → 直接复用缓存（并发读安全：Volatile 发布）
+        val fingerprint = skillsFingerprint()
+        if (fingerprint == skillsCacheFingerprint) {
+            skillsCache?.let { return it }
+        }
         val skillsDir = getSkillsDir()
-        return skillsDir.listFiles()
+        val result = skillsDir.listFiles()
             ?.filter { it.isDirectory }
             ?.mapNotNull { dir ->
                 val skillFile = dir.resolve("SKILL.md")
@@ -31,6 +67,15 @@ class SkillManager(
                 parseSkillFile(skillFile, dir)
             }
             ?: emptyList()
+        skillsCacheFingerprint = fingerprint
+        skillsCache = result
+        return result
+    }
+
+    /** [F1] 清空技能列表缓存（写入路径调用）。 */
+    private fun invalidateSkillsCache() {
+        skillsCacheFingerprint = null
+        skillsCache = null
     }
 
     fun readSkillBody(skillName: String): String? {
@@ -54,11 +99,11 @@ class SkillManager(
         val skillDir = resolveSkillDir(name) ?: return null
         return parseSkillFile(skillDir.resolve("SKILL.md"), skillDir)
     }
-
     suspend fun deleteSkill(name: String): Boolean = withContext(Dispatchers.IO) {
         val skillDir = resolveSkillDir(name) ?: return@withContext false
         val deleted = skillDir.deleteRecursively()
         if (deleted) {
+            invalidateSkillsCache() // [F1]
             settingsStore.update { settings ->
                 settings.copy(
                     assistants = settings.assistants.map { assistant ->
@@ -106,6 +151,7 @@ class SkillManager(
         val target = SkillPaths.resolveSkillFile(skillDir, relativePath) ?: return false
         target.parentFile?.mkdirs()
         target.writeText(content)
+        invalidateSkillsCache() // [F1]
         return true
     }
 
@@ -144,6 +190,7 @@ class SkillManager(
             }
 
             backupDir?.deleteRecursively()
+            invalidateSkillsCache() // [F1] 技能内容变更后清列表缓存
             return true
         } catch (e: Exception) {
             Log.w(TAG, "saveSkillFilesAtomically: Failed to save $skillName", e)
@@ -164,7 +211,9 @@ class SkillManager(
     fun deleteSkillFile(skillName: String, relativePath: String): Boolean {
         val skillDir = resolveSkillDir(skillName) ?: return false
         val target = SkillPaths.resolveSkillFile(skillDir, relativePath) ?: return false
-        return target.delete()
+        val deleted = target.delete()
+        if (deleted) invalidateSkillsCache() // [F1]
+        return deleted
     }
 
     fun resolveSkillFile(skillName: String, relativePath: String): File? {
