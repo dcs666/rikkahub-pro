@@ -119,10 +119,10 @@ private fun summarizeInput(input: JsonElement?): String {
  * 思维链（如开启思考模式前产生的消息），用占位符补上，否则网关 400：
  * The `reasoning_text` in the thinking mode must be passed back to the API
  */
-private const val REASONING_PLACEHOLDER = "…"
+internal const val REASONING_PLACEHOLDER = "…"
 
 /** [L3] 工具输出回传上限：超长截断（对齐 opencode TOOL_OUTPUT_MAX_CHARS=2000 思路，取 2500） */
-private const val MAX_TOOL_OUTPUT_CHARS = 2500
+internal const val MAX_TOOL_OUTPUT_CHARS = 2500
 
 // ===== [L3] opencode compaction 机制照抄（compaction.ts / overflow.ts / token.ts）=====
 /** token 估算：opencode Token.estimate = chars / 4（token.ts CHARS_PER_TOKEN=4） */
@@ -159,7 +159,7 @@ private const val ESTIMATE_CACHE_MAX_ENTRIES = 4096
 private const val ESTIMATE_CACHE_MAX_KEY_LEN = 8192
 
 /** 清空占位文本：opencode serialize() 对 compacted 工具输出用此文案 */
-private const val CLEARED_TOOL_OUTPUT = "[Old tool result content cleared]"
+internal const val CLEARED_TOOL_OUTPUT = "[Old tool result content cleared]"
 
 /**
  * [F2] 增量请求失败信号：streamText 外层捕获后自动回退全量重试一次

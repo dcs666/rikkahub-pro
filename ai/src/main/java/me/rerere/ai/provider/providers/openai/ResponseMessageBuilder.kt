@@ -9,6 +9,8 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import me.rerere.ai.core.MessageRole
+import me.rerere.ai.provider.providers.PartGroup
+import me.rerere.ai.provider.providers.groupPartsByToolBoundary
 import me.rerere.ai.ui.OpenAIReasoningMetadata
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
