@@ -42,6 +42,10 @@ private class DefaultKeyRoulette : KeyRoulette {
 
 private const val LRU_CACHE_FILE = "lru_key_roulette.json"
 private const val EXPIRE_DURATION_MS = 24 * 60 * 60 * 1000L // 1 天
+// [D] 落盘节流：LRU 状态是公平性优化（非正确性依赖），不需要每次 next() 都写盘。
+// 进程被杀最多丢失最近 30s/64 次操作的轮换状态（下次启动重新公平分配）。
+private const val SAVE_INTERVAL_MS = 30_000L
+private const val SAVE_OPS_THRESHOLD = 64
 
 // 全局文件锁，防止多个 provider 实例并发读写同一文件
 private object LruFileLock
@@ -53,13 +57,19 @@ private class LruKeyRoulette(
     private val context: Context,
 ) : KeyRoulette {
 
+    // [D] 内存缓存：启动时加载一次，next() 只操作内存（原来每次 next() 都
+    // loadCache+saveCache —— 每次 API 请求 2 次磁盘 IO）。落盘节流见 next()。
+    private var inMemoryCache: LruCache = loadCache()
+    private var pendingOps = 0
+    private var lastSaveMs = System.currentTimeMillis()
+
     override fun next(keys: String, providerId: String): String {
         val keyList = splitKey(keys)
         if (keyList.isEmpty()) return keys
 
         synchronized(LruFileLock) {
             val now = System.currentTimeMillis()
-            val allCache = loadCache().toMutableMap()
+            val allCache = inMemoryCache.toMutableMap()
 
             // 取本 provider 的记录，过滤掉已过期条目和不在当前 key 列表中的条目
             val providerCache = (allCache[providerId] ?: emptyMap())
@@ -78,7 +88,14 @@ private class LruKeyRoulette(
                 id != providerId && cache.values.all { now - it >= EXPIRE_DURATION_MS }
             }
 
-            saveCache(allCache)
+            inMemoryCache = allCache
+            // [D] 节流落盘：间隔/次数任一达标才写文件
+            pendingOps++
+            if (now - lastSaveMs >= SAVE_INTERVAL_MS || pendingOps >= SAVE_OPS_THRESHOLD) {
+                saveCache(allCache)
+                lastSaveMs = now
+                pendingOps = 0
+            }
             return selected
         }
     }
