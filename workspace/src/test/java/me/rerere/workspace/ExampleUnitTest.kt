@@ -75,7 +75,7 @@ class ExampleUnitTest {
         server.start()
         try {
             val root = "test-workspace"
-            installer.install(root, "http://127.0.0.1:${server.address.port}/rootfs.tar.gz")
+            installer.install(root, listOf("http://127.0.0.1:${server.address.port}/rootfs.tar.gz"))
 
             val linuxDir = manager.linuxDir(root)
             assertEquals("echo hello\n", File(linuxDir, "bin/hello").readText())

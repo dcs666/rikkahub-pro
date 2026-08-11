@@ -117,9 +117,11 @@ class WorkspaceRepository(
         val workspace = dao.getById(id) ?: return false
         updateShellState(workspace, WorkspaceShellStatus.INSTALLING.name)
         try {
+            // [TURBO] 默认 URL 走镜像回退链（华为云→官方→TUNA→阿里云）；用户自定义 URL 只用用户给的
+            val urls = if (url == RootfsUrls.DEFAULT) RootfsUrls.MIRRORS else listOf(url)
             // runInterruptible 让协程取消转成线程中断, 打断 install 内阻塞的下载/解压循环
             runInterruptible(Dispatchers.IO) {
-                rootfsInstaller.install(workspace.root, url, onProgress)
+                rootfsInstaller.install(workspace.root, urls, onProgress)
             }
             updateShellState(workspace, WorkspaceShellStatus.READY.name)
             return true
