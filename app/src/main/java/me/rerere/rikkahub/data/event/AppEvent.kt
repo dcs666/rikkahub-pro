@@ -48,5 +48,7 @@ sealed class AppEvent {
         val notifyOnSuccess: Boolean? = null,
         // [⑨ 定时 AI 动作] timer 任务到期时触发 AI 生成（message 作为指令）。
         val aiAction: Boolean = false,
+        // [⑨ M2 工作流模板] timer+aiAction 的多步指令序列（空 = 单步 message）。
+        val steps: List<String> = emptyList(),
     ) : AppEvent()
 }

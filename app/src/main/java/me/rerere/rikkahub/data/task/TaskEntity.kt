@@ -97,6 +97,9 @@ sealed class TaskConfig {
         val repeatCount: Int = 0,
         // [⑨ 定时 AI 动作] 到期时注入对话并触发 AI 把 message 当作指令执行
         val autoAi: Boolean = false,
+        // [⑨ M2 工作流模板] 多步指令序列：autoAi 时按序注入执行，前一步生成完成
+        // 后自动触发下一步；空列表 = 用 message 单步（向后兼容）
+        val steps: List<String> = emptyList(),
     ) : TaskConfig()
 
     @Serializable

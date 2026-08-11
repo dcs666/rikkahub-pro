@@ -322,6 +322,7 @@ class BackgroundTaskManager(
         repeatIntervalMs: Long = 0,
         repeatCount: Int = 0,
         autoAi: Boolean = false,
+        steps: List<String> = emptyList(),
     ): String {
         val config = TaskConfig.Timer(
             delayMs = delayMs,
@@ -329,6 +330,7 @@ class BackgroundTaskManager(
             repeatIntervalMs = repeatIntervalMs,
             repeatCount = repeatCount,
             autoAi = autoAi,
+            steps = steps,
         )
         val task = TaskEntity(
             id = Uuid.random().toString(),
@@ -852,6 +854,8 @@ class BackgroundTaskManager(
             completeTask(task, success = false, error = "Invalid timer config")
             return
         }
+        // [⑨ M2] 工作流步骤：配置了 steps 用 steps（多步），否则 message 单步
+        val workflowSteps = if (config.steps.isNotEmpty()) config.steps else listOf(config.message)
 
         val elapsed = System.currentTimeMillis() - task.createdAt
         if (elapsed >= config.delayMs) {
@@ -877,6 +881,7 @@ class BackgroundTaskManager(
                             )
                         }.toString(),
                         aiAction = config.autoAi,
+                        steps = workflowSteps,
                     )
                     Log.w(TAG, "Timer ${task.id}: gave up injection after $retries retries (conversation busy)")
                     return
@@ -894,8 +899,10 @@ class BackgroundTaskManager(
                 resultJson = kotlinx.serialization.json.buildJsonObject {
                     put("message", kotlinx.serialization.json.JsonPrimitive(config.message))
                 }.toString(),
-                // [⑨] 定时 AI 动作：event.aiAction 透传，消费端据此触发 AI 生成
+                // [⑨] 定时 AI 动作：event.aiAction 透传，消费端据此触发 AI 生成；
+                // steps 工作流序列随事件传递（消费端按序注入执行）
                 aiAction = config.autoAi,
+                steps = workflowSteps,
             )
 
             // [⑥ 重复定时器] 安排下一次触发：
@@ -946,6 +953,7 @@ class BackgroundTaskManager(
         error: String = "",
         config: TaskConfig.CIMonitor? = null,
         aiAction: Boolean = false,
+        steps: List<String> = emptyList(),
     ) {
         // 防重入：如果任务已经被完成/取消（例如 webhook 先到达），不再重复处理
         val current = taskDao.getById(task.id)
@@ -979,6 +987,7 @@ class BackgroundTaskManager(
             autoAnalyze = config?.autoAnalyzeOnFailure,
             notifyOnSuccess = config?.notifyOnSuccess,
             aiAction = aiAction,
+            steps = steps,
         )
         eventBus.emit(event)
 

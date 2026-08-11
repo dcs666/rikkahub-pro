@@ -127,6 +127,11 @@ internal fun buildBackgroundTaskTool(
                     put("type", "boolean")
                     put("description", "On fire, ask the AI to execute the message as an instruction (e.g. 'summarize today's work'). Requires the timer to be associated with a conversation.")
                 })
+                put("steps", buildJsonObject {
+                    put("type", "array")
+                    put("items", buildJsonObject { put("type", "string") })
+                    put("description", "[Workflow] Ordered list of instruction strings. When auto_ai is true, each step is injected into the conversation in sequence — the AI executes step 1, waits for completion, then step 2, etc. Use for multi-step workflows like research → summarize → save. Optional; defaults to single-step [message].")
+                })
                 put("task_id", buildJsonObject {
                     put("type", "string")
                     put("description", "Task ID for get_task, cancel_task, or rerun_ci.")
@@ -220,9 +225,13 @@ internal fun buildBackgroundTaskTool(
                     ?.toDoubleOrNull()?.let { (it * 60_000).toLong() } ?: 0L
                 val repeatCount = obj["repeat_count"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
                 val autoAi = obj["auto_ai"]?.jsonPrimitive?.content?.toBoolean() ?: false
+                // [⑨ M2 工作流] steps：JSON array of strings（每步一条指令，按序执行）
+                val steps = runCatching {
+                    obj["steps"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }
+                }.getOrNull() ?: emptyList()
 
                 if (delayMs <= 0) {
-                    """{"error": "Specify delay_ms, delay_seconds, or delay_minutes"}"""
+                    """"{"error": "Specify delay_ms, delay_seconds, or delay_minutes"}""""
                 } else {
                     val taskId = taskManager.createTimerTask(
                         delayMs = delayMs,
@@ -231,6 +240,7 @@ internal fun buildBackgroundTaskTool(
                         repeatIntervalMs = repeatIntervalMs,
                         repeatCount = repeatCount,
                         autoAi = autoAi,
+                        steps = steps,
                     )
                     buildJsonObject {
                         put("status", "created")

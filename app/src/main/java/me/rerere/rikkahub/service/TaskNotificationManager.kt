@@ -199,8 +199,25 @@ class TaskNotificationManager(
                 content = listOf(UIMessagePart.Text(injectedMessage)),
                 answer = shouldAutoGenerate,
             )
-
             Log.i(TAG, "Injected task result into conversation $conversationId, autoGenerate=$shouldAutoGenerate")
+
+            // [⑨ M2 工作流模板] timer+autoAi 且配置了多步指令：按序注入执行，
+            // 每步等待前一步生成自然结束（避免 sendMessage 掐断上一步的回复）。
+            if (event.taskType == "timer" && event.aiAction && event.steps.isNotEmpty()) {
+                event.steps.forEachIndexed { index, step ->
+                    val stepIdle = chatService.awaitGenerationIdle(conversationId)
+                    if (!stepIdle) {
+                        Log.w(TAG, "Workflow step ${index + 1}/${event.steps.size} skipped (conversation busy)")
+                        return@forEachIndexed
+                    }
+                    chatService.sendMessage(
+                        conversationId = conversationId,
+                        content = listOf(UIMessagePart.Text(step)),
+                        answer = true,
+                    )
+                    Log.i(TAG, "Workflow step ${index + 1}/${event.steps.size} injected")
+                }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to inject into conversation", e)
         }

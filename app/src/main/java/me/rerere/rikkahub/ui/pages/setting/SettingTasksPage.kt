@@ -110,6 +110,7 @@ fun SettingTasksPage() {
     var timerMessageInput by remember { mutableStateOf("") }
     var timerRepeatMinutesInput by remember { mutableStateOf("") }
     var timerAutoAi by remember { mutableStateOf(false) }
+    var timerStepsInput by remember { mutableStateOf("") }
 
     Scaffold(
         topBar = {
@@ -584,6 +585,19 @@ fun SettingTasksPage() {
                             onCheckedChange = { timerAutoAi = it },
                         )
                     }
+                    // [⑨ M2] 工作流步骤：每行一条指令，按序执行（需开启 AI executes）
+                    if (timerAutoAi) {
+                        TextField(
+                            value = timerStepsInput,
+                            onValueChange = { timerStepsInput = it },
+                            label = { Text("Workflow steps (one per line)") },
+                            placeholder = {
+                                Text("研究这个话题的进展\n把结论总结成 5 条要点\n保存到我的记忆里")
+                            },
+                            minLines = 2,
+                            maxLines = 8,
+                        )
+                    }
                 }
             },
             confirmButton = {
@@ -594,20 +608,26 @@ fun SettingTasksPage() {
                         val delayMs = minutes!! * 60_000
                         val repeatMs = timerRepeatMinutesInput.toLongOrNull()?.times(60_000) ?: 0L
                         val message = timerMessageInput.trim().ifBlank { "Timer" }
+                        // [⑨ M2] 多行输入按行拆分为步骤（去空白行）
+                        val steps = timerStepsInput.lines()
+                            .map { it.trim() }
+                            .filter { it.isNotEmpty() }
                         scope.launch {
                             taskManager.createTimerTask(
                                 delayMs = delayMs,
                                 message = message,
                                 repeatIntervalMs = repeatMs,
                                 autoAi = timerAutoAi,
+                                steps = steps,
                             )
-                            toaster.show("Timer set for ${minutes}m")
+                            toaster.show("Timer set for ${minutes}m" + if (steps.size > 1) " (workflow: ${steps.size} steps)" else "")
                         }
                         createType = null
                         timerMinutesInput = ""
                         timerMessageInput = ""
                         timerRepeatMinutesInput = ""
                         timerAutoAi = false
+                        timerStepsInput = ""
                     },
                 ) { Text("Create") }
             },
