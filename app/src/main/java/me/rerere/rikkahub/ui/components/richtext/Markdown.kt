@@ -303,13 +303,26 @@ fun MarkdownBlock(
         // markdown 追加式 → 已渲染块参数不变，Compose 智能跳过重组；每帧成本 O(n) 行扫描。
         // 行内格式 R3.3：闭合标记（code/bold/italic）流式中即可见且与最终渲染样式一致，
         // 未闭合标记按字面量显示（intellij 同样按字面量渲染 → 结束切完整渲染零跳变）。
+        // [PERF F5] 流式降级块计算从组合阶段（主线程）移到后台：splitStreamingBlocks
+        // 每 chunk 对全文做 O(行数) 正则扫描（分类×4 + 行内 link），长回答（数百行）时
+        // 主线程每帧可达数 ms。首帧同步算一次（生成刚开始内容短，成本低），此后
+        // LaunchedEffect 后台 mapLatest 计算，组合只消费 state → 主线程零正则。
+        var streamBlocks by remember { mutableStateOf(splitStreamingBlocks(content)) }
+        val updatedStreamContent by rememberUpdatedState(content)
+        LaunchedEffect(Unit) {
+            snapshotFlow { updatedStreamContent }
+                .distinctUntilChanged()
+                .mapLatest { splitStreamingBlocks(it) }
+                .flowOn(Dispatchers.Default)
+                .collect { streamBlocks = it }
+        }
         val fontSizeRatio = LocalSettings.current.displaySetting.fontSizeRatio
         ProvideTextStyle(style) {
             Column(
                 modifier = modifier.padding(horizontal = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                remember(content) { splitStreamingBlocks(content) }.forEach { block ->
+                streamBlocks.forEach { block ->
                     when (block.kind) {
                         StreamBlockKind.CODE -> {
                             Surface(
