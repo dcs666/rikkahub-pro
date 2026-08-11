@@ -22,15 +22,9 @@ class ChatCompletionsAPIUsageTest {
         api = ChatCompletionsAPI(OkHttpClient(), KeyRoulette.default())
     }
 
-    // Helper to invoke private parseTokenUsage via reflection
-    private fun parseTokenUsage(usage: JsonObject): TokenUsage? {
-        val method = ChatCompletionsAPI::class.java.getDeclaredMethod(
-            "parseTokenUsage",
-            JsonObject::class.java
-        )
-        method.isAccessible = true
-        return method.invoke(api, usage) as TokenUsage?
-    }
+    // parseTokenUsage 已拆为顶层 internal 函数并改名 parseChatCompletionsTokenUsage
+    private fun parseTokenUsage(usage: JsonObject): TokenUsage? =
+        parseChatCompletionsTokenUsage(usage)
 
     // #1576: cached tokens 按 provider 方言兜底解析
     @Test

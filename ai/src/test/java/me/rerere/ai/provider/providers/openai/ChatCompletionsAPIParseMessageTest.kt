@@ -31,15 +31,7 @@ class ChatCompletionsAPIParseMessageTest {
         api = ChatCompletionsAPI(OkHttpClient(), KeyRoulette.default())
     }
 
-    // Helper to invoke private parseMessage via reflection
-    private fun parseMessage(jsonObject: JsonObject): UIMessage {
-        val method = ChatCompletionsAPI::class.java.getDeclaredMethod(
-            "parseMessage",
-            JsonObject::class.java
-        )
-        method.isAccessible = true
-        return method.invoke(api, jsonObject) as UIMessage
-    }
+    // parseMessage 已拆为顶层 internal 函数（ChatCompletionsParser.kt），同 package 直接可见
 
     private fun textOf(message: UIMessage): String =
         message.parts.filterIsInstance<UIMessagePart.Text>().joinToString("") { it.text }
