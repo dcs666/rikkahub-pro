@@ -1186,6 +1186,9 @@
   <string name="workspace_detail_shell_status">Shell Status</string>
   <string name="workspace_detail_loading">Loading</string>
   <string name="workspace_detail_enable_shell">Enable Shell</string>
+  <string name="workspace_detail_proot_runtime">Proot Runtime</string>
+  <string name="workspace_detail_update_proot">Update Proot</string>
+  <string name="workspace_detail_proot_updating">Updating…</string>
   <string name="workspace_detail_enable_shell_desc">Allow this workspace to run a terminal environment using local Rootfs</string>
   <string name="workspace_detail_tool_approval">Tool Approval</string>
   <string name="workspace_detail_tool_approval_desc">When enabled, user confirmation is required before AI calls this tool</string>

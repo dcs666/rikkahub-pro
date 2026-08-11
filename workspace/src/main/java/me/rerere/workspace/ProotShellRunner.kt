@@ -20,26 +20,9 @@ class ProotShellRunner(
 ) : WorkspaceShellRunner {
     // [TURBO] 优先使用 ProotUpdater 下载的最新版 proot（termux 仓库预编译，
     // 5.1.107.89 及以上，2026 年持续修复）；未就绪/失败时回退 APK 内置 proot。
+    // 2026-08-11 起不再自动触发下载（用户要求去掉"每次 shell 自动下载解压"），
+    // 改为工作区详情页手动按钮触发（WorkspaceDetailVM.updateProot）。
     private val prootBinDir: File? get() = updater?.binDir?.takeIf { updater.isReady() }
-
-    // 首次 execute 前异步触发一次 proot 更新检查（后台线程，不阻塞命令）。
-    // 更新完成后，后续 execute 的 prootBinDir 动态读取 → 自动切换到新版；
-    // 失败静默（updateIfNeeded 内部已 catch），不影响 shell 功能。
-    @Volatile
-    private var updateAttempted = false
-
-    private val updateExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "proot-updater").apply { isDaemon = true }
-    }
-
-    private fun ensureProotUpdated() {
-        if (updateAttempted) return
-        updateAttempted = true
-        // 异步：不阻塞当前命令；线程单例，进程生命周期内只触发一次
-        updateExecutor.execute {
-            runCatching { updater?.updateIfNeeded() }
-        }
-    }
 
     /** 下载 proot 依赖库所在目录（LD_LIBRARY_PATH 指向这里） */
     private fun ldLibraryPath(): String? = prootBinDir?.absolutePath
@@ -105,8 +88,6 @@ class ProotShellRunner(
     }
 
     override fun execute(context: WorkspaceShellContext): WorkspaceCommandResult {
-        // 首次调用时检查 proot 更新（下载失败静默回退内置）
-        ensureProotUpdated()
         if (!context.linuxDir.hasUsableRootfs()) {
             return WorkspaceCommandResult(
                 exitCode = 127,

@@ -1149,6 +1149,9 @@
   <string name="workspace_detail_shell_status">Shell 狀態</string>
   <string name="workspace_detail_loading">載入中</string>
   <string name="workspace_detail_enable_shell">啟用 Shell</string>
+  <string name="workspace_detail_proot_runtime">Proot 執行環境</string>
+  <string name="workspace_detail_update_proot">更新 Proot</string>
+  <string name="workspace_detail_proot_updating">更新中…</string>
   <string name="workspace_detail_enable_shell_desc">允許此工作區使用本地 Rootfs 來執行終端環境</string>
   <string name="workspace_detail_tool_approval">工具核准</string>
   <string name="workspace_detail_tool_approval_desc">啟用後，AI 調用此工具前需要用戶確認。</string>

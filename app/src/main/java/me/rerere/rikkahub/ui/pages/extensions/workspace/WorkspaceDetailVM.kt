@@ -35,9 +35,45 @@ class WorkspaceDetailVM(
     private val _installError = MutableStateFlow<String?>(null)
     val installError = _installError.asStateFlow()
 
+    // [TURBO] proot 运行时状态（手动更新）
+    private val _prootStatus = MutableStateFlow("")
+    val prootStatus = _prootStatus.asStateFlow()
+
+    private val _prootUpdating = MutableStateFlow(false)
+    val prootUpdating = _prootUpdating.asStateFlow()
+
+    private val _prootMessage = MutableStateFlow<String?>(null)
+    val prootMessage = _prootMessage.asStateFlow()
+
     init {
         loadWorkspace()
         refresh()
+        refreshProotStatus()
+    }
+
+    /** [TURBO] 刷新 proot 运行时状态文本（已下载版/内置版） */
+    fun refreshProotStatus() {
+        viewModelScope.launch {
+            _prootStatus.value = repository.prootRuntimeStatus()
+        }
+    }
+
+    /** [TURBO] 手动更新 proot（强制检查，绕过 24h 间隔） */
+    fun updateProot() {
+        viewModelScope.launch {
+            _prootUpdating.value = true
+            _prootMessage.value = null
+            try {
+                _prootMessage.value = repository.updateProotRuntime()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _prootMessage.value = "Proot update failed: ${e.message}"
+            } finally {
+                _prootUpdating.value = false
+                _prootStatus.value = repository.prootRuntimeStatus()
+            }
+        }
     }
 
     fun selectArea(area: WorkspaceStorageArea) {

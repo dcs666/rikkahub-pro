@@ -1179,6 +1179,9 @@ mDNS 地址：使用 .local 主机名，同一网络中的其他设备可通过�
   <string name="workspace_detail_shell_status">Shell 状态</string>
   <string name="workspace_detail_loading">加载中</string>
   <string name="workspace_detail_enable_shell">启用 Shell</string>
+  <string name="workspace_detail_proot_runtime">Proot 运行时</string>
+  <string name="workspace_detail_update_proot">更新 Proot</string>
+  <string name="workspace_detail_proot_updating">更新中…</string>
   <string name="workspace_detail_enable_shell_desc">允许此工作区使用本地Rootfs运行终端环境</string>
   <string name="workspace_detail_tool_approval">工具审批</string>
   <string name="workspace_detail_tool_approval_desc">启用后，AI 调用此工具前需要用户确认</string>

@@ -11,6 +11,7 @@ import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.db.dao.WorkspaceDAO
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
 import me.rerere.rikkahub.utils.JsonInstant
+import me.rerere.workspace.ProotUpdater
 import me.rerere.workspace.RootfsInstallProgress
 import me.rerere.workspace.RootfsInstaller
 import me.rerere.workspace.WorkspaceCommandResult
@@ -28,6 +29,7 @@ class WorkspaceRepository(
     private val manager: WorkspaceManager,
     private val rootfsInstaller: RootfsInstaller,
     private val settingsStore: SettingsStore,
+    private val prootUpdater: ProotUpdater,
 ) {
     fun listFlow(): Flow<List<WorkspaceEntity>> = dao.listFlow()
 
@@ -139,6 +141,32 @@ class WorkspaceRepository(
             Log.e(TAG, "installRootfs failed: workspace=${workspace.id}, root=${workspace.root}, url=$url", e)
             updateShellState(workspace, WorkspaceShellStatus.BROKEN.name)
             throw e
+        }
+    }
+
+    /**
+     * [TURBO] proot 运行时状态（供 UI 展示）：已下载版 / 内置版
+     */
+    fun prootRuntimeStatus(): String {
+        val downloaded = prootUpdater.installedVersion()
+        return if (downloaded != null) {
+            "Proot $downloaded (downloaded) / built-in ${ProotUpdater.BUILTIN_VERSION}"
+        } else {
+            "Proot built-in ${ProotUpdater.BUILTIN_VERSION} (download available)"
+        }
+    }
+
+    /**
+     * [TURBO] 手动更新 proot（工作区详情页按钮触发）。强制检查，绕过 24h 间隔。
+     * 同步执行，调用方应在 IO 线程；返回面向用户的提示文本。
+     */
+    suspend fun updateProotRuntime(): String = withContext(Dispatchers.IO) {
+        val ok = prootUpdater.updateIfNeeded(force = true)
+        val version = prootUpdater.installedVersion()
+        when {
+            ok && version != null -> "Proot updated to $version"
+            ok -> "Proot is up to date (${prootUpdater.installedVersion() ?: ProotUpdater.BUILTIN_VERSION})"
+            else -> "Proot update failed (network or source). Still using built-in ${ProotUpdater.BUILTIN_VERSION}."
         }
     }
 

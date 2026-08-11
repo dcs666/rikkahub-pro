@@ -1151,6 +1151,9 @@ mDNSアドレス: .localホスト名を使用し、IPを知らなくても同じ
   <string name="workspace_detail_shell_status">Shell ステータス</string>
   <string name="workspace_detail_loading">読み込み中</string>
   <string name="workspace_detail_enable_shell">シェルを有効にする</string>
+  <string name="workspace_detail_proot_runtime">Proot ランタイム</string>
+  <string name="workspace_detail_update_proot">Proot を更新</string>
+  <string name="workspace_detail_proot_updating">更新中…</string>
   <string name="workspace_detail_enable_shell_desc">このワークスペースでローカルのRootfsを使用したターミナル環境の実行を許可します</string>
   <string name="workspace_detail_tool_approval">ツール承認</string>
   <string name="workspace_detail_tool_approval_desc">有効にすると、AIがこのツールを呼び出す前にユーザーの確認が必要です</string>

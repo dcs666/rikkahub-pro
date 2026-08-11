@@ -35,6 +35,11 @@ class ProotUpdater(
     private val prootBin = File(binDir, "proot")
     private val loaderBin = File(binDir, "loader")
 
+    companion object {
+        /** APK 内置 proot 版本（用于 UI 展示对比） */
+        const val BUILTIN_VERSION = "5.1.0"
+    }
+
     /** 下载源，按序尝试（官方 + 清华 TUNA 镜像，国内可达） */
     private val sources: List<String> = listOf(
         "https://packages.termux.dev/apt/termux-main",
@@ -62,13 +67,14 @@ class ProotUpdater(
 
     /**
      * 检查并更新 proot。同步执行，调用方应在 IO 线程。
+     * @param force true=强制检查（手动更新按钮，绕过 24h 间隔）；false=仅间隔到期才检查
      * @return true=更新成功或已是最新；false=失败（保持现状，回退内置）
      */
-    fun updateIfNeeded(): Boolean {
+    fun updateIfNeeded(force: Boolean = false): Boolean {
         return try {
             // 不支持的 ABI（如模拟器）不尝试下载
             if (abi == "unknown") return isReady()
-            if (!shouldCheck()) return isReady()
+            if (!force && !shouldCheck()) return isReady()
             val index = fetchPackagesIndex() ?: return isReady()
             val latest = parsePackageVersion(index, "proot") ?: return isReady()
             if (latest == installedVersion()) {

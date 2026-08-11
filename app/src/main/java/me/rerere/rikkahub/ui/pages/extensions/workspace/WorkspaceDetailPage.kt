@@ -12,10 +12,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
@@ -23,14 +25,17 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
@@ -94,6 +99,9 @@ fun WorkspaceDetailPage(id: String) {
     val vm: WorkspaceDetailVM = koinViewModel(parameters = { parametersOf(id) })
     val state by vm.state.collectAsStateWithLifecycle()
     val installProgress by vm.installProgress.collectAsStateWithLifecycle()
+    val prootStatus by vm.prootStatus.collectAsStateWithLifecycle()
+    val prootUpdating by vm.prootUpdating.collectAsStateWithLifecycle()
+    val prootMessage by vm.prootMessage.collectAsStateWithLifecycle()
     val installError by vm.installError.collectAsStateWithLifecycle()
     val pagerState = rememberPagerState { 2 }
     val scope = rememberCoroutineScope()
@@ -188,7 +196,11 @@ fun WorkspaceDetailPage(id: String) {
                 0 -> WorkspaceBasicPage(
                     workspace = state.workspace,
                     installProgress = installProgress,
+                    prootStatus = prootStatus,
+                    prootUpdating = prootUpdating,
+                    prootMessage = prootMessage,
                     onInstallRootfs = { showInstallDialog = true },
+                    onUpdateProot = vm::updateProot,
                     onToolApprovalChange = vm::setToolApproval,
                 )
 
@@ -311,7 +323,11 @@ fun WorkspaceDetailPage(id: String) {
 private fun WorkspaceBasicPage(
     workspace: WorkspaceEntity?,
     installProgress: RootfsInstallProgress?,
+    prootStatus: String,
+    prootUpdating: Boolean,
+    prootMessage: String?,
     onInstallRootfs: () -> Unit,
+    onUpdateProot: () -> Unit,
     onToolApprovalChange: (String, Boolean) -> Unit,
 ) {
     val shellStatus = workspace?.shellStatus
@@ -384,6 +400,61 @@ private fun WorkspaceBasicPage(
 
                     installProgress?.let { progress ->
                         RootfsProgress(progress)
+                    }
+
+                    // [TURBO] Proot 运行时：显示版本 + 手动更新按钮（不再自动下载解压）
+                    HorizontalDivider()
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(R.string.workspace_detail_proot_runtime),
+                                style = MaterialTheme.typography.titleSmall,
+                            )
+                            Text(
+                                text = prootStatus,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            prootMessage?.let { message ->
+                                Text(
+                                    text = message,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (message.startsWith("Proot updated") || message.startsWith("Proot is up to date")) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.error
+                                    },
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        OutlinedButton(
+                            onClick = onUpdateProot,
+                            enabled = !prootUpdating,
+                        ) {
+                            if (prootUpdating) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                            } else {
+                                Icon(
+                                    HugeIcons.Refresh01,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+                            Text(
+                                text = stringResource(
+                                    if (prootUpdating) R.string.workspace_detail_proot_updating
+                                    else R.string.workspace_detail_update_proot
+                                ),
+                                modifier = Modifier.padding(start = 6.dp),
+                            )
+                        }
                     }
                 }
             }

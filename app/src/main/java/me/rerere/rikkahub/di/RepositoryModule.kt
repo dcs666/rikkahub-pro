@@ -56,14 +56,19 @@ val repositoryModule = module {
 
     single {
         val context: Context = get()
+        ProotUpdater(
+            binDir = File(context.filesDir, "proot-bin"),
+            abi = prootAbi(),
+        )
+    }
+
+    single {
+        val context: Context = get()
         WorkspaceManager(
             baseDir = File(context.filesDir, "workspaces"),
             shellRunner = ProotShellRunner(
                 nativeLibraryDir = File(context.applicationInfo.nativeLibraryDir),
-                updater = ProotUpdater(
-                    binDir = File(context.filesDir, "proot-bin"),
-                    abi = prootAbi(),
-                ),
+                updater = get(),
             ),
             // 同一份挂载表既用于 PRoot 的 -b 参数, 也用于文件工具的路径解析, 避免两处漂移
             bindMounts = listOf(
@@ -88,7 +93,7 @@ val repositoryModule = module {
     }
 
     single {
-        WorkspaceRepository(get(), get(), get(), get())
+        WorkspaceRepository(get(), get(), get(), get(), get())
     }
 
     single {
