@@ -202,6 +202,7 @@ fun Route.taskRoutes(
                 repeatIntervalMs = (request.repeatIntervalMinutes?.times(60_000)) ?: 0L,
                 repeatCount = request.repeatCount ?: 0,
                 autoAi = request.autoAi ?: false,
+                steps = request.steps ?: emptyList(),
             )
             call.respond(HttpStatusCode.Created, mapOf("taskId" to taskId))
         }
@@ -394,6 +395,8 @@ data class CreateTimerRequest(
     val repeatIntervalMinutes: Long? = null,
     val repeatCount: Int? = null,
     val autoAi: Boolean? = null,
+    // [⑨ M2 工作流] 多步指令序列（autoAi=true 时按序执行）
+    val steps: List<String>? = null,
 )
 
 @Serializable

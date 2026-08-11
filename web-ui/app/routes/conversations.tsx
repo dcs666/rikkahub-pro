@@ -47,7 +47,7 @@ import {
   type Settings,
   type UIMessagePart,
 } from "~/types";
-import { MessageSquare } from "lucide-react";
+import { ListTodo, MessageSquare } from "lucide-react";
 import Logo from "~/components/logo";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import { useTranslation } from "react-i18next";
@@ -1170,6 +1170,11 @@ function ConversationsPageInner() {
               </div>
             ) : null}
           </div>
+          <Link to="/tasks" title="Background Tasks">
+            <Button variant="ghost" size="icon">
+              <ListTodo className="size-4" />
+            </Button>
+          </Link>
         </div>
 
         {!isMobile ? (
