@@ -13,7 +13,7 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     permissions:
       contents: write
 
@@ -46,19 +46,42 @@ jobs:
               ref: ref,
             });
             const commitSha = commit.sha;
-            const { data } = await github.rest.actions.listWorkflowRuns({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: 'build.yml',
-              head_sha: commitSha,
-              event: 'push',
-              per_page: 10
-            });
-            const run = data.workflow_runs.find(r => r.status === 'completed' && r.conclusion === 'success');
+            // [FIX] 竞态（2026-08-10 v1.9.4-turbo pro 发布失败）：tag push 通常在
+            // master push 后十几秒内触发，而 Build APK 需 ~12min。旧逻辑查不到
+            // "已完成的成功 run" 就直接失败 → 发布 run 23s 内死掉、build 12 分钟后
+            // 才成功。改为轮询等待：build run 尚在进行时每 30s 重查一次
+            // （最长 20min，job timeout 30min 兜底）；该 SHA 的 build run 全部
+            // 完成且无一成功（build 失败）时提前报错，避免空等。
+            const findOk = (runs) => runs.find(r => r.status === 'completed' && r.conclusion === 'success');
+            const deadline = Date.now() + 20 * 60 * 1000;
+            let run = null;
+            while (Date.now() < deadline) {
+              const { data } = await github.rest.actions.listWorkflowRuns({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: 'build.yml',
+                head_sha: commitSha,
+                event: 'push',
+                per_page: 10
+              });
+              run = findOk(data.workflow_runs);
+              if (run) break;
+              const runs = data.workflow_runs || [];
+              // API 按创建时间倒序 → runs[0] 是最新 run；全部已结束且无一成功 → build 失败
+              if (runs.length > 0 && runs.every(r => r.status === 'completed')) {
+                const latest = runs[0];
+                throw new Error(
+                  `Build APK runs for ${commitSha} (${ref}) finished without success ` +
+                  `(latest run ${latest.id}: ${latest.conclusion}). ` +
+                  `Rerun the build CI first, then rerun this release workflow.`
+                );
+              }
+              await new Promise(r => setTimeout(r, 30000));
+            }
             if (!run) {
               // throw 会标记 job 失败并中断后续步骤（setFailed 不中断步骤链）
               throw new Error(
-                `No successful Build APK run found for ${commitSha} (${ref}). ` +
+                `No successful Build APK run found for ${commitSha} (${ref}) within 20min. ` +
                 `Wait for the push CI (Unit Tests + Build APK) to pass before releasing.`
               );
             }
