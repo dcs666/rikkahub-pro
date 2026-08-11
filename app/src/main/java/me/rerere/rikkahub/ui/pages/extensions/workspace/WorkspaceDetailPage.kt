@@ -195,6 +195,7 @@ fun WorkspaceDetailPage(id: String) {
             when (page) {
                 0 -> WorkspaceBasicPage(
                     workspace = state.workspace,
+                    rootfsReady = state.rootfsReady,
                     installProgress = installProgress,
                     prootStatus = prootStatus,
                     prootUpdating = prootUpdating,
@@ -322,6 +323,7 @@ fun WorkspaceDetailPage(id: String) {
 @Composable
 private fun WorkspaceBasicPage(
     workspace: WorkspaceEntity?,
+    rootfsReady: Boolean,
     installProgress: RootfsInstallProgress?,
     prootStatus: String,
     prootUpdating: Boolean,
@@ -332,7 +334,8 @@ private fun WorkspaceBasicPage(
 ) {
     val shellStatus = workspace?.shellStatus
     val installing = installProgress != null || shellStatus == WorkspaceShellStatus.INSTALLING.name
-    val rootfsReady = shellStatus == WorkspaceShellStatus.READY.name
+    // [FIX] rootfsReady 使用 VM 实时磁盘检查结果（不再直接信任 DB shellStatus，
+    // 避免 rootfs 丢失后界面仍显示"就绪"而 shell 报未安装）
     val installButtonText = when {
         installing -> stringResource(R.string.workspace_detail_installing)
         rootfsReady -> stringResource(R.string.workspace_detail_reinstall_rootfs)

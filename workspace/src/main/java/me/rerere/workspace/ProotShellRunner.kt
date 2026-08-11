@@ -89,10 +89,11 @@ class ProotShellRunner(
 
     override fun execute(context: WorkspaceShellContext): WorkspaceCommandResult {
         if (!context.linuxDir.hasUsableRootfs()) {
+            // [FIX] 报错携带期望路径：排查"界面就绪但工具报未安装"时一眼定位检查目标
             return WorkspaceCommandResult(
                 exitCode = 127,
                 stdout = "",
-                stderr = "Rootfs is not installed",
+                stderr = "Rootfs is not installed: ${context.linuxDir.absolutePath}/bin/sh is missing",
             )
         }
 

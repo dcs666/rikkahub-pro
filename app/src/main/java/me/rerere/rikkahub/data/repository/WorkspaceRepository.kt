@@ -59,6 +59,22 @@ class WorkspaceRepository(
 
     suspend fun getById(id: String): WorkspaceEntity? = dao.getById(id)
 
+    /**
+     * DB 状态与磁盘状态一致性检查（[FIX] 修复"界面就绪但 shell 报 Rootfs is not installed"）：
+     * - DB READY 且磁盘 rootfs 存在 → true
+     * - DB READY 但磁盘 rootfs 已丢失（被系统清理/备份恢复/手动删除等）→ 自动把 DB 降级为
+     *   DISABLED 并返回 false，让 UI 与工具注入立即同步真实状态
+     * - 其他状态（DISABLED/INSTALLING/BROKEN）→ false
+     */
+    suspend fun isRootfsUsable(id: String): Boolean {
+        val workspace = dao.getById(id) ?: return false
+        if (workspace.shellStatus != WorkspaceShellStatus.READY.name) return false
+        if (manager.hasRootfs(workspace.root)) return true
+        Log.w(TAG, "Rootfs missing on disk, resetting shell status: id=${workspace.id}, root=${workspace.root}")
+        updateShellState(workspace, WorkspaceShellStatus.DISABLED.name)
+        return false
+    }
+
     suspend fun create(name: String): WorkspaceEntity {
         val id = Uuid.random().toString()
         val now = System.currentTimeMillis()
@@ -326,6 +342,12 @@ class WorkspaceRepository(
         stdin: ByteArray? = null,
     ): WorkspaceCommandResult {
         val workspace = dao.getById(id) ?: error("Workspace not found: $id")
+        // [FIX] 状态自校正: DB 残留 READY 但磁盘 rootfs 已丢失时立即降级, 让 UI 同步真实状态。
+        // 不阻止执行——ProotShellRunner 会实时探测磁盘并返回 127 + 期望路径。
+        if (workspace.shellStatus == WorkspaceShellStatus.READY.name && !manager.hasRootfs(workspace.root)) {
+            Log.w(TAG, "Rootfs missing on disk, resetting shell status: id=${workspace.id}")
+            updateShellState(workspace, WorkspaceShellStatus.DISABLED.name)
+        }
         // runInterruptible 让协程取消转化为线程中断，从而打断阻塞的 Process.waitFor 并杀掉进程
         return runInterruptible(Dispatchers.IO) {
             manager.ensureWorkspace(workspace.root)

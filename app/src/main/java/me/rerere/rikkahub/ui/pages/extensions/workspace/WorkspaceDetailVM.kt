@@ -286,12 +286,27 @@ class WorkspaceDetailVM(
         viewModelScope.launch {
             val workspace = repository.getById(id)
             _state.update { it.copy(workspace = workspace) }
+            refreshRootfsStatus()
+        }
+    }
+
+    /**
+     * [FIX] 实时核对磁盘 rootfs：DB shellStatus 可能残留 READY（rootfs 被清理/备份恢复后
+     * 未重启 App），这里用 isRootfsUsable 做一致性检查（不一致时自动把 DB 降级为 DISABLED），
+     * 确保界面"就绪"与实际磁盘状态同步，不再出现"界面就绪但 shell 报未安装"。
+     */
+    private fun refreshRootfsStatus() {
+        viewModelScope.launch {
+            val ready = repository.isRootfsUsable(id)
+            _state.update { it.copy(rootfsReady = ready) }
         }
     }
 }
 
 data class WorkspaceDetailState(
     val workspace: WorkspaceEntity? = null,
+    /** [FIX] 磁盘 rootfs 实时检查结果（与 DB shellStatus 解耦，防止残留 READY 误显"就绪"） */
+    val rootfsReady: Boolean = false,
     val area: WorkspaceStorageArea = WorkspaceStorageArea.FILES,
     val path: String = "",
     val entries: List<WorkspaceFileEntry> = emptyList(),

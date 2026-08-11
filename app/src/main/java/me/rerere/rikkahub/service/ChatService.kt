@@ -685,6 +685,16 @@ class ChatService(
             )
             return emptyList()
         }
+        // [FIX] DB READY 之外实时核对磁盘 rootfs（DB 可能残留 READY，例如 rootfs 被清理/
+        // 备份恢复后未重启 App）：不一致时 isRootfsUsable 自动把 DB 降级为 DISABLED，
+        // 避免注入工具后每次执行都返回 "Rootfs is not installed"。
+        if (!workspaceRepository.isRootfsUsable(workspaceId)) {
+            Log.w(
+                TAG,
+                "createWorkspaceToolsIfReady: rootfs not usable on disk, workspace=$workspaceId"
+            )
+            return emptyList()
+        }
         return createWorkspaceTools(workspaceId, workspaceRepository, cwd)
     }
 
