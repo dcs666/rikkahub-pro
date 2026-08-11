@@ -14,6 +14,7 @@ import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.workspace.ProotUpdater
 import me.rerere.workspace.RootfsInstallProgress
 import me.rerere.workspace.RootfsInstaller
+import me.rerere.workspace.RootfsUrls
 import me.rerere.workspace.WorkspaceCommandResult
 import me.rerere.workspace.WorkspaceFileEntry
 import me.rerere.workspace.WorkspaceManager
