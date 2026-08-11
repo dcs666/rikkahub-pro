@@ -153,6 +153,11 @@ private const val TAIL_TURNS = 2
 /** 受保护工具：opencode PRUNE_PROTECTED_TOOLS=["skill"] */
 private val PRUNE_PROTECTED_TOOLS = setOf("skill")
 
+// [P1] token 估算缓存：条目上限，超限清空重建（估算本身廉价，缓存只是消除重复扫描）
+private const val ESTIMATE_CACHE_MAX_ENTRIES = 4096
+// key 超长不缓存（如内嵌 data URL 的 Image part，文本几千~几万字符，缓存收益低且占内存）
+private const val ESTIMATE_CACHE_MAX_KEY_LEN = 8192
+
 /** 清空占位文本：opencode serialize() 对 compacted 工具输出用此文案 */
 private const val CLEARED_TOOL_OUTPUT = "[Old tool result content cleared]"
 
@@ -184,7 +189,7 @@ class ResponseAPI(
         val host = providerSetting.baseUrl.toHttpUrl().host
         // 尝试增量：命中（历史与上次一致）→ previous_response_id + 仅新增 items；
         // 未命中（编辑/重试/新会话）→ 全量发送
-        var requestBody = applyIncremental(host, fullRequestBody, params.model.modelId)
+        var requestBody = applyIncremental(providerSetting, host, fullRequestBody, params.model.modelId)
         val isIncremental = requestBody.containsKey("previous_response_id")
         var response = client.newCall(
             buildRequest(providerSetting, params, requestBody)
@@ -197,7 +202,7 @@ class ResponseAPI(
             val failBody = response.body?.stringSafe().orEmpty()
             Logging.log(TAG, "incremental failed (${response.code}) → retry full: ${failBody.take(2000)}")
             response.close()
-            invalidateIncremental(host, fullRequestBody)
+            invalidateIncremental(providerSetting, host, fullRequestBody)
             requestBody = fullRequestBody
             response = client.newCall(
                 buildRequest(providerSetting, params, requestBody)
@@ -219,7 +224,7 @@ class ResponseAPI(
         // 记录会话状态（下次请求可增量）：sentInput=完整 input，responseItems=本次输出
         val outputItems = bodyJson["output"] as? JsonArray
         if (outputItems != null) {
-            recordIncremental(host, fullRequestBody, bodyJson["id"]?.jsonPrimitive?.contentOrNull, outputItems.toList())
+            recordIncremental(providerSetting, host, fullRequestBody, bodyJson["id"]?.jsonPrimitive?.contentOrNull, outputItems.toList())
         }
         val output = parseResponseOutput(bodyJson)
 
@@ -238,7 +243,7 @@ class ResponseAPI(
             stream = true,
         )
         val host = providerSetting.baseUrl.toHttpUrl().host
-        var requestBody = applyIncremental(host, fullRequestBody, params.model.modelId)
+        var requestBody = applyIncremental(providerSetting, host, fullRequestBody, params.model.modelId)
         var attempt = 0
         while (true) {
             attempt++
@@ -250,7 +255,7 @@ class ResponseAPI(
                 // [F2] 增量请求失败（400）→ 使会话失效 + 自动回退全量重试一次
                 //（否则用户直接看到报错；codex 同样失败后回退全量）
                 if (!isIncremental || attempt >= 2) throw e
-                invalidateIncremental(host, fullRequestBody)
+                invalidateIncremental(providerSetting, host, fullRequestBody)
                 requestBody = fullRequestBody
             }
         }
@@ -282,7 +287,7 @@ class ResponseAPI(
                 if (data == "[DONE]") {
                     // [F5] [DONE] 结束也记录增量会话（response.created 已捕获 id）
                     streamResponseId?.let { rid ->
-                        recordIncremental(host, fullRequestBody, rid, streamOutputItems.toList())
+                        recordIncremental(providerSetting, host, fullRequestBody, rid, streamOutputItems.toList())
                     }
                     close()
                     return
@@ -315,7 +320,7 @@ class ResponseAPI(
                         } else {
                             streamOutputItems.toList()
                         }
-                        recordIncremental(host, fullRequestBody, responseId, items)
+                        recordIncremental(providerSetting, host, fullRequestBody, responseId, items)
                     }
                     val chunk = parseResponseDelta(json)
                     if (chunk != null) {
@@ -342,7 +347,7 @@ class ResponseAPI(
                     val failBody = response.body?.stringSafe().orEmpty()
                     Logging.log(TAG, "onFailure code=400 body=${failBody.take(2000)}")
                     Logging.log(TAG, "onFailure request input-structure:\n${summarizeInput(requestBody["input"])}")
-                    invalidateIncremental(host, fullRequestBody)
+                    invalidateIncremental(providerSetting, host, fullRequestBody)
                     Logging.log(TAG, "onFailure: incremental request failed (400) → retry full")
                     close(IncrementalFailedException(t))
                     return
@@ -404,21 +409,24 @@ class ResponseAPI(
     /**
      * [codex 借鉴] 尝试把请求体转为增量：命中增量会话时
      * 用 previous_response_id + 仅新增 items（+ store=true），否则原样返回。
+     * [E2] 增量能力改为 provider 级配置 incrementalEnabled：
+     * - 默认关闭（实测 opencode.ai 网关 /zen/v1 与 /zen/go/v1 会静默丢弃
+     *   previous_response_id：200 但服务端不关联上下文，增量问秘密词答不出）
+     * - 开启后要求 store=true（服务端保存 response 是增量前提）
+     * - claude/gemini 前缀黑名单保留作防御：这些模型上游走 anthropic/google
+     *   转换，previous_response_id 同样被丢弃且 function_call 取 .id 而非 call_id
      */
-    private fun applyIncremental(host: String, fullRequestBody: JsonObject, modelId: String?): JsonObject {
-        // [F3] 只有 store=true 的 host 才可能有增量能力：
-        // 其他 host（OpenAI 官方/DeepSeek 直连等）服务端不保存 response，
-        // previous_response_id 必然 400（invalid_response_id），一律全量
+    private fun applyIncremental(
+        providerSetting: ProviderSetting.OpenAI,
+        host: String,
+        fullRequestBody: JsonObject,
+        modelId: String?,
+    ): JsonObject {
+        // [P3] 开关关闭直接短路：不查会话、不构建 map（增量是纯性能优化，关闭时零开销）
+        if (!providerSetting.incrementalEnabled) return fullRequestBody
+        // [F3] 只有 store=true 的请求才可能有增量能力：
+        // 服务端不保存 response 时 previous_response_id 必然 400（invalid_response_id）
         if (fullRequestBody["store"]?.jsonPrimitive?.contentOrNull != "true") return fullRequestBody
-        // [2026-08-10 实测] opencode.ai 网关（/zen/v1 与 /zen/go/v1，deepseek 系）
-        // 会静默丢弃 previous_response_id：请求返回 200 但服务端不关联上下文，
-        // 只发新消息时模型失忆（强测试：设秘密词 → 增量问秘密词答不出；
-        // 之前"答对 6"是常识弱测试误判）。增量白名单留空 = 全禁用，
-        // 待未来有实测支持 previous_response_id 的网关再启用。
-        // （claude/gemini 前缀黑名单保留作防御：这些模型上游走 anthropic/google
-        // 转换，previous_response_id 同样被丢弃且 function_call 取 .id 而非 call_id）
-        val incrementalHosts: Set<String> = emptySet()
-        if (host !in incrementalHosts) return fullRequestBody
         val model = modelId.orEmpty().lowercase()
         if (model.startsWith("claude") || model.startsWith("gemini")) return fullRequestBody
         val input = fullRequestBody["input"] as? JsonArray ?: return fullRequestBody
@@ -436,18 +444,26 @@ class ResponseAPI(
 
     /** 记录一次成功响应到增量会话（sentInput=完整 input，responseItems=本次输出 items） */
     private fun recordIncremental(
+        providerSetting: ProviderSetting.OpenAI,
         host: String,
         fullRequestBody: JsonObject,
         responseId: String?,
         responseItems: List<JsonElement>,
     ) {
+        // [P3] 开关关闭时不记录（无增量会话可命中，记录纯属浪费）
+        if (!providerSetting.incrementalEnabled) return
         if (responseId.isNullOrBlank()) return
         val input = fullRequestBody["input"] as? JsonArray ?: return
         incrementalSessions.update(host, fullRequestBody, responseId, responseItems)
     }
 
     /** 增量请求失败时使当前会话失效（防持续用无效 previous_response_id 重试） */
-    private fun invalidateIncremental(host: String, fullRequestBody: JsonObject) {
+    private fun invalidateIncremental(
+        providerSetting: ProviderSetting.OpenAI,
+        host: String,
+        fullRequestBody: JsonObject,
+    ) {
+        if (!providerSetting.incrementalEnabled) return
         val input = fullRequestBody["input"] as? JsonArray ?: return
         incrementalSessions.invalidate(host, input.toList())
     }
@@ -460,13 +476,15 @@ class ResponseAPI(
     ): JsonObject {
         val host = providerSetting.baseUrl.toHttpUrl().host
         val capabilities = resolveResponseProviderCapabilities(host)
+        // [E1] 上下文窗口上限配置化：provider 可配 contextLimitTokens（null = 默认 140K）
+        val contextLimit = providerSetting.contextLimitTokens ?: CONTEXT_LIMIT
         return buildJsonObject {
             put("model", params.model.modelId)
             put("stream", stream)
-            // [增量] opencode.ai 网关支持 previous_response_id（实测消息追加）：
-            // 全量请求也 store=true（服务端保存 response，后续请求才能增量）。
-            // 其他 host 保持 store=false（无增量能力，避免服务端存储开销/兼容风险）。
-            put("store", host == "opencode.ai")
+            // [增量] store=true 是增量（previous_response_id）的前提：服务端保存
+            // response 才能关联上下文。opencode.ai 网关支持；其他 host 仅在用户
+            // 显式开启 incrementalEnabled 时 store（有实测支持的网关才开）。
+            put("store", host == "opencode.ai" || providerSetting.incrementalEnabled)
 
             // DeepSeek 思考模式下 temperature/top_p 不生效（官方文档：不报错但无效），不发送避免误导
             val deepSeekThinking = host == "api.deepseek.com" && params.reasoningLevel.isEnabled
@@ -497,6 +515,7 @@ class ResponseAPI(
                     usePlainReasoningContent = host == "api.deepseek.com",
                     useReasoningTextArray = host == "opencode.ai",
                     forcePlaceholderReasoning = host == "opencode.ai" && params.reasoningLevel.isEnabled,
+                    contextLimit = contextLimit,
                 ).stripItemIds()
             )
 
@@ -582,7 +601,13 @@ class ResponseAPI(
      * 其本地 estimate 仅用于预算分配；我们无服务端计数 → 用加权估算兜底：
      * ASCII 4 字符 ≈ 1 token（对齐 opencode），非 ASCII（中文等）1 字符 ≈ 1 token
      * （真实分布），否则中文对话估算严重偏小、overflow 触发太晚。
+     *
+     * [P1] 结果按 part 文本内容缓存：多轮工具循环中历史消息不变（UIMessage 不可变），
+     * 每轮请求构建都会全量重扫所有 parts 做估算——长对话下是重复 O(n) 扫描。
+     * 缓存命中后直接复用；文本变化（工具输出更新、新消息）自然 miss 重算。
      */
+    private val estimateCache = HashMap<String, Int>()
+
     private fun estimateTokens(part: UIMessagePart): Int {
         val text = when (part) {
             is UIMessagePart.Text -> part.text
@@ -598,12 +623,24 @@ class ResponseAPI(
             is UIMessagePart.Image -> part.url
             else -> ""
         }
+        if (text.length <= ESTIMATE_CACHE_MAX_KEY_LEN) {
+            synchronized(estimateCache) {
+                estimateCache[text]?.let { return it }
+            }
+        }
         var ascii = 0
         var nonAscii = 0
         for (ch in text) {
             if (ch.code <= 0x7F) ascii++ else nonAscii++
         }
-        return ascii / CHARS_PER_TOKEN + nonAscii
+        val result = ascii / CHARS_PER_TOKEN + nonAscii
+        if (text.length <= ESTIMATE_CACHE_MAX_KEY_LEN) {
+            synchronized(estimateCache) {
+                if (estimateCache.size >= ESTIMATE_CACHE_MAX_ENTRIES) estimateCache.clear()
+                estimateCache[text] = result
+            }
+        }
+        return result
     }
 
     /**
@@ -642,6 +679,7 @@ class ResponseAPI(
         usePlainReasoningContent: Boolean = false,
         useReasoningTextArray: Boolean = false,
         forcePlaceholderReasoning: Boolean = false,
+        contextLimit: Int = CONTEXT_LIMIT,
     ) = buildJsonArray {
         val filtered = messages.filter { it.isValidToUpload() && it.role != MessageRole.SYSTEM }
         // [L1-FIX] 按"含思维链的消息"计数而非全部 assistant 消息：工具轮次（fc+fco）
@@ -662,8 +700,9 @@ class ResponseAPI(
         val keepToolFrom = if (userTurns.size <= TAIL_TURNS) 0 else userTurns[userTurns.size - TAIL_TURNS]
         // [L3] overflow 判定（opencode overflow.ts isOverflow）：估算总 token 接近
         // 上下文上限时才触发历史截断——短对话完全不截，长对话自动收紧
+        // [E1] 上限来自 provider 配置 contextLimitTokens（默认 CONTEXT_LIMIT=140K）
         val totalTokens = filtered.sumOf { message -> message.parts.sumOf { estimateTokens(it) } }
-        val overflow = totalTokens >= CONTEXT_LIMIT - COMPACTION_BUFFER
+        val overflow = totalTokens >= contextLimit - COMPACTION_BUFFER
         // [L3] prune 判定（opencode compaction.ts prune()）：倒序遍历，最近 2 轮保护，
         // 更早工具输出累计估算超 PRUNE_PROTECT(40K) 的部分 → 清空为
         // [Old tool result content cleared]；清理量 > PRUNE_MINIMUM(20K) 才应用

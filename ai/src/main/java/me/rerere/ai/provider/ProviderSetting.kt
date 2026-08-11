@@ -65,6 +65,13 @@ sealed class ProviderSetting {
         var chatCompletionsPath: String = "/chat/completions",
         var useResponseApi: Boolean = false,
         var includeHistoryReasoning: Boolean = true,
+        // [TURBO] 上下文窗口上限（token 估算用，overflow 触发历史截断的阈值）；
+        // null = 默认 140K（保守值，适配绝大多数模型），deepseek 1M 等大窗口模型可调大
+        var contextLimitTokens: Int? = null,
+        // [TURBO] 增量发送开关：仅对服务端保存 response 且支持 previous_response_id
+        // 的网关启用（如 OpenAI 官方 / Codex 网关实测支持）；默认关闭——opencode.ai
+        // 网关实测静默丢弃 previous_response_id（200 但上下文不关联），启用会失忆
+        var incrementalEnabled: Boolean = false,
     ) : ProviderSetting() {
         override fun addModel(model: Model): ProviderSetting {
             return copy(models = models + model)
