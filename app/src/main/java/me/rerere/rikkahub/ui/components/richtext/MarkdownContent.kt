@@ -1,6 +1,5 @@
 package me.rerere.rikkahub.ui.components.richtext
 
-package me.rerere.rikkahub.ui.components.richtext
 import android.content.ClipData
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
