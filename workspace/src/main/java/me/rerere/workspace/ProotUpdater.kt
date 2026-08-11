@@ -35,11 +35,6 @@ class ProotUpdater(
     private val prootBin = File(binDir, "proot")
     private val loaderBin = File(binDir, "loader")
 
-    companion object {
-        /** APK 内置 proot 版本（用于 UI 展示对比） */
-        const val BUILTIN_VERSION = "5.1.0"
-    }
-
     /** 下载源，按序尝试（官方 + 清华 TUNA 镜像，国内可达） */
     private val sources: List<String> = listOf(
         "https://packages.termux.dev/apt/termux-main",
@@ -326,6 +321,9 @@ class ProotUpdater(
     }
 
     companion object {
+        /** APK 内置 proot 版本（用于 UI 展示对比） */
+        const val BUILTIN_VERSION = "5.1.0"
+
         private const val VERSION_FILE = "version"
         private const val LAST_CHECK_FILE = "last_check"
         private const val CHECK_INTERVAL_MS = 24L * 60 * 60 * 1000
