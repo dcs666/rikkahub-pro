@@ -131,8 +131,8 @@ class ExampleUnitTest {
 
         assertEquals(127, result.exitCode)
         // [FIX] ProotShellRunner 报错携带期望路径（诊断友好），断言同步更新
-        assertTrue(result.stderr.startsWith("Rootfs is not installed: "), "stderr: ${result.stderr}")
-        assertTrue(result.stderr.contains("bin/sh"), "stderr: ${result.stderr}")
+        assertTrue("stderr: ${result.stderr}", result.stderr.startsWith("Rootfs is not installed: "))
+        assertTrue("stderr: ${result.stderr}", result.stderr.contains("bin/sh"))
     }
 
     @Test
