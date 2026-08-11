@@ -91,6 +91,12 @@ class RequestLoggingInterceptor : Interceptor {
             val model = root["model"]?.jsonPrimitive?.contentOrNull
             val stream = root["stream"]?.jsonPrimitive?.booleanOrNull
             var effort: String? = root["reasoning_effort"]?.jsonPrimitive?.contentOrNull
+            // [FIX] Responses API（OpenAI /responses 端点，opencode.ai/zen/go 网关走此路径）
+            // 的思考参数是嵌套结构 { "reasoning": { "effort": "low|high|max" } }，
+            // 此前只解析顶层 reasoning_effort（chat/completions 格式）→ 日志永远看不到 effort。
+            if (effort == null) {
+                effort = root["reasoning"]?.jsonObject?.get("effort")?.jsonPrimitive?.contentOrNull
+            }
             root["thinking"]?.jsonObject?.let { thinking ->
                 if (effort == null) {
                     effort = thinking["effort"]?.jsonPrimitive?.contentOrNull
