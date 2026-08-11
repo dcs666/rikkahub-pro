@@ -5,7 +5,6 @@ import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
-import me.rerere.workspace.WorkspaceShellStatus
 
 /**
  * Workspace 系统提示注入转换器
@@ -22,8 +21,9 @@ class WorkspaceReminderTransformer(
     ): List<UIMessage> {
         val workspaceId = ctx.assistant.workspaceId?.toString() ?: return messages
         val workspace = workspaceRepository.getById(workspaceId) ?: return messages
-        // 与 ChatService.createWorkspaceToolsIfReady 保持一致: 仅在 shell 就绪时注入
-        if (workspace.shellStatus != WorkspaceShellStatus.READY.name) return messages
+        // [FIX] 与 ChatService.createWorkspaceToolsIfReady 保持一致: 实时核对磁盘 rootfs,
+        // DB 残留 READY（rootfs 丢失）时不追加 workspace 引导提示词
+        if (!workspaceRepository.isRootfsUsable(workspaceId)) return messages
 
         val prompt = buildWorkspacePrompt(workspace, ctx.workspaceCwd)
 
