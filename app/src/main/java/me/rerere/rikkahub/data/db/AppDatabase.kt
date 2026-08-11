@@ -39,7 +39,7 @@ import me.rerere.rikkahub.utils.JsonInstant
         FolderEntity::class,
         me.rerere.rikkahub.data.task.TaskEntity::class,
     ],
-    version = 26,
+    version = 27,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),

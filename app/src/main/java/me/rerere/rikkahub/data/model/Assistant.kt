@@ -68,6 +68,8 @@ data class QuickMessage(
 data class AssistantMemory(
     val id: Int,
     val content: String = "",
+    // [M1] 记忆分层，默认 FACT；透传到注入 prompt 供模型按层管理。
+    val category: String = MemoryCategory.FACT.name,
 )
 
 @Serializable

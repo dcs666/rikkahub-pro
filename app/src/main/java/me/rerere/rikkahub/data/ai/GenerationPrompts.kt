@@ -13,9 +13,15 @@ internal fun buildMemoryPrompt(memories: List<AssistantMemory>) =
         appendLine()
         append("These are memories stored via the memory_tool that you can reference in future conversations.")
         appendLine()
-        // [FIX] 记忆条数/总量上限：单条 20K 已有，但条数无上限时模型可塞入数百条 →
-        // prompt 注入数十 MB → API 413/超时。注入侧兜底截断（保留最新 N 条、总长封顶）。
-        val capped = memories.takeLast(MAX_MEMORY_INJECT_COUNT)
+        // [M3] 记忆分层加权注入：FACT（稳定事实）优先全量注入，PREFERENCE（偏好）次之，
+        // SESSION（会话临时）最后。同层内最新在前（旧实现 takeLast = 最新 N 条）。
+        // 总条数/总长封顶不变，超限时从最低优先级层开始截断。
+        val tierOrder = listOf("FACT", "PREFERENCE", "SESSION")
+        val byTier = memories.groupBy { it.category }
+        val ordered = tierOrder.flatMap { tier ->
+            byTier[tier].orEmpty().sortedByDescending { it.id }
+        }
+        val capped = ordered.take(MAX_MEMORY_INJECT_COUNT)
         val json = buildJsonArray {
             var total = 0
             for (memory in capped) {
@@ -24,6 +30,7 @@ internal fun buildMemoryPrompt(memories: List<AssistantMemory>) =
                 total += content.length
                 add(buildJsonObject {
                     put("id", memory.id)
+                    put("category", memory.category)
                     put("content", content)
                 })
             }

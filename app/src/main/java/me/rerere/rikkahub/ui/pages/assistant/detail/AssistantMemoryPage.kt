@@ -18,6 +18,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeFlexibleTopAppBar
@@ -43,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastForEach
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.db.entity.MemoryCategory
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.AssistantMemory
 import me.rerere.rikkahub.ui.components.nav.BackButton
@@ -122,17 +124,40 @@ private fun AssistantMemoryContent(
                 Text(stringResource(R.string.assistant_page_manage_memory_title))
             },
             text = {
-                TextField(
-                    value = memory.content,
-                    onValueChange = {
-                        update(memory.copy(content = it))
-                    },
-                    label = {
-                        Text(stringResource(R.string.assistant_page_manage_memory_title))
-                    },
-                    minLines = 2,
-                    maxLines = 8
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // [M4] 记忆分层选择：FACT 稳定事实 / PREFERENCE 偏好 / SESSION 会话临时
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        MemoryCategory.entries.forEach { category ->
+                            FilterChip(
+                                selected = memory.category == category.name,
+                                onClick = {
+                                    update(memory.copy(category = category.name))
+                                },
+                                label = {
+                                    Text(
+                                        text = when (category) {
+                                            MemoryCategory.FACT -> stringResource(R.string.memory_category_fact)
+                                            MemoryCategory.PREFERENCE -> stringResource(R.string.memory_category_preference)
+                                            MemoryCategory.SESSION -> stringResource(R.string.memory_category_session)
+                                        },
+                                        style = MaterialTheme.typography.labelMedium,
+                                    )
+                                }
+                            )
+                        }
+                    }
+                    TextField(
+                        value = memory.content,
+                        onValueChange = {
+                            update(memory.copy(content = it))
+                        },
+                        label = {
+                            Text(stringResource(R.string.assistant_page_manage_memory_title))
+                        },
+                        minLines = 2,
+                        maxLines = 8
+                    )
+                }
             },
             confirmButton = {
                 TextButton(
@@ -333,6 +358,17 @@ private fun MemoryItem(
                 Text(
                     text = "#${memory.id}",
                     style = MaterialTheme.typography.titleMediumEmphasized,
+                )
+                // [M4] 分层标签：FACT 稳定事实 / PREFERENCE 偏好 / SESSION 会话临时
+                Text(
+                    text = when (memory.category) {
+                        MemoryCategory.FACT.name -> stringResource(R.string.memory_category_fact)
+                        MemoryCategory.PREFERENCE.name -> stringResource(R.string.memory_category_preference)
+                        MemoryCategory.SESSION.name -> stringResource(R.string.memory_category_session)
+                        else -> memory.category
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
                 )
                 Text(
                     text = memory.content,
