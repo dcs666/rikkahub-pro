@@ -1,26 +1,20 @@
 // ==================== [F7] 文件夹栏（自 conversation-sidebar.tsx 拆出） ====================
 
 import * as React from "react";
-import dayjs from "dayjs";
-import type { TFunction } from "i18next";
+
+import { Folder, FolderPlus, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import {
 import { useTranslation } from "react-i18next";
-import { InfiniteScrollArea } from "~/components/extended/infinite-scroll-area";
-import { Badge } from "~/components/ui/badge";
+
 import { Button } from "~/components/ui/button";
 import {
-import {
-import { ScrollArea } from "~/components/ui/scroll-area";
-import {
-import { UIAvatar } from "~/components/ui/ui-avatar";
-import {
-import { ConversationSearchButton } from "~/components/conversation-search-button";
-import { CustomThemeDialog } from "~/components/custom-theme-dialog";
-import { getAssistantDisplayName } from "~/lib/display";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "~/components/ui/dropdown-menu";
 import { cn } from "~/lib/utils";
-import { clearWebAuthToken } from "~/services/api";
-import type {
+import type { FolderDto } from "~/types";
 
 export interface FolderBarProps {
   folders: FolderDto[];
