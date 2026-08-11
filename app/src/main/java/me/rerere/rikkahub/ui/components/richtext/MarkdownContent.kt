@@ -117,6 +117,8 @@ import kotlin.time.Clock
  * + getTextInNode。纯参数驱动（无状态），从 Markdown.kt 提取。
  */
 
+
+@Composable
 internal fun Paragraph(
 node: ASTNode,
 content: String,
