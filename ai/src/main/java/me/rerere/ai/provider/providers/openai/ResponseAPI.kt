@@ -672,14 +672,17 @@ class ResponseAPI(
             if (message.role == MessageRole.ASSISTANT) {
                 val hasReasoning = message.parts.any { it is UIMessagePart.Reasoning }
                 if (hasReasoning) reasoningIndex++
-                // [L1] 思维链压缩（照抄 opencode transform.ts + 适配）：
-                // opencode 发送时全量保留历史思维链（interleaved 搬 providerOptions），
-                // 压缩发生在 compaction 摘要化；我们无 LLM 摘要层 → 适配为：
-                // 仅 overflow（估算总 token ≥ context−20K）时触发压缩——
-                // 保留最近 4 条含思维链的消息完整，更早的用占位符（网关只校验
-                // 非空；历史思维链对生成质量无益——opencode 官方对缺失 reasoning
-                // 的消息也只补空字符串）；未 overflow 时全量保留（对齐 opencode）
-                val keepReasoning = !hasReasoning || !overflow || reasoningIndex > reasoningCount - 4
+                // [L1] 思维链增量发送（2026-08-10 实测：opencode 网关 deepseek 系
+                // 把 reasoning item 仅作 schema 校验/回显，不参与推理上下文——
+                // 密码实验：正文里的密码模型答得出，思维链里的密码模型答不出）。
+                // 因此历史思维链无需全量回传：保留最近 4 条含思维链的消息完整
+                // （用户要求 4 轮；追问"思路"时最新思考仍可用），更早的用占位符
+                // （网关只校验非空，拒空串——占位符 '…' 已解决）。
+                // 相比旧实现（仅 overflow 才压缩）：
+                // ① 请求体大幅缩小（思维链是 200KB 请求体的大头 → 5-10 倍削减）
+                // ② 占位符稳定 → 前缀缓存命中率更高（全量思维链每次长度不同）
+                // ③ 对回答质量零影响（服务端本来就不读历史思维链）
+                val keepReasoning = !hasReasoning || reasoningIndex > reasoningCount - 4
                 // [L3] 最近 2 轮（user 分段）内工具输出不截断
                 val hasTool = message.parts.any { it is UIMessagePart.Tool && it.isExecuted }
                 val keepToolOutput = !hasTool || index >= keepToolFrom

@@ -144,8 +144,9 @@ class ResponseAPIOpenCodeTest {
     }
 
     @Test
-    fun `no overflow keeps all reasoning full`() {
-        // [L1] 照抄 opencode：未 overflow 时思维链全量保留（不占位）
+    fun `no overflow still compresses old reasoning beyond last 4`() {
+        // [L1] 思维链增量（2026-08-10 实测：服务端不读历史思维链）：
+        // 无条件保留最近 4 轮完整，更早占位——与 overflow 无关
         val msgs = mutableListOf<UIMessage>()
         for (i in 0 until 5) {
             msgs.add(UIMessage.user("question $i"))
@@ -163,7 +164,11 @@ class ResponseAPIOpenCodeTest {
         val items = api.buildMessages(msgs, useReasoningTextArray = true)
         val reasoningItems = items.jsonArray.filter { it.jsonObject["type"]?.jsonPrimitive?.content == "reasoning" }
         assertEquals(5, reasoningItems.size)
-        for (i in 0 until 5) {
+        // 第 1 轮（最旧）：占位
+        val first = reasoningItems[0].jsonObject["content"]!!.jsonArray[0].jsonObject["text"]?.jsonPrimitive?.content
+        assertEquals("…", first)
+        // 最近 4 轮：完整
+        for (i in 1 until 5) {
             val text = reasoningItems[i].jsonObject["content"]!!.jsonArray[0].jsonObject["text"]?.jsonPrimitive?.content
             assertEquals("thinking trace $i", text)
         }
