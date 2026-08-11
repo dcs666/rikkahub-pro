@@ -26,6 +26,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
@@ -46,6 +47,7 @@ import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.AssistantAffectScope
 import me.rerere.rikkahub.data.model.replaceRegexes
+import me.rerere.rikkahub.ui.LocalIsScrolling
 import me.rerere.rikkahub.ui.components.richtext.MarkdownBlock
 import me.rerere.rikkahub.ui.components.ui.ChainOfThoughtScope
 import me.rerere.rikkahub.ui.context.LocalSettings
@@ -110,10 +112,19 @@ private fun rememberReasoningState(reasoning: UIMessagePart.Reasoning): Pair<Rea
         }
     }
 
+    // [A 滚动感知降级] 滚动状态捕获：组合时读取（滚动变化触发重组），
+    // rememberUpdatedState 供协程读取最新值而不重启 LaunchedEffect
+    val isScrolling = LocalIsScrolling.current
+    val currentIsScrolling by rememberUpdatedState(isScrolling)
+
     LaunchedEffect(loading) {
         if (loading) {
             while (isActive) {
-                state.duration = (reasoning.finishedAt ?: Clock.System.now()) - reasoning.createdAt
+                // [A 滚动感知降级] 滚动中跳过 duration 更新（状态写入触发标题区重组），
+                // 滚动停止恢复；200ms 周期本身已低频，滚动期间零写入。
+                if (!currentIsScrolling) {
+                    state.duration = (reasoning.finishedAt ?: Clock.System.now()) - reasoning.createdAt
+                }
                 // [PERF F6] 50ms 更新会以 20fps 频率触发标题 label 重组 + shimmer 重绘，
                 // 与流式渲染叠加；200ms（5fps）对 0.1s 精度显示完全足够。
                 delay(200)

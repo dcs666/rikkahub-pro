@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.IntSize
+import me.rerere.rikkahub.ui.LocalIsScrolling
 
 /**
  * 为 Composable 添加 Shimmer 加载效果的 Modifier.
@@ -43,8 +44,12 @@ fun Modifier.shimmer(
     angle: Float = 20f, // 稍微倾斜的角度
     gradientWidthRatio: Float = 0.5f // 闪光宽度为组件宽度的一半
 ): Modifier = composed { // 使用 composed 以便在 Modifier 内部使用 remember 和 LaunchedEffect 等
-    if (!isLoading) {
-        // 如果不处于加载状态，则不应用任何效果
+    // [A 滚动感知降级] 对标 Telegram checkStopHeavyOperations：
+    // 聊天列表滚动中暂停 shimmer 动画（无限循环动画是滚动掉帧源之一），
+    // 滚动停止自动恢复（LocalIsScrolling 变化触发重组重新求值）。
+    val isScrolling = LocalIsScrolling.current
+    if (!isLoading || isScrolling) {
+        // 不处于加载状态，或正在滚动（暂停动画）：不应用任何效果
         this
     } else {
         // 记住组件的尺寸，以便计算渐变

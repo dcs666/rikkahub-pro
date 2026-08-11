@@ -101,6 +101,7 @@ import me.rerere.rikkahub.ui.components.ui.ListSelectableItem
 import me.rerere.rikkahub.ui.components.ui.RabbitLoadingIndicator
 import me.rerere.rikkahub.ui.components.ui.Tooltip
 import me.rerere.rikkahub.ui.hooks.ImeLazyListAutoScroller
+import me.rerere.rikkahub.ui.LocalIsScrolling
 import me.rerere.rikkahub.ui.theme.ChatFontProvider
 import me.rerere.rikkahub.utils.plus
 import kotlin.math.roundToInt
@@ -308,6 +309,8 @@ private fun ChatListNormal(
         }
 
         ChatFontProvider(displaySetting = settings.displaySetting) {
+            // [A 滚动感知降级] 滚动状态注入：子组件（shimmer/定时更新）滚动时自动降级
+            CompositionLocalProvider(LocalIsScrolling provides state.isScrollInProgress) {
             LazyColumn(
                 state = state,
                 contentPadding = PaddingValues(16.dp) + PaddingValues(bottom = 32.dp + innerPadding.calculateBottomPadding()),
