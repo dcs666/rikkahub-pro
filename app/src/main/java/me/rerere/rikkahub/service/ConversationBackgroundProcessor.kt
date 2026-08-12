@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlin.uuid.Uuid
+import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ProviderManager
@@ -23,6 +24,16 @@ import me.rerere.rikkahub.data.model.toMessageNode
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.utils.applyPlaceholders
 import java.util.Locale
+
+internal fun backgroundTextGenerationParams(
+    model: Model,
+    reasoningLevel: ReasoningLevel = ReasoningLevel.AUTO,
+): TextGenerationParams = TextGenerationParams(
+    model = model,
+    reasoningLevel = reasoningLevel,
+    customHeaders = model.customHeaders,
+    customBody = model.customBodies,
+)
 
 /**
  * [拆分] 从 ChatService 提取的"后台 LLM 会话处理"域：
