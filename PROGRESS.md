@@ -718,3 +718,13 @@ tool-part/extension-picker/chat-input（巨型 JSX 组件，子组件提取需�
 ④ export 前缀（python 提取必丢）⑤ 重复声明（header 与 block 边界不得重叠）
 ⑥ @Composable 注解完整性（提取块必须含函数上一行的注解！从函数名开始会丢）
 ⑦ private 顶层跨文件可见性（提取后必须 internal）
+
+### v1.9.15-turbo 发布成功（2026-08-12 16:06 UTC，Release ID 369369055）
+**3 APK**：arm64 37.0MB / universal 46.6MB / x86_64 37.6MB。
+**含**：拆分专项 1+2 全部 18 个拆分 commit + 修复链（run 407→435 全绿）。
+**发布坑（已入记忆）**：tag 必须打在最后一个有成功 Build APK 的**代码 commit** 上，
+不能打 docs-only commit（release.yml 等不到匹配 Build APK run→4min 超时失败）。
+v1.9.15 首打 a012b552（docs）失败 → 删 tag 重指 330f628c（最后代码 commit）→ 成功。
+**发布后状态**：分支 CI 全绿（Unit Tests 197 + Build APK），无活跃后台任务，轮询已关闭。
+**版本线**：v1.9.12（死代码清理）→ v1.9.13（ChatService 拆分+23 测试）→ v1.9.14
+（深度审查 12 修复）→ v1.9.15（18 文件拆分）。剩余大文件均有意保留（理由见上）。
