@@ -207,13 +207,6 @@ data class UIMessage(
     }
 }
 
-/**
- * 处理MessageChunk合并
- *
- * @receiver 已有消息列表
- * @param chunk 消息chunk
- * @param model 模型, 可以不传，如果传了，会把模型id写入到消息，标记是哪个模型输出的消息
- * @return 新消息列表
 data class MessageChunk(
     val id: String,
     val model: String,
