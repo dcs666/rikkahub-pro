@@ -103,7 +103,7 @@ internal suspend fun executeToolSafely(
             // 保存失败（重启后丢失）。这里对工具结果做同样的转换。
             val convertedResult = filesManager.convertBase64ImagePartsToLocalFile(result)
             return tool.copy(
-                output = maybeTruncateToolOutput(tool.toolCallId, convertedResult, hasShellAccess)
+                output = maybeTruncateToolOutput(tool.toolCallId, convertedResult, hasShellAccess, context)
             )
         } catch (e: TimeoutCancellationException) {
             return tool.copy(

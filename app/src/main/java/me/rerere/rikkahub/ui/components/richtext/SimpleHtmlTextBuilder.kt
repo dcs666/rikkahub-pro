@@ -159,7 +159,7 @@ internal fun processElementNodes(
                         // Handle font color attribute
                         val color = node.attr("color")
                         if (color.isNotEmpty()) {
-                            val parsedColor = parseColor(color)
+                            val parsedColor = parseHtmlColor(color)
                             if (parsedColor != null) {
                                 builder.addStyle(
                                     SpanStyle(color = parsedColor),
@@ -193,11 +193,11 @@ internal fun parseInlineStyle(style: String): SpanStyle? {
     var fontWeight: FontWeight? = null
 
     properties["color"]?.let { colorValue ->
-        color = parseColor(colorValue)
+        color = parseHtmlColor(colorValue)
     }
 
     properties["font-weight"]?.let { weightValue ->
-        fontWeight = parseFontWeight(weightValue)
+        fontWeight = parseHtmlFontWeight(weightValue)
     }
 
     return if (color != null || fontWeight != null) {
@@ -208,7 +208,7 @@ internal fun parseInlineStyle(style: String): SpanStyle? {
     } else null
 }
 
-internal fun parseColor(colorString: String): Color? {
+internal fun parseHtmlColor(colorString: String): Color? {
     return try {
         when {
             colorString.startsWith("#") -> {
@@ -279,7 +279,7 @@ internal fun parseColor(colorString: String): Color? {
     }
 }
 
-internal fun parseFontWeight(weightString: String): FontWeight? {
+internal fun parseHtmlFontWeight(weightString: String): FontWeight? {
     return when (weightString.lowercase()) {
         "normal" -> FontWeight.Normal
         "bold" -> FontWeight.SemiBold

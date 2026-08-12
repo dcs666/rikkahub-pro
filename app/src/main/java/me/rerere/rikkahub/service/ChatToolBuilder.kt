@@ -132,15 +132,15 @@ class ChatToolBuilder(
             }
         if (invalidNames.isNotEmpty()) {
             onAddError(
-                error = IllegalStateException(
+                IllegalStateException(
                     context.getString(
                         R.string.error_mcp_invalid_server_name,
                         invalidNames.joinToString(", ")
                     )
                 ),
-                conversationId = conversationId,
-                title = null,
-                solution = null,
+                conversationId,
+                null,
+                null,
             )
             return null
         }

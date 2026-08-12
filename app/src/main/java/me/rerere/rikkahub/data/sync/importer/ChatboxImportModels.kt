@@ -54,7 +54,7 @@ data class ChatboxStreamingImportResult(
     val hasConversationSystemPrompt: Boolean,
 )
 
-private data class ChatboxSessionParseResult(
+internal data class ChatboxSessionParseResult(
     val conversation: Conversation?,
     val skippedImageParts: Int,
     val skippedEmptyMessages: Int,

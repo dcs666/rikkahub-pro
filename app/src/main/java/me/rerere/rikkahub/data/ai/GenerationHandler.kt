@@ -346,7 +346,6 @@ class GenerationHandler(
 
     }.flowOn(Dispatchers.IO)
 
-    /**
     private suspend fun generateInternal(
         assistant: Assistant,
         settings: Settings,

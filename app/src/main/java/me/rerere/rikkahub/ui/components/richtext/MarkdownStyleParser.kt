@@ -404,7 +404,7 @@ private fun parseFontFamily(fontFamily: String): FontFamily? {
     }
 }
 
-private fun parseColor(colorString: String): Color? {
+internal fun parseColor(colorString: String): Color? {
     return try {
         when {
             colorString.startsWith("#") -> {
@@ -470,7 +470,7 @@ private fun parseColor(colorString: String): Color? {
     }
 }
 
-private fun parseFontWeight(weightString: String): FontWeight? {
+internal fun parseFontWeight(weightString: String): FontWeight? {
     return when (weightString.lowercase()) {
         "normal" -> FontWeight.Normal
         "bold" -> FontWeight.Bold
