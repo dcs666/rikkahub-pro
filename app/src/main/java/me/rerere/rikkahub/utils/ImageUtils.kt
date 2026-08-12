@@ -263,35 +263,6 @@ object ImageUtils {
     }
 
     /**
-     * 获取图片的基本信息（不加载到内存）
-     *
-     * @param context Android上下文
-     * @param uri 图片URI
-     * @return ImageInfo包含宽度、高度、MIME类型等信息
-     */
-    fun getImageInfo(context: Context, uri: Uri): ImageInfo? {
-        return runCatching {
-            val options = BitmapFactory.Options().apply {
-                inJustDecodeBounds = true
-            }
-
-            context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                BitmapFactory.decodeStream(inputStream, null, options)
-            }
-
-            if (options.outWidth > 0 && options.outHeight > 0) {
-                ImageInfo(
-                    width = options.outWidth,
-                    height = options.outHeight,
-                    mimeType = options.outMimeType
-                )
-            } else null
-        }.onFailure {
-            it.printStackTrace()
-        }.getOrNull()
-    }
-
-    /**
      * 获取酒馆角色卡中的角色元数据（如果存在）
      *
      * @param context Android上下文

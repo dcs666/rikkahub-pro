@@ -205,42 +205,6 @@ object ChatboxImporter {
         return importProviders
     }
 
-    private fun importConversations(
-        root: JsonObject,
-        assistantId: Uuid,
-        providers: List<ProviderSetting>,
-    ): ChatboxConversationImport {
-        var skippedImageParts = 0
-        var skippedEmptyMessages = 0
-        val conversations = sessionObjects(root).mapNotNull { session ->
-            val result = parseSession(session, assistantId, providers)
-            skippedImageParts += result.skippedImageParts
-            skippedEmptyMessages += result.skippedEmptyMessages
-            result.conversation
-        }
-
-        return ChatboxConversationImport(
-            conversations = conversations,
-            skippedImageParts = skippedImageParts,
-            skippedEmptyMessages = skippedEmptyMessages,
-        )
-    }
-
-    private fun sessionObjects(root: JsonObject): List<JsonObject> {
-        val idsFromList = root["chat-sessions-list"]?.jsonArrayOrNull
-            ?.mapNotNull { it.jsonObject["id"]?.asString }
-            ?: emptyList()
-        val listedSessions = idsFromList.mapNotNull { root["session:$it"]?.jsonObjectOrNull }
-        val listedIds = idsFromList.toSet()
-        val extraSessions = root.entries
-            .asSequence()
-            .filter { it.key.startsWith("session:") }
-            .filter { it.key.removePrefix("session:") !in listedIds }
-            .mapNotNull { it.value.jsonObjectOrNull }
-            .toList()
-        return listedSessions + extraSessions
-    }
-
     private fun parseSession(
         session: JsonObject,
         assistantId: Uuid,

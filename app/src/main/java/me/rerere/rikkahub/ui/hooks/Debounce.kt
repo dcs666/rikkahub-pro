@@ -4,36 +4,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
-
-/**
- * 创建一个防抖函数包装器
- *
- * @param delayMillis 延迟时间（毫秒）
- * @param function 要执行的函数
- * @return 包装后的防抖函数
- */
-@Composable
-fun <T> useDebounce(
-    delayMillis: Long = 300,
-    function: (T) -> Unit
-): (T) -> Unit {
-    val scope = rememberCoroutineScope()
-    val debounceJob = remember { mutableStateOf<Job?>(null) }
-
-    return remember {
-        { param: T ->
-            debounceJob.value?.cancel()
-            debounceJob.value = scope.launch {
-                delay(delayMillis)
-                function(param)
-            }
-        }
-    }
-}
 
 /**
  * 创建一个节流函数包装器

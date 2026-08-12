@@ -202,7 +202,6 @@ sealed class WebContent {
     data class Url(
         val url: String,
         val additionalHttpHeaders: Map<String, String> = emptyMap(),
-        val clearHistory: Boolean = false
     ) : WebContent()
 
     data class Data(
@@ -304,10 +303,6 @@ class WebViewState(
 
     fun stopLoading() {
         webView?.stopLoading()
-    }
-
-    fun clearHistory() {
-        webView?.clearHistory()
     }
 
     fun pushConsoleMessage(message: ConsoleMessage) {

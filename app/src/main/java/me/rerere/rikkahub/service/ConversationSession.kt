@@ -49,26 +49,6 @@ class ConversationSession(
         if (it <= 0) scheduleIdleCheck()
     }
 
-    // 作用域 API - 短请求（REST）
-    inline fun <T> withRef(block: () -> T): T {
-        acquire()
-        try {
-            return block()
-        } finally {
-            release()
-        }
-    }
-
-    // 作用域 API - 长连接（SSE、挂起函数）
-    suspend inline fun <T> withRefSuspend(block: () -> T): T {
-        acquire()
-        try {
-            return block()
-        } finally {
-            release()
-        }
-    }
-
     fun setJob(job: Job?) {
         _generationJob.value?.cancel()
         _generationJob.value = job

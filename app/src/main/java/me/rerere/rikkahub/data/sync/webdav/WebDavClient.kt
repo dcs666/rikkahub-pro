@@ -13,7 +13,6 @@ import io.ktor.client.statement.HttpStatement
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpMethod
-import io.ktor.http.HttpStatusCode
 import io.ktor.http.isSuccess
 import io.ktor.utils.io.jvm.javaio.toInputStream
 import io.ktor.utils.io.readAvailable
@@ -116,47 +115,6 @@ class WebDavClient(
         }
     }
 
-    suspend fun get(path: String): Result<ByteArray> = withContext(Dispatchers.IO) {
-        runCatching {
-            val url = config.buildUrl(path)
-            Log.d(TAG, "GET: $url")
-
-            val response: HttpResponse = httpClient.request(url) {
-                method = HttpMethod.Get
-                basicAuth(config.username, config.password)
-            }
-
-            if (!response.status.isSuccess()) {
-                val errorBody = response.bodyAsText()
-                Log.e(TAG, "get failed: ${response.status} - $errorBody")
-                throw WebDavException("Failed to get: ${response.status}", response.status.value, errorBody)
-            }
-
-            val channel = response.bodyAsChannel()
-            channel.toInputStream().readBytes()
-        }
-    }
-
-    suspend fun getStream(path: String): Result<InputStream> = withContext(Dispatchers.IO) {
-        runCatching {
-            val url = config.buildUrl(path)
-            Log.d(TAG, "GET (stream): $url")
-
-            val response: HttpResponse = httpClient.request(url) {
-                method = HttpMethod.Get
-                basicAuth(config.username, config.password)
-            }
-
-            if (!response.status.isSuccess()) {
-                val errorBody = response.bodyAsText()
-                Log.e(TAG, "getStream failed: ${response.status} - $errorBody")
-                throw WebDavException("Failed to get stream: ${response.status}", response.status.value, errorBody)
-            }
-
-            response.bodyAsChannel().toInputStream()
-        }
-    }
-
     suspend fun downloadToFile(path: String, targetFile: File): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             val url = config.buildUrl(path)
@@ -205,53 +163,6 @@ class WebDavClient(
             }
 
             Log.d(TAG, "delete success: $path")
-            Unit
-        }
-    }
-
-    suspend fun head(path: String): Result<WebDavResourceInfo> = withContext(Dispatchers.IO) {
-        runCatching {
-            val url = config.buildUrl(path)
-            Log.d(TAG, "HEAD: $url")
-
-            val response: HttpResponse = httpClient.request(url) {
-                method = HttpMethod.Head
-                basicAuth(config.username, config.password)
-            }
-
-            if (!response.status.isSuccess()) {
-                throw WebDavException("Resource not found: ${response.status}", response.status.value, "")
-            }
-
-            WebDavResourceInfo(
-                href = path,
-                displayName = path.substringAfterLast("/"),
-                contentLength = response.headers["Content-Length"]?.toLongOrNull() ?: 0,
-                contentType = response.headers["Content-Type"] ?: "application/octet-stream",
-                lastModified = parseLastModified(response.headers["Last-Modified"]),
-                isCollection = false,
-            )
-        }
-    }
-
-    suspend fun mkcol(path: String): Result<Unit> = withContext(Dispatchers.IO) {
-        runCatching {
-            val url = config.buildUrl(path)
-            Log.d(TAG, "MKCOL: $url")
-
-            val response: HttpResponse = httpClient.request(url) {
-                method = HttpMethod("MKCOL")
-                basicAuth(config.username, config.password)
-            }
-
-            // 201 Created or 405 Method Not Allowed (already exists) are acceptable
-            if (!response.status.isSuccess() && response.status != HttpStatusCode.MethodNotAllowed) {
-                val errorBody = response.bodyAsText()
-                Log.e(TAG, "mkcol failed: ${response.status} - $errorBody")
-                throw WebDavException("Failed to create collection: ${response.status}", response.status.value, errorBody)
-            }
-
-            Log.d(TAG, "mkcol success: $path")
             Unit
         }
     }

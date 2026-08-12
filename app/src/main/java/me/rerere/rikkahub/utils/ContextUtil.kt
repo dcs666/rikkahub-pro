@@ -139,17 +139,6 @@ fun Context.getActivity(): Activity? {
     return null
 }
 
-fun Context.getComponentActivity(): ComponentActivity? {
-    var context = this
-    while (context is ContextWrapper) {
-        if (context is ComponentActivity) {
-            return context
-        }
-        context = context.baseContext
-    }
-    return null
-}
-
 fun Context.exportImage(
     activity: Activity,
     bitmap: Bitmap,
