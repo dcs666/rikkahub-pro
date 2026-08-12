@@ -13,6 +13,7 @@ import io.ktor.client.statement.HttpStatement
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpMethod
+import io.ktor.http.HttpStatusCode
 import io.ktor.http.isSuccess
 import io.ktor.utils.io.jvm.javaio.toInputStream
 import io.ktor.utils.io.readAvailable
@@ -205,6 +206,53 @@ class WebDavClient(
 
             val xmlBody = response.bodyAsText()
             parsePropfindResponse(xmlBody, url)
+        }
+    }
+
+    suspend fun head(path: String): Result<WebDavResourceInfo> = withContext(Dispatchers.IO) {
+        runCatching {
+            val url = config.buildUrl(path)
+            Log.d(TAG, "HEAD: $url")
+
+            val response: HttpResponse = httpClient.request(url) {
+                method = HttpMethod.Head
+                basicAuth(config.username, config.password)
+            }
+
+            if (!response.status.isSuccess()) {
+                throw WebDavException("Resource not found: ${response.status}", response.status.value, "")
+            }
+
+            WebDavResourceInfo(
+                href = path,
+                displayName = path.substringAfterLast("/"),
+                contentLength = response.headers["Content-Length"]?.toLongOrNull() ?: 0,
+                contentType = response.headers["Content-Type"] ?: "application/octet-stream",
+                lastModified = parseLastModified(response.headers["Last-Modified"]),
+                isCollection = false,
+            )
+        }
+    }
+
+    suspend fun mkcol(path: String): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val url = config.buildUrl(path)
+            Log.d(TAG, "MKCOL: $url")
+
+            val response: HttpResponse = httpClient.request(url) {
+                method = HttpMethod("MKCOL")
+                basicAuth(config.username, config.password)
+            }
+
+            // 201 Created or 405 Method Not Allowed (already exists) are acceptable
+            if (!response.status.isSuccess() && response.status != HttpStatusCode.MethodNotAllowed) {
+                val errorBody = response.bodyAsText()
+                Log.e(TAG, "mkcol failed: ${response.status} - $errorBody")
+                throw WebDavException("Failed to create collection: ${response.status}", response.status.value, errorBody)
+            }
+
+            Log.d(TAG, "mkcol success: $path")
+            Unit
         }
     }
 
