@@ -78,7 +78,6 @@ fun List<UIMessagePart>.isEmptyUIMessage(): Boolean {
  *
  * 越小则截断点前进的步幅越大, 连续命中缓存的轮数越多, 但一次丢弃的上下文也越多
  */
-private const val CONTEXT_KEEP_RATIO = 0.5f
 
 /**
  * 按阶梯式(滞回)策略限制上下文消息数量

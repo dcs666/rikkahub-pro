@@ -11,30 +11,30 @@ import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
-import import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
-import import import kotlinx.serialization.json.contentOrNull
-import import import import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-import import import import import import me.rerere.ai.provider.Model
-import import me.rerere.ai.provider.ProviderSetting
+import me.rerere.ai.provider.Model
+import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.TextGenerationParams
-import import import me.rerere.ai.registry.ModelRegistry
+import me.rerere.ai.registry.ModelRegistry
 import me.rerere.ai.ui.MessageChunk
-import import me.rerere.ai.ui.UIMessage
-import import import import import me.rerere.common.android.Logging
+import me.rerere.ai.ui.UIMessage
+import me.rerere.common.android.Logging
 import me.rerere.ai.util.KeyRoulette
 import me.rerere.ai.util.buildEndpoint
 import me.rerere.ai.util.configureReferHeaders
-import import me.rerere.ai.util.json
-import import me.rerere.ai.util.parseErrorDetail
+import me.rerere.ai.util.json
+import me.rerere.ai.util.parseErrorDetail
 import me.rerere.ai.util.stringSafe
 import me.rerere.ai.util.toHeaders
 import me.rerere.common.http.await
-import import me.rerere.common.http.jsonPrimitiveOrNull
+import me.rerere.common.http.jsonPrimitiveOrNull
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -44,7 +44,6 @@ import okhttp3.Response
 import okhttp3.sse.EventSource
 import okhttp3.sse.EventSourceListener
 import okhttp3.sse.EventSources
-import 
 private const val TAG = "ResponseAPI"
 
 /**
