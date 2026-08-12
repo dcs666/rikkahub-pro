@@ -40,7 +40,9 @@ class ChatboxSessionParseTest {
         threadName: String = "My Thread",
         messages: JsonArray,
     ): JsonObject = buildJsonObject {
-        put("id", id)
+        if (id.isNotBlank()) {
+            put("id", id)
+        }
         put("name", name)
         put("threadName", threadName)
         put("messages", messages)
