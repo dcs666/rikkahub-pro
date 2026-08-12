@@ -141,3 +141,48 @@ internal fun RecommendProviderButton(
         }
     }
 }
+
+
+@Composable
+internal fun RecommendProviderItem(
+    provider: ProviderSetting,
+    onAdd: () -> Unit
+) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = CustomColors.listItemColors.containerColor
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            AutoAIIcon(
+                name = provider.name,
+                modifier = Modifier.size(40.dp)
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = provider.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                ProvideTextStyle(MaterialTheme.typography.labelSmall) {
+                    CompositionLocalProvider(LocalContentColor provides LocalContentColor.current.copy(alpha = 0.7f)) {
+                        provider.description()
+                    }
+                }
+            }
+            IconButton(onClick = onAdd) {
+                Icon(HugeIcons.Add01, contentDescription = stringResource(R.string.setting_provider_page_add))
+            }
+        }
+    }
+}
