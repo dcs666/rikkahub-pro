@@ -8,23 +8,23 @@ import { v4 as uuidv4 } from "uuid";
 
 const EDIT_DRAFT_ATTACHMENT_MARK = "__from_message_attachment";
 const EDIT_DRAFT_SOURCE_INDEX = "__from_message_source_index";
-interface EditDraft {
+export interface EditDraft {
   text: string;
   attachments: UIMessagePart[];
   sourceParts: UIMessagePart[];
   textPartIndex: number | null;
 }
 
-interface EditingSession {
+export interface EditingSession {
   messageId: string;
   sourceParts: UIMessagePart[];
   textPartIndex: number | null;
 }
-function createHomeDraftId() {
+export function createHomeDraftId() {
   return `home-${uuidv4()}`;
 }
 
-function truncatePreviewText(value: string, maxLength = 48): string {
+export function truncatePreviewText(value: string, maxLength = 48): string {
   if (value.length <= maxLength) {
     return value;
   }
@@ -32,7 +32,7 @@ function truncatePreviewText(value: string, maxLength = 48): string {
   return `${value.slice(0, maxLength)}...`;
 }
 
-function getQuickJumpPreview(
+export function getQuickJumpPreview(
   message: MessageDto,
   t: (key: string, options?: Record<string, unknown>) => string,
 ): string {
@@ -76,7 +76,7 @@ function getQuickJumpPreview(
   }
 }
 
-function isAttachmentPart(
+export function isAttachmentPart(
   part: UIMessagePart,
 ): part is Extract<UIMessagePart, { type: "image" | "video" | "audio" | "document" }> {
   return (
@@ -87,7 +87,7 @@ function isAttachmentPart(
   );
 }
 
-function getLastTextPartIndex(parts: UIMessagePart[]): number | null {
+export function getLastTextPartIndex(parts: UIMessagePart[]): number | null {
   for (let index = parts.length - 1; index >= 0; index -= 1) {
     if (parts[index]?.type === "text") {
       return index;
@@ -97,12 +97,12 @@ function getLastTextPartIndex(parts: UIMessagePart[]): number | null {
   return null;
 }
 
-function getDraftSourceIndex(part: UIMessagePart): number | null {
+export function getDraftSourceIndex(part: UIMessagePart): number | null {
   const value = part.metadata?.[EDIT_DRAFT_SOURCE_INDEX];
   return typeof value === "number" ? value : null;
 }
 
-function toEditDraft(message: MessageDto): EditDraft | null {
+export function toEditDraft(message: MessageDto): EditDraft | null {
   const textPartIndex = getLastTextPartIndex(message.parts);
   const text =
     textPartIndex !== null && message.parts[textPartIndex]?.type === "text"
@@ -136,13 +136,13 @@ function toEditDraft(message: MessageDto): EditDraft | null {
   };
 }
 
-function shouldDeleteAttachmentFileOnRemove(part: UIMessagePart): boolean {
+export function shouldDeleteAttachmentFileOnRemove(part: UIMessagePart): boolean {
   if (!part.metadata) return true;
 
   return part.metadata[EDIT_DRAFT_ATTACHMENT_MARK] !== true;
 }
 
-function stripEditDraftMetadata(parts: UIMessagePart[]): UIMessagePart[] {
+export function stripEditDraftMetadata(parts: UIMessagePart[]): UIMessagePart[] {
   return parts.map((part) => {
     if (!part.metadata) {
       return part;
@@ -165,7 +165,7 @@ function stripEditDraftMetadata(parts: UIMessagePart[]): UIMessagePart[] {
   });
 }
 
-function buildEditedParts(session: EditingSession, draftParts: UIMessagePart[]): UIMessagePart[] {
+export function buildEditedParts(session: EditingSession, draftParts: UIMessagePart[]): UIMessagePart[] {
   const textPart = draftParts.find(
     (part): part is Extract<UIMessagePart, { type: "text" }> => part.type === "text",
   );
@@ -213,7 +213,7 @@ function buildEditedParts(session: EditingSession, draftParts: UIMessagePart[]):
   return [...preservedParts, ...appendedAttachments];
 }
 
-function applyNodeUpdate(
+export function applyNodeUpdate(
   conversation: ConversationDto,
   event: ConversationNodeUpdateEventDto,
 ): ConversationDto {
