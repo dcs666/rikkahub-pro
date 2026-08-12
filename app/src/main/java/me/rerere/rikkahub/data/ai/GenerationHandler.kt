@@ -611,7 +611,7 @@ class GenerationHandler(
             var textMeta: JsonObject? = null
             var lastTranslationFlush = 0L
 
-            fun flushTranslationText() {
+            suspend fun flushTranslationText() {
                 val buf = textBuf ?: return
                 val base = textBaseParts ?: return
                 val last = messages.lastOrNull() ?: return
