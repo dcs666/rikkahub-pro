@@ -458,8 +458,9 @@ class BackgroundTaskManager(
 
     /**
      * [⑦ 全自动监控] webhook 收到新 workflow_run 且无匹配任务时，按白名单自动创建监控。
-     * 去重由 createCIMonitorTask 内部保证（repo+branch+runId+workflow 四维匹配），
-     * 同一 run 的多次事件（requested/queued/in_progress）只会创建一个任务。
+     * [FIX 重复任务] 同一 run 会连续收到 requested/queued/in_progress 三个事件，
+     * 每个事件都会走到这里——必须先四维查重（repo+branch+runId+workflow），
+     * 否则同一 run 会创建多个重复监控任务（重复轮询 + 重复完成通知）。
      * 返回是否创建了任务。
      */
     suspend fun autoCreateCIMonitorByWebhook(
@@ -471,6 +472,10 @@ class BackgroundTaskManager(
         pollIntervalMs: Long = 30_000,
     ): Boolean {
         if (runId <= 0) return false
+        // [FIX] 查重：已存在匹配的活跃监控任务（含 runId=0 盲等任务）则跳过创建
+        if (findMatchingActiveCIMonitor(repo, branch, runId, workflowName) != null) {
+            return false
+        }
         val taskId = createCIMonitorTask(
             repo = repo,
             branch = branch,
