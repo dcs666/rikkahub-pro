@@ -88,7 +88,7 @@ class ErrorParserTest {
         }
         val result = element.parseErrorDetail().message
         // 超过深度后兜底为整体序列化字符串（含原始 JSON 片段）
-        assertTrue(result.contains("bottom"))
+        assertTrue(result!!.contains("bottom"))
     }
 
     @Test
@@ -98,8 +98,8 @@ class ErrorParserTest {
             put("baz", 1)
         }
         val result = json.parseErrorDetail()
-        assertTrue(result.message.contains("foo"))
-        assertTrue(result.message.contains("bar"))
+        assertTrue(result.message!!.contains("foo"))
+        assertTrue(result.message!!.contains("bar"))
     }
 
     @Test
