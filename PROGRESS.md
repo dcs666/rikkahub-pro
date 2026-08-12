@@ -707,3 +707,14 @@ Job（otb）→ 更新 v1.9.14 后解决（awaitGenerationIdle 保护）。
 **保留理由**：ModelList（拖拽状态机）、BackgroundTaskManager（复杂状态）、GoogleSans（嵌套 object 树）、
 RouteActivity（Activity 内聚）、AssistantBasicPage（线性表单）、ConversationRepository（核心数据层）、
 tool-part/extension-picker/chat-input（巨型 JSX 组件，子组件提取需重构 props 传递）
+
+### 拆分专项 2 CI 修复链闭环（run 407→435 全绿）
+- run 407 丢 export → 838e6f0c；run 426 重复 interface → 4367bcab
+- run 430 JSX 进 .ts → 7b0a2917；run 431 丢 export → df273b59
+- run 432 KDoc 截断 → 62a11a1e；run 433 孤儿注解 → 81ebf981
+- run 434 @Composable 缺失×4 + private 跨文件 → 330f628c → run 435 ✅ 全绿
+**提取块标准（升级 7 项自查）**：
+① 注释平衡（/** : */）② 尾部孤儿注解/@Composable ③ 括号平衡（剥离模板字符串）
+④ export 前缀（python 提取必丢）⑤ 重复声明（header 与 block 边界不得重叠）
+⑥ @Composable 注解完整性（提取块必须含函数上一行的注解！从函数名开始会丢）
+⑦ private 顶层跨文件可见性（提取后必须 internal）
