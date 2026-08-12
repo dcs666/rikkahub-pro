@@ -348,7 +348,6 @@ internal fun MoveToAssistantSheet(
 // [拆分] ChatDrawer 侧栏子组件域（拆自 ChatDrawer.kt，Strangler Fig）
 
 @Composable
-@Composable
 internal fun AssistantItem(
     assistant: Assistant,
     isCurrentAssistant: Boolean,

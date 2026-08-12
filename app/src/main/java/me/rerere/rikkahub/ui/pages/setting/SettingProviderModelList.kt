@@ -135,7 +135,7 @@ import sh.calvin.reorderable.rememberReorderableLazyListState
 import kotlin.uuid.Uuid
 
 @Composable
-private fun SettingProviderModelPage(
+internal fun SettingProviderModelPage(
     provider: ProviderSetting,
     onEdit: (ProviderSetting) -> Unit
 ) {

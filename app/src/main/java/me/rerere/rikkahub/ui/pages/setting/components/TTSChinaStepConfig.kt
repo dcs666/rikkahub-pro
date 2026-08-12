@@ -15,6 +15,7 @@ import me.rerere.rikkahub.ui.components.ui.OutlinedNumberInput
 import me.rerere.rikkahub.ui.components.ui.SelectTextField
 import me.rerere.tts.provider.TTSProviderSetting
 
+@Composable
 internal fun StepTTSConfiguration(
     setting: TTSProviderSetting.Step,
     onValueChange: (TTSProviderSetting) -> Unit

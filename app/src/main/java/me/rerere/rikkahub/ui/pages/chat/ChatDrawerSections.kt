@@ -238,6 +238,7 @@ internal fun DrawerBottomActions(navController: Navigator) {
     }
 }
 
+@Composable
 internal fun DrawerActions(navController: Navigator) {
     Column {
         // 搜索入口

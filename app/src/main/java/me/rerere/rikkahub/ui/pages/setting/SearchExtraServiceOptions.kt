@@ -64,6 +64,7 @@ import me.rerere.search.SearchServiceOptions
 import org.koin.androidx.compose.koinViewModel
 import kotlin.uuid.Uuid
 
+@Composable
 internal fun PerplexityOptions(
     options: SearchServiceOptions.PerplexityOptions,
     onUpdateOptions: (SearchServiceOptions.PerplexityOptions) -> Unit
