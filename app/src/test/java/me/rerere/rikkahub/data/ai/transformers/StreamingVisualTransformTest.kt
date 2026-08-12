@@ -49,13 +49,14 @@ class StreamingVisualTransformTest {
     private suspend fun transformLastOnly(
         messages: List<UIMessage>,
         transformers: List<MessageTransformer>,
+        assistant: Assistant = Assistant(),
     ): List<UIMessage> {
         val last = messages.lastOrNull() ?: return messages
         return messages.dropLast(1) + listOf(last).visualTransforms(
             transformers = transformers,
             context = null,
             model = Model(),
-            assistant = Assistant(),
+            assistant = assistant,
             settings = Settings(),
         ).single()
     }
@@ -64,12 +65,13 @@ class StreamingVisualTransformTest {
     private suspend fun transformFull(
         messages: List<UIMessage>,
         transformers: List<MessageTransformer>,
+        assistant: Assistant = Assistant(),
     ): List<UIMessage> {
         return messages.visualTransforms(
             transformers = transformers,
             context = null,
             model = Model(),
-            assistant = Assistant(),
+            assistant = assistant,
             settings = Settings(),
         )
     }
@@ -101,9 +103,11 @@ class StreamingVisualTransformTest {
         val full2 = transformFull(frame2, transformers)
         assertEquals("frame2 last-only must equal full", full2, lastOnly2)
 
-        // 前面的消息在帧间没有被重新转换/改写
-        assertEquals("earlier messages must be untouched", full1[0], lastOnly2[0])
-        assertEquals("earlier assistant must be untouched", full1[1], lastOnly2[1])
+        // 前面的消息没有被转换/改写（ThinkTag 只处理 assistant 文本块；无 think 块原样返回）。
+        // 注意：不能跨帧比较（frame1/frame2 是不同实例，UIMessage.createdAt 微秒级不同），
+        // 应在同一帧内比较"转换前后"。
+        assertEquals("user must be untouched in frame1", frame1[0], full1[0])
+        assertEquals("plain assistant must be untouched in frame1", frame1[1], full1[1])
     }
 
     @Test
@@ -135,13 +139,12 @@ class StreamingVisualTransformTest {
                 AssistantRegex(
                     id = Uuid.random(),
                     name = "replace token",
-                    findRegex = "\\\\[TOKEN\\\\]",
+                    findRegex = "\\[TOKEN\\]",
                     replaceString = "42",
                     affectingScope = setOf(AssistantAffectScope.ASSISTANT),
                 )
             )
         )
-        val ctxWithRegex = ctx(assistantWithRegex)
         val transformers: List<MessageTransformer> = listOf(RegexOutputTransformer)
 
         val frame1 = listOf(
@@ -155,12 +158,13 @@ class StreamingVisualTransformTest {
             assistant(UIMessagePart.Text("value is [TOKEN], plus [TOKEN]")),
         )
 
-        val lastOnly1 = transformLastOnly(frame1, transformers)
-        val full1 = transformFull(frame1, transformers)
+        // 关键：带正则的 assistant 必须传入（transformLastOnly/Full 默认空 assistant 不替换）
+        val lastOnly1 = transformLastOnly(frame1, transformers, assistantWithRegex)
+        val full1 = transformFull(frame1, transformers, assistantWithRegex)
         assertEquals("frame1 last-only must equal full", full1, lastOnly1)
 
-        val lastOnly2 = transformLastOnly(frame2, transformers)
-        val full2 = transformFull(frame2, transformers)
+        val lastOnly2 = transformLastOnly(frame2, transformers, assistantWithRegex)
+        val full2 = transformFull(frame2, transformers, assistantWithRegex)
         assertEquals("frame2 last-only must equal full", full2, lastOnly2)
 
         val lastText = (lastOnly2.last().parts.single() as UIMessagePart.Text).text
