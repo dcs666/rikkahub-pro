@@ -307,7 +307,7 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
                     Log.w(TAG, "onFailure: parse error", e)
                     exception = e
                 } finally {
-                    close(exception ?: Exception("Stream failed"))
+                    close(exception ?: Exception("Stream failed: HTTP ${response?.code}"))
                 }
             }
 

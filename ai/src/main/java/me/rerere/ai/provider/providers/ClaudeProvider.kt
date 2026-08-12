@@ -249,7 +249,10 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
                 } catch (e: Throwable) {
                     e.printStackTrace()
                 } finally {
-                    close(exception)
+                    // [FIX 静默失败] HTTP 错误（429/5xx 等）时 okhttp-sse 传 t=null，
+                    // 响应体可能为空（网关常见）→ 原逻辑 close(null) 会"正常"结束流，
+                    // 用户看到回复结束实际失败。空异常必须兜底为显式错误，否则无法感知。
+                    close(exception ?: Exception("Stream failed: HTTP ${response?.code}"))
                 }
             }
 
