@@ -173,8 +173,6 @@ object ScrapeWebToolUI : ToolUIRenderer {
     }
 }
 
-/**
- * 获取时间信息
 @Composable
 private fun SearchWebPreview(
     arguments: JsonElement,

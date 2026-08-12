@@ -156,7 +156,6 @@ object MemoryToolUI : ToolUIRenderer {
 /**
  * 网络搜索: 标题带查询词, 摘要显示 answer 与结果数, 详情为结果列表
  */
- */
 object GetTimeInfoToolUI : ToolUIRenderer {
     override val toolName: String = "get_time_info"
 
