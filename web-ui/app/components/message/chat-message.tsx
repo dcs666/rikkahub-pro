@@ -47,7 +47,6 @@ import {
   formatNumber,
   formatPartForCopy,
   getDurationMs,
-  getNerdStats,
   hasEditableContent,
   hasRenderablePart,
   parseToolOutputJson,
@@ -66,6 +65,61 @@ interface ChatMessageProps {
   onDelete?: (messageId: string) => void | Promise<void>;
   onFork?: (messageId: string) => void | Promise<void>;
   onToolApproval?: (toolCallId: string, approved: boolean, reason: string, answer?: string) => void | Promise<void>;
+}
+
+export function getNerdStats(
+  usage: TokenUsage,
+  createdAt: string,
+  finishedAt: string | null | undefined,
+  t: TFunction,
+) {
+  const stats: Array<{ key: string; icon: React.ReactNode; label: string }> = [];
+
+  stats.push({
+    key: "prompt",
+    icon: <ArrowUp className="size-3" />,
+    label:
+      usage.cachedTokens > 0
+        ? t("chat_message.prompt_tokens_with_cache", {
+            promptTokens: formatNumber(usage.promptTokens),
+            cachedTokens: formatNumber(usage.cachedTokens),
+          })
+        : t("chat_message.prompt_tokens", {
+            promptTokens: formatNumber(usage.promptTokens),
+          }),
+  });
+
+  stats.push({
+    key: "completion",
+    icon: <ArrowDown className="size-3" />,
+    label: t("chat_message.completion_tokens", {
+      completionTokens: formatNumber(usage.completionTokens),
+    }),
+  });
+
+  const durationMs = getDurationMs(createdAt, finishedAt);
+  if (durationMs && usage.completionTokens > 0) {
+    const durationSeconds = durationMs / 1000;
+    const tps = usage.completionTokens / durationSeconds;
+
+    stats.push({
+      key: "speed",
+      icon: <Zap className="size-3" />,
+      label: t("chat_message.tokens_per_second", {
+        value: tps.toFixed(1),
+      }),
+    });
+
+    stats.push({
+      key: "duration",
+      icon: <Clock3 className="size-3" />,
+      label: t("chat_message.duration_seconds", {
+        value: durationSeconds.toFixed(1),
+      }),
+    });
+  }
+
+  return stats;
 }
 
 const ChatMessageActionsRow = React.memo(({
