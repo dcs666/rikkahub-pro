@@ -3,6 +3,7 @@ package me.rerere.ai.util
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonPrimitive
@@ -48,9 +49,9 @@ fun JsonElement.parseErrorDetail(depth: Int = 0): HttpException {
             HttpException(this.jsonPrimitive.content)
         }
 
-        else -> {
-            // 其他情况，序列化整个元素
-            HttpException(Json.encodeToString(JsonElement.serializer(), this))
+        is JsonNull -> {
+            // 显式空值（原 else 兜底语义：序列化结果为 "null"）
+            HttpException("null")
         }
     }
 }
