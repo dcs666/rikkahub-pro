@@ -1,0 +1,489 @@
+package me.rerere.rikkahub.ui.components.ai
+
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.content.MediaType
+import androidx.compose.foundation.content.ReceiveContentListener
+import androidx.compose.foundation.content.consume
+import androidx.compose.foundation.content.contentReceiver
+import androidx.compose.foundation.content.hasMediaType
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.CornerSize
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.material3.BasicAlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
+import com.dokar.sonner.ToastType
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.blur.blurEffect
+import dev.chrisbanes.haze.blur.materials.HazeMaterials
+import dev.chrisbanes.haze.hazeEffect
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.collectLatest
+import me.rerere.ai.provider.Model
+import me.rerere.ai.provider.ModelAbility
+import me.rerere.ai.provider.ModelType
+import me.rerere.asr.ASRStatus
+import me.rerere.hugeicons.HugeIcons
+import me.rerere.hugeicons.stroke.Add01
+import me.rerere.hugeicons.stroke.ArrowUp02
+import me.rerere.hugeicons.stroke.Cancel01
+import me.rerere.hugeicons.stroke.FullScreen
+import me.rerere.hugeicons.stroke.Zap
+import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.datastore.Settings
+import me.rerere.rikkahub.data.datastore.getCurrentAssistant
+import me.rerere.rikkahub.data.datastore.getCurrentChatModel
+import me.rerere.rikkahub.data.datastore.getQuickMessagesOfAssistant
+import me.rerere.rikkahub.data.files.FilesManager
+import me.rerere.rikkahub.data.model.Assistant
+import me.rerere.rikkahub.data.model.QuickMessage
+import me.rerere.rikkahub.ui.components.ai.completion.ChatCompletionContext
+import me.rerere.rikkahub.ui.components.ai.completion.ChatCompletionItem
+import me.rerere.rikkahub.ui.components.ai.completion.ChatCompletionList
+import me.rerere.rikkahub.ui.components.ai.completion.ChatCompletionProvider
+import me.rerere.rikkahub.ui.components.ui.KeepScreenOn
+import me.rerere.rikkahub.ui.components.ui.permission.PermissionManager
+import me.rerere.rikkahub.ui.components.ui.permission.PermissionRecordAudio
+import me.rerere.rikkahub.ui.components.ui.permission.rememberPermissionState
+import me.rerere.rikkahub.ui.context.LocalASRState
+import me.rerere.rikkahub.ui.context.LocalSettings
+import me.rerere.rikkahub.ui.context.LocalToaster
+import me.rerere.rikkahub.ui.hooks.ChatInputState
+import me.rerere.rikkahub.utils.SoundEffectPlayer
+import org.koin.compose.koinInject
+import kotlin.time.Duration.Companion.seconds
+
+// [拆分] ChatInput 子组件域（拆自 ChatInput.kt，Strangler Fig）
+
+@Composable
+internal fun TextInputRow(
+    state: ChatInputState,
+    completionProviders: List<ChatCompletionProvider>,
+    onSendMessage: () -> Unit,
+) {
+    val settings = LocalSettings.current
+    val filesManager: FilesManager = koinInject()
+    val assistant = settings.getCurrentAssistant()
+    val quickMessages = remember(settings.quickMessages, assistant.quickMessageIds) {
+        settings.getQuickMessagesOfAssistant(assistant)
+    }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        if (state.isEditing()) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(text = stringResource(R.string.editing))
+                    Spacer(Modifier.weight(1f))
+                    Icon(
+                        imageVector = HugeIcons.Cancel01,
+                        contentDescription = stringResource(R.string.cancel_edit),
+                        modifier = Modifier.clickable { state.clearInput() }
+                    )
+                }
+            }
+        }
+
+        var isFocused by remember { mutableStateOf(false) }
+        var isFullScreen by remember { mutableStateOf(false) }
+        var completionList by remember { mutableStateOf<ChatCompletionList?>(null) }
+        val receiveContentListener = remember(
+            settings.displaySetting.pasteLongTextAsFile, settings.displaySetting.pasteLongTextThreshold
+        ) {
+            ReceiveContentListener { transferableContent ->
+                when {
+                    transferableContent.hasMediaType(MediaType.Image) -> {
+                        transferableContent.consume { item ->
+                            val uri = item.uri
+                            if (uri != null) {
+                                state.addImages(
+                                    filesManager.createChatFilesByContents(
+                                        listOf(uri)
+                                    )
+                                )
+                            }
+                            uri != null
+                        }
+                    }
+
+                    settings.displaySetting.pasteLongTextAsFile && transferableContent.hasMediaType(MediaType.Text) -> {
+                        transferableContent.consume { item ->
+                            val text = item.text?.toString()
+                            if (text != null && text.length > settings.displaySetting.pasteLongTextThreshold) {
+                                val document = filesManager.createChatTextFile(text)
+                                state.addFiles(listOf(document))
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                    }
+
+                    else -> transferableContent
+                }
+            }
+        }
+
+        LaunchedEffect(completionProviders, isFocused) {
+            if (!isFocused || completionProviders.isEmpty()) {
+                completionList = null
+                return@LaunchedEffect
+            }
+
+            snapshotFlow {
+                ChatCompletionContext(
+                    text = state.textContent.text.toString(),
+                    selection = state.textContent.selection,
+                )
+            }.collectLatest { context ->
+                val lists = completionProviders.mapNotNull { provider ->
+                    try {
+                        provider.complete(context)
+                            ?.takeIf { it.items.isNotEmpty() }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+                val primary = lists.firstOrNull()
+                completionList = primary?.let { list ->
+                    val mergedItems = lists
+                        .filter { it.replacementRange == list.replacementRange }
+                        .flatMap { it.items }
+                        .distinctBy { it.label to it.insertText }
+                        .sortedWith(
+                            compareByDescending<ChatCompletionItem> { it.sortScore }
+                                .thenBy { it.label.length }
+                                .thenBy { it.label.lowercase() }
+                        )
+                        .take(8)
+                    list.copy(items = mergedItems)
+                }
+            }
+        }
+
+        completionList?.takeIf { it.items.isNotEmpty() }?.let { list ->
+            CompletionPopup(
+                completionList = list,
+                onItemClick = { item ->
+                    state.applyCompletion(list.replacementRange, item)
+                    completionList = null
+                },
+            )
+        }
+
+        TextField(
+            state = state.textContent,
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("chat_input")
+                .contentReceiver(receiveContentListener)
+                .onFocusChanged {
+                    isFocused = it.isFocused
+                },
+            shape = MaterialTheme.shapes.largeIncreased,
+            placeholder = {
+                Text(stringResource(R.string.chat_input_placeholder))
+            },
+            lineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 5),
+            keyboardOptions = KeyboardOptions(
+                imeAction = if (settings.displaySetting.sendOnEnter) ImeAction.Send else ImeAction.Default
+            ),
+            onKeyboardAction = {
+                if (settings.displaySetting.sendOnEnter && !state.isEmpty()) {
+                    onSendMessage()
+                }
+            },
+            colors = TextFieldDefaults.colors().copy(
+                unfocusedIndicatorColor = Color.Transparent,
+                focusedIndicatorColor = Color.Transparent,
+                focusedContainerColor = Color.Transparent,
+                unfocusedContainerColor = Color.Transparent,
+            ),
+            trailingIcon = {
+                if (isFocused) {
+                    IconButton(
+                        onClick = {
+                            isFullScreen = !isFullScreen
+                        }) {
+                        Icon(HugeIcons.FullScreen, null)
+                    }
+                }
+            },
+            leadingIcon = if (quickMessages.isNotEmpty()) {
+                {
+                    QuickMessageButton(quickMessages = quickMessages, state = state)
+                }
+            } else null,
+        )
+        if (isFullScreen) {
+            FullScreenEditor(state = state) {
+                isFullScreen = false
+            }
+        }
+    }
+}
+
+@Composable
+internal fun CompletionPopup(
+    completionList: ChatCompletionList,
+    onItemClick: (ChatCompletionItem) -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 280.dp),
+        shape = RoundedCornerShape(18.dp),
+        tonalElevation = 2.dp,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+    ) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+        ) {
+            items(
+                items = completionList.items,
+                key = { item -> "${item.label}:${item.insertText}" },
+            ) { item ->
+                Surface(
+                    onClick = { onItemClick(item) },
+                    modifier = Modifier.fillMaxWidth(),
+                    color = Color.Transparent,
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        item.icon?.let { icon ->
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            Text(
+                                text = item.label,
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            item.detail?.let { detail ->
+                                Text(
+                                    text = detail,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+internal fun ChatInputState.applyCompletion(
+    replacementRange: TextRange,
+    item: ChatCompletionItem,
+) {
+    val textLength = textContent.text.length
+    val start = replacementRange.min.coerceIn(0, textLength)
+    val end = replacementRange.max.coerceIn(start, textLength)
+    textContent.edit {
+        replace(start, end, item.insertText)
+        selection = TextRange(start + item.insertText.length)
+    }
+}
+
+@Composable
+internal fun QuickMessageButton(
+    quickMessages: List<QuickMessage>,
+    state: ChatInputState,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    IconButton(
+        onClick = {
+            expanded = !expanded
+        }) {
+        Icon(HugeIcons.Zap, null)
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier
+                .widthIn(min = 200.dp, max = 360.dp)
+        ) {
+            quickMessages.forEach { quickMessage ->
+                Surface(
+                    onClick = {
+                        state.appendText(quickMessage.content)
+                        expanded = false
+                    },
+                    color = Color.Transparent,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(8.dp)
+                    ) {
+                        Text(
+                            text = quickMessage.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            text = quickMessage.content,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun FullScreenEditor(
+    state: ChatInputState, onDone: () -> Unit
+) {
+    BasicAlertDialog(
+        onDismissRequest = {
+            onDone()
+        },
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false, decorFitsSystemWindows = false
+        ),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .safeDrawingPadding()
+                .imePadding(),
+            verticalArrangement = Arrangement.Bottom
+        ) {
+            Surface(
+                modifier = Modifier
+                    .widthIn(max = 800.dp)
+                    .fillMaxHeight(0.9f),
+                shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .padding(8.dp)
+                        .fillMaxSize(),
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Row {
+                        TextButton(
+                            onClick = {
+                                onDone()
+                            }) {
+                            Text(stringResource(R.string.chat_page_save))
+                        }
+                    }
+                    TextField(
+                        state = state.textContent,
+                        modifier = Modifier
+                            .padding(bottom = 2.dp)
+                            .fillMaxSize(),
+                        shape = RoundedCornerShape(32.dp),
+                        placeholder = {
+                            Text(stringResource(R.string.chat_input_placeholder))
+                        },
+                        colors = TextFieldDefaults.colors().copy(
+                            unfocusedIndicatorColor = Color.Transparent,
+                            focusedIndicatorColor = Color.Transparent,
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                        ),
+                    )
+                }
+            }
+        }
+    }
+}
+
