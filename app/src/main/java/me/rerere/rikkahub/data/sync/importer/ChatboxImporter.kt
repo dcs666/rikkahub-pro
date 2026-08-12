@@ -132,7 +132,7 @@ object ChatboxImporter {
         )
     }
 
-    private fun importProviders(root: JsonObject): List<ProviderSetting> {
+    internal fun importProviders(root: JsonObject): List<ProviderSetting> {
         val importProviders = arrayListOf<ProviderSetting>()
         val settingsObj = root["settings"]?.jsonObjectOrNull ?: return emptyList()
         settingsObj["providers"]?.jsonObjectOrNull?.let { providers ->
@@ -205,7 +205,7 @@ object ChatboxImporter {
         return importProviders
     }
 
-    private fun parseSession(
+    internal fun parseSession(
         session: JsonObject,
         assistantId: Uuid,
         providers: List<ProviderSetting>,
