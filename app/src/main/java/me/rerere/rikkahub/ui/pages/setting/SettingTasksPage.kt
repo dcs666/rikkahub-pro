@@ -45,7 +45,7 @@ import me.rerere.rikkahub.ui.context.LocalToaster
 import org.koin.compose.koinInject
 
 // 轮询间隔档位（与工具端 10s 下限对齐，避免未认证配额被耗）
-private val POLL_INTERVAL_OPTIONS = listOf(10, 30, 60, 120, 300)
+internal val POLL_INTERVAL_OPTIONS = listOf(10, 30, 60, 120, 300)
 
 private enum class CreateTaskType { CI_MONITOR, TIMER }
 
