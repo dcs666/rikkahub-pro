@@ -559,3 +559,9 @@
 - Python del 左闭右开易漏删函数结束 }；多次删除从后往前，索引基于删除前文件
 - private → internal 跨文件；@OptIn/@Composable 注解随函数迁移；常量（含 internal）随域搬迁
 - 已回写 SKILL：拆分流程 + 16 坑清单 + 新增提取脚本教训
+
+### CI 状态（2026-08-12 15:2x）
+- **Unit Tests run 387 SUCCESS**（2bfc05a2）：ai 模块编译 + app 模块编译 + 221 测试全过
+- Build APK run 402 进行中（打包验证）
+- 修复链（run 357→387）：10 轮修复（编译错误→测试适配→app 模块首编），
+  详见上方"已修复 CI 问题"列表 + 各 fix commit
