@@ -2,13 +2,13 @@ package me.rerere.rikkahub.data.task
 
 import android.app.Application
 import android.util.Log
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,45 +17,27 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.selects.onTimeout
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import me.rerere.rikkahub.data.event.AppEvent
 import me.rerere.rikkahub.data.event.AppEventBus
 import me.rerere.rikkahub.service.ChatService
-import me.rerere.rikkahub.service.TaskKeepAliveService
 import me.rerere.rikkahub.utils.JsonInstant
 import org.koin.java.KoinJavaComponent.getKoin
 import java.io.IOException
-import java.util.concurrent.ConcurrentHashMap
 import kotlin.uuid.Uuid
 
 private const val TAG = "BackgroundTaskManager"
 private const val CLEANUP_INTERVAL_MS = 3600_000L // 1h
 private const val MAX_TASK_AGE_MS = 7 * 24 * 3600_000L // 终态任务保留 7 天
-// [FIX] 活跃任务不能按 7 天清理：长定时器/长 CI 监控会被静默删除。活跃任务保留 30 天。
 private const val MAX_ACTIVE_TASK_AGE_MS = 30 * 24 * 3600_000L
-
-// [OPT] 动态唤醒间隔的边界与空闲间隔
 private const val MIN_POLL_INTERVAL_MS = 2_000L        // PENDING 任务等待下限
 private const val MAX_POLL_INTERVAL_MS = 60_000L       // 单次睡眠上限（防失控）
 private const val IDLE_POLL_INTERVAL_MS = 30_000L      // 无活跃任务时的空闲间隔
-private const val DEFAULT_POLL_INTERVAL_MS = 30_000L   // config 解析失败时的兜底
 private const val RECENT_TASKS_LIMIT = 20
-
-// [OPT] 有限并发轮询：GitHub API 调用是 IO 密集，多任务时并行而不是串行排队；
-// 3 路并发在速度与 rate limit 之间取平衡（未认证 60 req/h，认证 5000 req/h）。
 private const val POLL_CONCURRENCY = 3
-
-// 连续失败/连续 not_found 判定阈值（与总 pollCount 解耦，避免正常轮询稀释错误计数）
-private const val CONSECUTIVE_FAILURE_LIMIT = 5
-private const val CONSECUTIVE_NOT_FOUND_LIMIT = 10
-private const val RATE_LIMIT_BACKOFF_MS = 5 * 60_000L  // 403/429 后强制退避 5 分钟
-private const val TIMER_INJECTION_RETRY_DELAY_MS = 30_000L // 对话忙时定时注入重试冷却
-private const val MAX_TIMER_INJECTION_RETRIES = 10        // 重试上限（约 5 分钟窗口）
 
 /**
  * 后台任务管理器。
@@ -72,6 +54,11 @@ private const val MAX_TIMER_INJECTION_RETRIES = 10        // 重试上限（约 
  * - 每个 CI 任务有自己的 pollInterval，通过 pollCount 控制指数退避
  * - 有限并发（3 路）并行 poll，多任务不互相阻塞
  * - 任务状态持久化到 Room，进程重启后恢复
+ *
+ * [拆分]（Strangler Fig）：轮询执行域委托给独立类，本类保留调度/任务 CRUD/
+ * webhook/完成事件等编排逻辑：
+ * - CI 轮询域 → [CiTaskPoller]（pollCITask + 连续失败/not_found/rate-limit 软状态）
+ * - 定时器轮询域 → [TimerTaskPoller]（pollTimerTask + 注入重试/重复调度）
  */
 class BackgroundTaskManager(
     private val app: Application,
@@ -92,20 +79,8 @@ class BackgroundTaskManager(
     @Volatile
     private var keepAliveObserving = false
 
-    // [OPT] 软状态（进程内存，重启丢失可接受）：连续失败计数 / 连续 not_found 计数 /
-    // rate limit 退避截止时间。不进 DB 是为了避免 schema 迁移。
-    private val consecutiveFailures = java.util.concurrent.ConcurrentHashMap<String, Int>()
-    private val consecutiveNotFound = java.util.concurrent.ConcurrentHashMap<String, Int>()
-    private val rateLimitedUntil = java.util.concurrent.ConcurrentHashMap<String, Long>()
-
     // 轮询并发限流器（基于 Dispatchers.IO 的共享线程池）
     private val pollDispatcher = Dispatchers.IO.limitedParallelism(POLL_CONCURRENCY)
-
-    // [FIX] 定时 AI 动作注入防丢失：目标对话生成中时延迟重试（30s 冷却），
-    // 最多 10 次（约 5 分钟）。原实现直接 completeTask → 注入被 awaitGenerationIdle
-    // 超时跳过 → 触发永久丢失（用户看到"定时器没执行"）。
-    private val timerInjectionRetries = java.util.concurrent.ConcurrentHashMap<String, Int>()
-    private val timerRetryAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     // 懒加载避免构造环（ChatService 不依赖本类，但防御性用 Koin 懒取）
     private val chatService: ChatService by lazy { getKoin().get() }
@@ -113,6 +88,25 @@ class BackgroundTaskManager(
     // [OPT] 唤醒信号：新任务创建/取消/删除后立即唤醒 poller，
     // 避免空闲态 30s 睡眠导致新任务首轮 poll 被延迟
     private val pollerWake = Channel<Unit>(Channel.CONFLATED)
+
+    // [拆分] CI 轮询域
+    private val ciPoller = CiTaskPoller(
+        json = json,
+        taskDao = taskDao,
+        gitHubClient = gitHubClient,
+        onCompleteTask = ::completeTask,
+        onIncrementPollCount = ::incrementPollCount,
+        onWakePoller = { pollerWake.trySend(Unit) },
+    )
+
+    // [拆分] 定时器轮询域
+    private val timerPoller = TimerTaskPoller(
+        json = json,
+        taskDao = taskDao,
+        chatService = { chatService },
+        onCompleteTask = ::completeTask,
+        onWakePoller = { pollerWake.trySend(Unit) },
+    )
 
     // 活跃任务数量（UI 可观察）
     private val _activeTaskCount = MutableStateFlow(0)
@@ -124,7 +118,7 @@ class BackgroundTaskManager(
 
     /**
      * 启动轮询循环。在 App 启动时调用。
-     * poller 与 cleanup 独立幂等：任一协程意外退出后再次调用 start() 只重启缺失的那个。
+     * poller 与 cleanup 独立幂等：
      */
     fun start() {
         // [TURBO M1] 任务保活：有活跃任务时拉起前台服务，防止进程被回收导致任务中断。
@@ -209,34 +203,13 @@ class BackgroundTaskManager(
         var earliestDue = Long.MAX_VALUE
         for (task in active) {
             val due = when (task.type) {
-                TaskType.TIMER -> timerDueAt(task)
-                else -> ciDueAt(task)
+                TaskType.TIMER -> timerPoller.dueAt(task)
+                else -> ciPoller.dueAt(task)
             }
             if (due < earliestDue) earliestDue = due
         }
         val diff = earliestDue - now
         return diff.coerceIn(MIN_POLL_INTERVAL_MS, MAX_POLL_INTERVAL_MS)
-    }
-
-    private fun ciDueAt(task: TaskEntity): Long {
-        // rate limit 退避窗口内：睡到窗口结束再 poll，避免每 2s 空转唤醒
-        // （平台类型不能 smart cast，用 ?.let 拿非空值）
-        rateLimitedUntil[task.id]?.let { return it }
-        if (task.status == TaskStatus.PENDING) return 0L // 立即 poll
-        val pollIntervalMs = runCatching {
-            (json.decodeFromString(TaskConfig.serializer(), task.config) as? TaskConfig.CIMonitor)
-                ?.pollIntervalMs ?: DEFAULT_POLL_INTERVAL_MS
-        }.getOrDefault(DEFAULT_POLL_INTERVAL_MS)
-        return task.updatedAt + nextPollDelay(task.pollCount, pollIntervalMs)
-    }
-
-    private fun timerDueAt(task: TaskEntity): Long {
-        val delayMs = runCatching {
-            (json.decodeFromString(TaskConfig.serializer(), task.config) as? TaskConfig.Timer)
-                ?.delayMs ?: 0L
-        }.getOrDefault(0L)
-        // 到期时刻 = 创建时刻 + 延迟；到期后返回过去时间 → 下一轮 poll 立即完成
-        return task.createdAt + delayMs
     }
 
     fun stop() {
@@ -254,156 +227,117 @@ class BackgroundTaskManager(
      */
     suspend fun createCIMonitorTask(
         repo: String,
-        branch: String = "",
-        runId: Long = 0,
-        workflowName: String = "",
-        conversationId: String = "",
-        pollIntervalMs: Long = 30_000,
+        branch: String,
+        runId: Long,
+        workflowName: String,
+        conversationId: String,
+        pollIntervalMs: Long,
         autoAnalyzeOnFailure: Boolean = true,
-        notifyOnSuccess: Boolean = true,
+        notifyOnSuccess: Boolean = false,
         githubToken: String = "",
     ): String {
-        // 去重：如果已有相同 repo+branch+runId 的活跃任务，直接返回其 ID
-        // （workflowName 双方都指定且不同时不算重复——监控不同 workflow 不互相复用）
-        val existingTasks = taskDao.getActiveTasks()
-        val duplicate = existingTasks.firstOrNull { task ->
-            if (task.type != TaskType.CI_MONITOR) return@firstOrNull false
-            try {
-                val cfg = json.decodeFromString(TaskConfig.serializer(), task.config) as? TaskConfig.CIMonitor
-                    ?: return@firstOrNull false
-                val workflowMatches = cfg.workflowName.isBlank() || workflowName.isBlank() ||
-                    cfg.workflowName.equals(workflowName, ignoreCase = true)
-                cfg.repo.equals(repo, ignoreCase = true) &&
-                    cfg.branch.equals(branch, ignoreCase = true) &&
-                    cfg.runId == runId &&
-                    workflowMatches
-            } catch (_: Exception) { false }
-        }
-        if (duplicate != null) {
-            Log.i(TAG, "CI monitor already exists for $repo@$branch, returning ${duplicate.id}")
-            return duplicate.id
-        }
+        val taskId = Uuid.random().toString()
 
         val config = TaskConfig.CIMonitor(
             repo = repo,
             branch = branch,
             runId = runId,
             workflowName = workflowName,
-            // 防御性钳制：即使未来有调用方绕过工具/REST 的校验，也保证最小 10s
-            pollIntervalMs = pollIntervalMs.coerceAtLeast(10_000L),
+            pollIntervalMs = pollIntervalMs,
+            maxPollCount = 120, // 10min @30s
             autoAnalyzeOnFailure = autoAnalyzeOnFailure,
             notifyOnSuccess = notifyOnSuccess,
             githubToken = githubToken,
         )
-        val task = TaskEntity(
-            id = Uuid.random().toString(),
-            type = TaskType.CI_MONITOR,
-            status = TaskStatus.PENDING,
-            config = json.encodeToString(TaskConfig.serializer(), config),
-            result = "",
-            conversationId = conversationId,
-            createdAt = System.currentTimeMillis(),
-            updatedAt = System.currentTimeMillis(),
+        taskDao.insert(
+            TaskEntity(
+                id = taskId,
+                type = TaskType.CI_MONITOR,
+                status = TaskStatus.PENDING,
+                config = json.encodeToString(TaskConfig.serializer(), config),
+                result = "",
+                conversationId = conversationId,
+                createdAt = System.currentTimeMillis(),
+                updatedAt = System.currentTimeMillis(),
+            )
         )
-        taskDao.insert(task)
-        refreshState()
-        pollerWake.trySend(Unit) // 立即唤醒 poller，不等下一个睡眠周期
-        Log.i(TAG, "Created CI monitor task: ${task.id} for $repo")
-        return task.id
+        pollerWake.trySend(Unit)
+        return taskId
     }
 
     /**
      * 创建定时任务。
+     * 返回任务 ID。
      */
     suspend fun createTimerTask(
-        delayMs: Long,
         message: String,
+        delayMs: Long,
         conversationId: String = "",
-        repeatIntervalMs: Long = 0,
-        repeatCount: Int = 0,
         autoAi: Boolean = false,
         steps: List<String> = emptyList(),
+        repeatIntervalMs: Long = 0L,
+        repeatCount: Int = 0,
     ): String {
+        val taskId = Uuid.random().toString()
+
         val config = TaskConfig.Timer(
-            delayMs = delayMs,
             message = message,
-            repeatIntervalMs = repeatIntervalMs,
-            repeatCount = repeatCount,
+            delayMs = delayMs,
             autoAi = autoAi,
             steps = steps,
+            repeatIntervalMs = repeatIntervalMs,
+            repeatCount = repeatCount,
         )
-        val task = TaskEntity(
-            id = Uuid.random().toString(),
-            type = TaskType.TIMER,
-            status = TaskStatus.PENDING,
-            config = json.encodeToString(TaskConfig.serializer(), config),
-            result = "",
-            conversationId = conversationId,
-            createdAt = System.currentTimeMillis(),
-            updatedAt = System.currentTimeMillis(),
+        taskDao.insert(
+            TaskEntity(
+                id = taskId,
+                type = TaskType.TIMER,
+                status = TaskStatus.PENDING,
+                config = json.encodeToString(TaskConfig.serializer(), config),
+                result = "",
+                conversationId = conversationId,
+                createdAt = System.currentTimeMillis(),
+                updatedAt = System.currentTimeMillis(),
+            )
         )
-        taskDao.insert(task)
-        refreshState()
         pollerWake.trySend(Unit)
-        return task.id
+        return taskId
     }
 
     /**
-     * 取消任务。
-     */
-    /**
-     * 取消任务。返回是否成功取消（任务存在且处于活跃状态）。
-     * [FIX] 不再覆盖终态：取消已完成/已失败的任务返回 false 且不动其状态。
+     * 取消任务（PENDING/RUNNING → CANCELLED）。
      */
     suspend fun cancelTask(taskId: String): Boolean {
-        val updated = taskDao.cancelIfActive(taskId)
-        if (updated == 0) return false
-        consecutiveFailures.remove(taskId)
-        consecutiveNotFound.remove(taskId)
-        rateLimitedUntil.remove(taskId)
-        refreshState()
-        pollerWake.trySend(Unit)
-        return true
+        val updated = taskDao.cancelIfActive(taskId, System.currentTimeMillis())
+        if (updated > 0) {
+            ciPoller.clearState(taskId)
+            timerPoller.clearState(taskId)
+            pollerWake.trySend(Unit)
+            return true
+        }
+        return false
     }
 
-    /**
-     * 取消所有活跃任务。
-     */
     suspend fun cancelAll() {
-        taskDao.cancelAllActive()
-        refreshState()
+        taskDao.cancelAllActive(System.currentTimeMillis())
         pollerWake.trySend(Unit)
     }
 
-    /**
-     * 删除任务记录（任意状态）。用于清理已完成/失败的历史任务。
-     * 返回是否删除成功。
-     */
     suspend fun deleteTask(taskId: String): Boolean {
-        val task = taskDao.getById(taskId) ?: return false
-        taskDao.delete(task)
-        consecutiveFailures.remove(taskId)
-        consecutiveNotFound.remove(taskId)
-        rateLimitedUntil.remove(taskId)
-        refreshState()
-        pollerWake.trySend(Unit)
-        return true
+        val deleted = taskDao.deleteById(taskId)
+        if (deleted) {
+            ciPoller.clearState(taskId)
+            timerPoller.clearState(taskId)
+            pollerWake.trySend(Unit)
+            return true
+        }
+        return false
     }
 
-    /**
-     * 获取任务详情。
-     */
     suspend fun getTask(taskId: String): TaskEntity? = taskDao.getById(taskId)
 
-    /**
-     * 获取最近任务。
-     */
     suspend fun getRecentTasks(limit: Int = 20): List<TaskEntity> = taskDao.getRecentTasks(limit)
 
-    /**
-     * 查找匹配的活跃 CI 监控任务（repo + branch + runId + workflowName 四维匹配）。
-     * 返回任务与解码后的 config；无匹配返回 null。
-     */
     private suspend fun findMatchingActiveCIMonitor(
         repo: String,
         branch: String,
@@ -455,7 +389,7 @@ class BackgroundTaskManager(
         val success = conclusion == "success"
 
         // [B flaky 自动重试] timed_out 自动 rerun 一次（成功则任务保持活跃，不完成）。
-        if (maybeAutoRetryCITask(matchingTask, matchedConfig, conclusion, fallbackGithubToken)) {
+        if (ciPoller.maybeAutoRetryCITask(matchingTask, matchedConfig, conclusion, fallbackGithubToken)) {
             return true
         }
 
@@ -494,56 +428,6 @@ class BackgroundTaskManager(
     }
 
     /**
-     * [B flaky 自动重试] CI 因超时（GitHub conclusion=timed_out，网络抖动类失败）
-     * 自动 rerun 一次：任务保持活跃继续监控同一 run，不通知不注入。
-     * 已重试过 / 无 token / rerun 失败 → 返回 false，走正常完成流程（AI 分析兜底）。
-     */
-    private suspend fun maybeAutoRetryCITask(
-        task: TaskEntity,
-        config: TaskConfig.CIMonitor,
-        conclusion: String,
-        fallbackToken: String = "",
-    ): Boolean {
-        if (!shouldAutoRetryCI(conclusion, config.autoRetried)) return false
-        // 任务级 token 优先，webhook 路径可回退到全局 token；都没有则无法 rerun
-        val token = config.githubToken.takeIf { it.isNotBlank() }
-            ?: fallbackToken.takeIf { it.isNotBlank() }
-            ?: return false
-
-        val result = withContext(Dispatchers.IO) {
-            gitHubClient.rerunWorkflow(config.repo, config.runId, token)
-        }
-        return result.fold(
-            onSuccess = {
-                // [FIX] GitHub rerun 会生成新 run（新 run_id，run_number 不变），旧 run 保持原
-                // timed_out 结论不变。若继续监控旧 runId，下一轮会读到过期结论、误报失败。
-                // 重置 runId=0 + status=PENDING 让下一轮按分支重新解析最新 run（rerun 的新 run），
-                // 并把旧 runId 记入 skipRunId：新 run 注册前的窗口期内 latest 仍是旧 run，
-                // isStaleRun 会精确跳过它而不是错误完成。
-                taskDao.update(task.copy(
-                    status = TaskStatus.PENDING,
-                    config = json.encodeToString(TaskConfig.serializer(), config.copy(
-                        autoRetried = true,
-                        runId = 0L,
-                        skipRunId = config.runId,
-                    )),
-                    pollCount = 0,
-                    updatedAt = System.currentTimeMillis(),
-                ))
-                consecutiveFailures.remove(task.id)
-                consecutiveNotFound.remove(task.id)
-                pollerWake.trySend(Unit)
-                Log.i(TAG, "CI timed out — auto-rerun #${config.runId} for task ${task.id}")
-                true
-            },
-            onFailure = { e ->
-                Log.w(TAG, "Auto-rerun failed for task ${task.id}: ${e.message}")
-                false
-            },
-        )
-    }
-
-    /**
      * [① CI 启动感知] webhook 收到 workflow_run 的 requested/queued/in_progress 事件时调用。
      * 匹配的活跃任务立即绑定实际 runId（此前 runId=0 只能轮询 not_found 盲等），
      * 状态置 RUNNING，清除 not_found 计数——后续轮询直接查该 run，UI/AI 也能看到 runId。
@@ -566,8 +450,7 @@ class BackgroundTaskManager(
             config = json.encodeToString(TaskConfig.serializer(), newConfig),
             updatedAt = System.currentTimeMillis(),
         ))
-        consecutiveNotFound.remove(task.id)
-        consecutiveFailures.remove(task.id)
+        ciPoller.clearState(task.id)
         refreshState()
         return true
     }
@@ -637,9 +520,7 @@ class BackgroundTaskManager(
                 errorMessage = "",
                 updatedAt = System.currentTimeMillis(),
             ))
-            consecutiveFailures.remove(taskId)
-            consecutiveNotFound.remove(taskId)
-            rateLimitedUntil.remove(taskId)
+            ciPoller.clearState(taskId)
             refreshState()
             pollerWake.trySend(Unit)
             Log.i(TAG, "Rerun triggered for task $taskId (${config.repo} run ${config.runId})")
@@ -681,8 +562,8 @@ class BackgroundTaskManager(
                 async(pollDispatcher) {
                     try {
                         when (task.type) {
-                            TaskType.CI_MONITOR -> pollCITask(task)
-                            TaskType.TIMER -> pollTimerTask(task)
+                            TaskType.CI_MONITOR -> ciPoller.poll(task)
+                            TaskType.TIMER -> timerPoller.poll(task)
                             else -> { /* webhook/custom 暂不轮询 */ }
                         }
                     } catch (e: kotlinx.coroutines.CancellationException) {
@@ -695,256 +576,10 @@ class BackgroundTaskManager(
         }
     }
 
-    private suspend fun pollCITask(task: TaskEntity) {
-        // [OPT] rate limit 退避窗口内直接跳过（不递增 pollCount，不计失败）
-        val backoffUntil = rateLimitedUntil[task.id]
-        if (backoffUntil != null) {
-            if (System.currentTimeMillis() < backoffUntil) return
-            rateLimitedUntil.remove(task.id)
-        }
-
-        val config = try {
-            (json.decodeFromString(TaskConfig.serializer(), task.config) as? TaskConfig.CIMonitor)
-                ?: run {
-                    completeTask(task, success = false, error = "Invalid config type")
-                    return
-                }
-        } catch (e: Exception) {
-            Log.e(TAG, "Invalid CI config for task ${task.id}", e)
-            completeTask(task, success = false, error = "Invalid config")
-            return
-        }
-
-        // 检查是否超过最大轮询次数
-        if (task.pollCount >= config.maxPollCount) {
-            completeTask(task, success = false, error = "Max poll count reached (${config.maxPollCount})")
-            return
-        }
-
-        // 检查是否到了下次轮询时间（带指数退避）
-        val elapsed = System.currentTimeMillis() - task.updatedAt
-        val requiredDelay = nextPollDelay(task.pollCount, config.pollIntervalMs)
-        if (task.status == TaskStatus.RUNNING && elapsed < requiredDelay) {
-            return // 还没到时间
-        }
-
-        // 标记为 running（条件更新：仅 PENDING→RUNNING，防止覆盖 webhook 已完成的状态）
-        if (task.status == TaskStatus.PENDING) {
-            val updated = taskDao.markRunningIfPending(task.id)
-            if (updated == 0) return // 已被 webhook 完成/取消，放弃轮询
-        }
-
-        // 执行轮询
-        val result = withContext(Dispatchers.IO) {
-            gitHubClient.getLatestRun(config)
-        }
-
-        result.fold(
-            onSuccess = { ciResult ->
-                // [FIX] runId=0（监控 latest）时防绑定过期 run：auto-rerun 后的旧 run、
-                // 以及任务创建前就已完成的上一次 push 残留。过期 run 不能采信，
-                // 按 not_found 继续等待真正的目标 run。
-                if (isStaleRun(config, task.createdAt, ciResult)) {
-                    val streak = (consecutiveNotFound.merge(task.id, 1, Int::plus) ?: 1)
-                    if (streak >= CONSECUTIVE_NOT_FOUND_LIMIT) {
-                        consecutiveNotFound.remove(task.id)
-                        completeTask(
-                            task,
-                            success = false,
-                            error = "No new workflow run found for ${config.repo}@" +
-                                "${config.branch.ifBlank { "any" }}" +
-                                " (workflow: ${config.workflowName.ifBlank { "any" }}) after $streak checks"
-                        )
-                    } else {
-                        incrementPollCount(task)
-                    }
-                    return@fold
-                }
-                when (ciResult.status) {
-                    "completed" -> {
-                        consecutiveFailures.remove(task.id)
-                        consecutiveNotFound.remove(task.id)
-                        // [B flaky 自动重试] timed_out 自动 rerun 一次，
-                        // 成功则跳过 completeTask（任务保持活跃继续监控）
-                        val autoRetried = maybeAutoRetryCITask(task, config, ciResult.conclusion)
-                        if (!autoRetried) {
-                            // 获取失败日志
-                            // [FIX] 抓日志失败（token 失效/网络）不能阻止任务完成：
-                            // 异常冒泡会让 completeTask 永远不执行，任务死循环到 maxPollCount。
-                            // 失败时降级为无日志，任务照常完成（result 里 failedJobs 为空）。
-                            val failedJobs = if (ciResult.conclusion == "failure") {
-                                try {
-                                    withContext(Dispatchers.IO) {
-                                        gitHubClient.getFailedJobLogs(config.repo, ciResult.runId, config.githubToken)
-                                    }
-                                } catch (e: Exception) {
-                                    Log.w(TAG, "Failed to fetch job logs for task ${task.id}: ${e.message}")
-                                    emptyList()
-                                }
-                            } else emptyList()
-
-                            val finalResult = ciResult.copy(failedJobs = failedJobs)
-                            val success = ciResult.conclusion == "success"
-                            completeTask(
-                                task,
-                                success = success,
-                                resultJson = json.encodeToString(CITaskResult.serializer(), finalResult),
-                                config = config,
-                            )
-                        }
-                    }
-                    "not_found" -> {
-                        // 还没找到 run，继续等；但连续找不到说明 repo/branch/workflow 可能写错，
-                        // 达到阈值时给出明确错误而不是干等到 maxPollCount
-                        val streak = (consecutiveNotFound.merge(task.id, 1, Int::plus) ?: 1)
-                        if (streak >= CONSECUTIVE_NOT_FOUND_LIMIT) {
-                            consecutiveNotFound.remove(task.id)
-                            completeTask(
-                                task,
-                                success = false,
-                                error = "No workflow run found for ${config.repo}@${config.branch.ifBlank { "any" }}" +
-                                    " (workflow: ${config.workflowName.ifBlank { "any" }}) after $streak checks"
-                            )
-                        } else {
-                            incrementPollCount(task)
-                        }
-                    }
-                    else -> {
-                        // queued / in_progress，继续等（正常状态，清除错误计数）
-                        consecutiveFailures.remove(task.id)
-                        consecutiveNotFound.remove(task.id)
-                        incrementPollCount(task)
-                    }
-                }
-            },
-            onFailure = { e ->
-                Log.w(TAG, "CI poll error for task ${task.id}: ${e.message}")
-                // [OPT] rate limit 命中：强制退避 5 分钟，不递增轮询计数
-                if (gitHubClient.isRateLimitError(e)) {
-                    rateLimitedUntil[task.id] = System.currentTimeMillis() + RATE_LIMIT_BACKOFF_MS
-                    Log.w(TAG, "GitHub rate limit hit for task ${task.id}, backing off ${RATE_LIMIT_BACKOFF_MS / 1000}s")
-                    return@fold
-                }
-                // [OPT] 连续失败独立计数：网络抖动重试，但持续失败要尽早暴露
-                val streak = (consecutiveFailures.merge(task.id, 1, Int::plus) ?: 1)
-                if (streak >= CONSECUTIVE_FAILURE_LIMIT) {
-                    consecutiveFailures.remove(task.id)
-                    completeTask(task, success = false, error = "Repeated poll errors ($streak consecutive): ${e.message}")
-                } else {
-                    incrementPollCount(task)
-                }
-            }
-        )
-    }
-
-    private suspend fun pollTimerTask(task: TaskEntity) {
-        // [FIX] 冷却期内的重试：目标对话忙时保持 PENDING 并进入 30s 冷却，
-        // poller 每 2s 唤醒但这里直接放行冷却结束的任务。
-        timerRetryAt[task.id]?.let { retryAt ->
-            if (System.currentTimeMillis() < retryAt) return
-            timerRetryAt.remove(task.id)
-        }
-        val config = try {
-            (json.decodeFromString(TaskConfig.serializer(), task.config) as? TaskConfig.Timer)
-                ?: run {
-                    completeTask(task, success = false, error = "Invalid timer config type")
-                    return
-                }
-        } catch (e: Exception) {
-            completeTask(task, success = false, error = "Invalid timer config")
-            return
-        }
-        // [⑨ M2] 工作流步骤：配置了 steps 用 steps（多步），否则 message 单步
-        val workflowSteps = if (config.steps.isNotEmpty()) config.steps else listOf(config.message)
-
-        val elapsed = System.currentTimeMillis() - task.createdAt
-        if (elapsed >= config.delayMs) {
-            // [FIX] 注入防丢失：定时 AI 动作的目标对话正在生成时（长回复/深挖轮次），
-            // 原实现 completeTask 后 TaskNotificationManager 的 awaitGenerationIdle(2min)
-            // 超时即跳过注入 → 触发永久丢失。改为延迟重试：
-            // 保持 PENDING + 30s 冷却，poller 重试触发，最多 10 次（约 5 分钟）。
-            if (config.autoAi && task.conversationId.isNotBlank() &&
-                runCatching { chatService.isGenerating(Uuid.parse(task.conversationId)) }.getOrDefault(false)
-            ) {
-                val retries = timerInjectionRetries.merge(task.id, 1, Int::plus) ?: 1
-                if (retries >= MAX_TIMER_INJECTION_RETRIES) {
-                    timerInjectionRetries.remove(task.id)
-                    completeTask(
-                        task,
-                        success = true,
-                        resultJson = kotlinx.serialization.json.buildJsonObject {
-                            put(
-                                "message",
-                                kotlinx.serialization.json.JsonPrimitive(
-                                    "Timer fired but the target conversation stayed busy >5min; injection skipped."
-                                )
-                            )
-                        }.toString(),
-                        aiAction = config.autoAi,
-                        steps = workflowSteps,
-                    )
-                    Log.w(TAG, "Timer ${task.id}: gave up injection after $retries retries (conversation busy)")
-                    return
-                }
-                timerRetryAt[task.id] = System.currentTimeMillis() + TIMER_INJECTION_RETRY_DELAY_MS
-                Log.i(TAG, "Timer ${task.id}: target conversation busy, retry $retries/$MAX_TIMER_INJECTION_RETRIES in ${TIMER_INJECTION_RETRY_DELAY_MS / 1000}s")
-                return
-            }
-            timerInjectionRetries.remove(task.id)
-            timerRetryAt.remove(task.id)
-            // 到期：完成本次触发
-            completeTask(
-                task,
-                success = true,
-                resultJson = kotlinx.serialization.json.buildJsonObject {
-                    put("message", kotlinx.serialization.json.JsonPrimitive(config.message))
-                }.toString(),
-                // [⑨] 定时 AI 动作：event.aiAction 透传，消费端据此触发 AI 生成；
-                // steps 工作流序列随事件传递（消费端按序注入执行）
-                aiAction = config.autoAi,
-                steps = workflowSteps,
-            )
-
-            // [⑥ 重复定时器] 安排下一次触发：
-            // - repeatIntervalMs > 0 且（无限 或 还有剩余次数）
-            // - 新任务的 delayMs = repeatIntervalMs（后续间隔），repeatCount 递减
-            // - 新任务继承 conversationId/message/autoAi/repeatIntervalMs
-            val hasNext = config.repeatIntervalMs > 0 &&
-                (config.repeatCount == 0 || config.repeatCount > 1)
-            if (hasNext) {
-                val nextCount = if (config.repeatCount > 0) config.repeatCount - 1 else 0
-                taskDao.insert(TaskEntity(
-                    id = Uuid.random().toString(),
-                    type = TaskType.TIMER,
-                    status = TaskStatus.PENDING,
-                    config = json.encodeToString(TaskConfig.serializer(), config.copy(
-                        delayMs = config.repeatIntervalMs,
-                        repeatCount = nextCount,
-                    )),
-                    result = "",
-                    conversationId = task.conversationId,
-                    createdAt = System.currentTimeMillis(),
-                    updatedAt = System.currentTimeMillis(),
-                ))
-                pollerWake.trySend(Unit)
-                Log.i(TAG, "Repeating timer scheduled next fire (remaining=$nextCount)")
-            }
-        } else if (task.status == TaskStatus.PENDING) {
-            taskDao.markRunningIfPending(task.id)
-        }
-    }
-
     private suspend fun incrementPollCount(task: TaskEntity) {
         // 条件更新：任务若已被 webhook 完成/取消则不动（防终态被覆盖回 running）
         taskDao.incrementPollCountIfActive(task.id, System.currentTimeMillis())
     }
-
-    /**
-     * 计算带指数退避的下次轮询间隔。
-     * 前 5 次用配置的 pollIntervalMs，之后逐步增加（最大 5 分钟）。
-     */
-    private fun nextPollDelay(pollCount: Int, baseIntervalMs: Long): Long =
-        computeNextPollDelay(pollCount, baseIntervalMs)
 
     private suspend fun completeTask(
         task: TaskEntity,
@@ -972,9 +607,8 @@ class BackgroundTaskManager(
             completedAt = now,
         ))
         // 清理软状态，防止 Map 泄漏
-        consecutiveFailures.remove(task.id)
-        consecutiveNotFound.remove(task.id)
-        rateLimitedUntil.remove(task.id)
+        ciPoller.clearState(task.id)
+        timerPoller.clearState(task.id)
         refreshState()
 
         // 发出事件（任务级配置优先，缺省时消费端回退到全局设置）
