@@ -570,3 +570,34 @@
 - 内容：大文件拆分专项（33 文件）+ CI 修复链
 - turbo Release ID 369063434（07:34 UTC，3 个 APK）✅
 - pro：构建中 → 待 tag 发布
+
+### 极致优化专项（2026-08-12 15:5x）—— 死代码清理 + 大函数拆分
+**提交**（4 commit，-1200+ 行）：
+- dfd819cd: 死代码第一轮（FilesManager/SkillManager/Assistant/Favorite，-100 行）
+- 53660595: 死代码第二轮（utils/service/sync/UI，-663 行，删 3 文件）
+- 873282d8: ChatDrawerContent 577→220 行（拆 8 域 Composable，ChatDrawerSections.kt）
+- 48baaffe: SettingTasksPage 551→160 行（拆 TaskSettings/CIMonitor/Timer 对话框，SettingTasksSections.kt）
+
+**删除清单**（grep 全仓库零引用验证）：
+- ChatboxImporter.importConversations + sessionObjects（eb1f491b 流式改造遗留）
+- FilesManager: saveManagedFromUri/saveManagedText/saveUploadFromUri/saveUploadText/listImageFiles
+- SkillManager: readSkillBody/readSkillContent
+- Assistant.getTriggeredInjections / Favorite.fromValue / WorkspaceEntity.toWorkspace
+- ConversationSession.withRef/withRefSuspend（无调用者）
+- S3Client: getObject/getObjectStream/headObject/objectExists/getPublicUrl + S3ObjectMetadata
+- S3Config.bucketUrl / WebDavClient: get/getStream/head/mkcol
+- WorkspaceDetailVM: 终端 3 方法 + WorkspaceTerminalState/Entry（终端由 WorkspaceTerminalSession 驱动）
+- PermissionState: requestPermission/getPermissionResults
+- WebView: 包装 clearHistory() + WebContent.Url.clearHistory 参数
+- CustomThemeButton.kt（整个文件）/ Lifecycle.kt（整个文件）/ CollectionUtils.kt（整个文件）
+- utils: checkDifferent/getComponentActivity/unescapeHtml/codeToEmoji/getAllEmojiVariants/getImageInfo
+- hooks: useDebounce / rememberAppLifecycleState / SharedPreferences.writeBooleanPreference
+- 孤儿 import 84 个（ChatDrawer 47 + SettingTasksPage 37）
+
+**保留观察**：SearchServiceOptionsConfigs.kt 715 行（17 个独立小组件集合文件）；
+@Preview 函数（IDE 辅助）；图谱 dead-code 误报多（CALLS 边缺失 + 旧节点残留），
+清理死代码以 grep 交叉验证为准。
+
+**教训**：workspace_edit_file 的 old_text 锚点必须唯一（Assistant.kt 两处
+data class Assistant 差点匹配错位）；弹窗提取时 if 条件要保留在调用处；
+状态机括号检查（/tmp/bracecheck.py）比正则剥离可靠（模板字符串/KDoc 花括号误报）。
