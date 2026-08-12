@@ -665,3 +665,12 @@ C1 已与 GoogleProvider 既有防御对齐人工验证。
   的 builder 重载易与 (key, JsonObject) 混淆，避免 ③ 局部函数调 emit 必须 suspend
 - 47043c61: 清理 GenerationToolExecutor 孤儿 import（visualTransforms，拆分遗留）
 - 工作模式命令已写入底层（SKILL.md 阶段五第 3 条 + 手册 §5 + 本文件 + 记忆）：轮询期间持续优化
+
+### v1.9.14-turbo 发布成功（2026-08-12 13:28 UTC，Release ID 369260348）
+**3 APK**：arm64 37.0MB / universal 46.6MB / x86_64 37.6MB。分支 CI 全绿（197 测试）。
+**含**：C1 SSE 静默失败兜底 + P1 流式每帧 O(N)→O(1) + P2 翻译 O(n²) 缓解 + B1 自动监控查重
++ M2 单列查询 + M3 补测 + TransformerContext 可空化 + WebDAV/S3 备份一致性 + Google listModels 防御。
+**发布流程验证**：tag v1.9.14-turbo push → release.yml（tags v*-turbo）自动触发 → 复用分支
+Build APK 成功 run 的 artifact → softprops 发布 → API 验证 3 assets。全自动零手工。
+**设备中断对话根因**：旧 APK 的 TaskNotificationManager 注入 sendMessage 无条件 cancel 生成
+Job（otb）→ 更新 v1.9.14 后解决（awaitGenerationIdle 保护）。
