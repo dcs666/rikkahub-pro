@@ -43,6 +43,9 @@ object Logging {
     private val recentLogs = arrayListOf<LogEntry>()
     @Volatile
     private var requestLoggingEnabled = false
+    // [实时刷新] 日志变更监听器：LogPage 等 UI 订阅，新增日志时即时通知
+    // （common 模块无 coroutines 依赖，用监听器而非 Flow；CopyOnWriteArrayList 读多写少）
+    private val listeners = java.util.concurrent.CopyOnWriteArrayList<() -> Unit>()
 
     fun log(tag: String, message: String) {
         addLog(LogEntry.TextLog(tag = tag, message = message))
@@ -59,6 +62,14 @@ object Logging {
         requestLoggingEnabled = enabled
     }
 
+    fun addLogListener(listener: () -> Unit) {
+        listeners.add(listener)
+    }
+
+    fun removeLogListener(listener: () -> Unit) {
+        listeners.remove(listener)
+    }
+
     private fun addLog(entry: LogEntry) {
         synchronized(recentLogs) {
             recentLogs.add(0, entry)
@@ -66,6 +77,8 @@ object Logging {
                 recentLogs.removeLastOrNull()
             }
         }
+        // 通知监听器（在锁外执行，避免 UI 回调阻塞日志写入）
+        listeners.forEach { it() }
     }
 
     fun getRecentLogs(): List<LogEntry> {

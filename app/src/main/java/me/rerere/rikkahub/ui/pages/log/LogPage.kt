@@ -27,6 +27,7 @@ import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Switch
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,6 +58,13 @@ fun LogPage() {
     var logs by remember { mutableStateOf(Logging.getRecentLogs()) }
     var requestLoggingEnabled by remember { mutableStateOf(Logging.isRequestLoggingEnabled()) }
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+
+    // [实时刷新] 订阅日志变更：进入页面即时反映新日志（原一次性快照需退出重进）
+    DisposableEffect(Unit) {
+        val listener = { logs = Logging.getRecentLogs() }
+        Logging.addLogListener(listener)
+        onDispose { Logging.removeLogListener(listener) }
+    }
 
     Scaffold(
         topBar = {
