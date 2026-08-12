@@ -48,7 +48,7 @@ import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.task.BackgroundTaskManager
 import me.rerere.rikkahub.ui.components.ui.CardGroup
-import me.rerere.rikkahub.ui.context.ToasterState
+import com.dokar.sonner.ToasterState
 
 /** 任务设置卡片区（Token / Auto-watch / Webhook / 开关 / 轮询档位）。拆自 SettingTasksPage（Strangler Fig）。 */
 @Composable
