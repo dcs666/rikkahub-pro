@@ -40,7 +40,7 @@ class ResponseAPIOpenCodeTest {
         providerSetting: ProviderSetting.OpenAI,
         params: TextGenerationParams,
     ): JsonObject {
-        return api.buildRequestBody(providerSetting, listOf(UIMessage.user("hi")), params, stream = false)
+        return buildRequestBody(providerSetting, listOf(UIMessage.user("hi")), params, stream = false)
     }
 
     private fun reasoningParams(reasoningLevel: ReasoningLevel): TextGenerationParams {
@@ -101,7 +101,7 @@ class ResponseAPIOpenCodeTest {
                 UIMessagePart.Text("answer")
             )
         )
-        val items = api.buildMessages(listOf(assistant), useReasoningTextArray = true)
+        val items = buildMessages(listOf(assistant), useReasoningTextArray = true)
         val reasoningItem = items.jsonArray.first { it.jsonObject["type"]?.jsonPrimitive?.content == "reasoning" }
         assertNull(reasoningItem.jsonObject["summary"])
         val content = reasoningItem.jsonObject["content"]?.jsonArray
@@ -130,7 +130,7 @@ class ResponseAPIOpenCodeTest {
         msgs.add(UIMessage.user("final"))
         // 触发 overflow：超大 user 消息（450K 字符 ≈ 112.5K tokens ≥ 108K）
         msgs.add(UIMessage.user("x".repeat(500_000)))
-        val items = api.buildMessages(msgs, useReasoningTextArray = true)
+        val items = buildMessages(msgs, useReasoningTextArray = true)
         val reasoningItems = items.jsonArray.filter { it.jsonObject["type"]?.jsonPrimitive?.content == "reasoning" }
         assertEquals(5, reasoningItems.size)
         // 最早 1 轮（thinking trace 0）→ 占位符
@@ -161,7 +161,7 @@ class ResponseAPIOpenCodeTest {
             )
         }
         msgs.add(UIMessage.user("final"))
-        val items = api.buildMessages(msgs, useReasoningTextArray = true)
+        val items = buildMessages(msgs, useReasoningTextArray = true)
         val reasoningItems = items.jsonArray.filter { it.jsonObject["type"]?.jsonPrimitive?.content == "reasoning" }
         assertEquals(5, reasoningItems.size)
         // 第 1 轮（最旧）：占位
@@ -190,7 +190,7 @@ class ResponseAPIOpenCodeTest {
                 )
             )
         }
-        val items = api.buildMessages(msgs, useReasoningTextArray = true)
+        val items = buildMessages(msgs, useReasoningTextArray = true)
         val reasoningItems = items.jsonArray.filter { it.jsonObject["type"]?.jsonPrimitive?.content == "reasoning" }
         assertEquals(4, reasoningItems.size)
         for (i in 0 until 4) {
@@ -222,7 +222,7 @@ class ResponseAPIOpenCodeTest {
                 )
             )
         }
-        val items = api.buildMessages(msgs)
+        val items = buildMessages(msgs)
         val fcos = items.jsonArray.filter { it.jsonObject["type"]?.jsonPrimitive?.content == "function_call_output" }
         assertEquals(5, fcos.size)
         // 第 1、2 轮：累计估算超 40K → prune 清空（优先级高于截断）
@@ -255,7 +255,7 @@ class ResponseAPIOpenCodeTest {
                 )
             )
         )
-        val items2 = api.buildMessages(msgs2)
+        val items2 = buildMessages(msgs2)
         val fco2 = items2.jsonArray.first { it.jsonObject["type"]?.jsonPrimitive?.content == "function_call_output" }
         assertEquals("hi", fco2.jsonObject["output"]?.jsonPrimitive?.content)
     }
@@ -283,7 +283,7 @@ class ResponseAPIOpenCodeTest {
                 )
             )
         }
-        val items = api.buildMessages(msgs)
+        val items = buildMessages(msgs)
         val fcos = items.jsonArray.filter { it.jsonObject["type"]?.jsonPrimitive?.content == "function_call_output" }
         assertEquals(4, fcos.size)
         // 轮1、轮2：累计估算超 40K，清理量 100K tokens > 20K → 清空
@@ -320,7 +320,7 @@ class ResponseAPIOpenCodeTest {
                 )
             )
         }
-        val items = api.buildMessages(msgs)
+        val items = buildMessages(msgs)
         val fcos = items.jsonArray.filter { it.jsonObject["type"]?.jsonPrimitive?.content == "function_call_output" }
         assertEquals(3, fcos.size)
         // 无 overflow（总 45K tokens < 108K）→ 全部完整
@@ -350,7 +350,7 @@ class ResponseAPIOpenCodeTest {
                 )
             )
         }
-        val items = api.buildMessages(msgs)
+        val items = buildMessages(msgs)
         val fcos = items.jsonArray.filter { it.jsonObject["type"]?.jsonPrimitive?.content == "function_call_output" }
         assertEquals(5, fcos.size)
         for (i in 0 until 5) {
@@ -380,7 +380,7 @@ class ResponseAPIOpenCodeTest {
             )
             msgs.add(UIMessage.user("continue $i"))
         }
-        val items = api.buildMessages(msgs)
+        val items = buildMessages(msgs)
         val fcos = items.jsonArray.filter { it.jsonObject["type"]?.jsonPrimitive?.content == "function_call_output" }
         assertEquals(2, fcos.size)
         for (i in 0 until 2) {
@@ -421,7 +421,7 @@ class ResponseAPIOpenCodeTest {
             )
         }
         msgs.add(UIMessage.user("explain your approach"))
-        val items = api.buildMessages(msgs, useReasoningTextArray = true)
+        val items = buildMessages(msgs, useReasoningTextArray = true)
         val reasoningItems = items.jsonArray.filter { it.jsonObject["type"]?.jsonPrimitive?.content == "reasoning" }
         // 应只有 1 个 reasoning（思考轮次），且内容完整
         assertEquals(1, reasoningItems.size)
@@ -446,7 +446,7 @@ class ResponseAPIOpenCodeTest {
             )
         }
         msgs.add(UIMessage.user("x".repeat(500_000)))  // 触发 overflow
-        val items = api.buildMessages(msgs, usePlainReasoningContent = true)
+        val items = buildMessages(msgs, usePlainReasoningContent = true)
         val reasoningItems = items.jsonArray.filter { it.jsonObject["type"]?.jsonPrimitive?.content == "reasoning" }
         assertEquals(5, reasoningItems.size)
         assertEquals("…", reasoningItems[0].jsonObject["content"]?.jsonPrimitive?.content)
@@ -475,7 +475,7 @@ class ResponseAPIOpenCodeTest {
             )
         }
         msgs.add(UIMessage.user("x".repeat(500_000)))  // 触发 overflow
-        val items = api.buildMessages(msgs)
+        val items = buildMessages(msgs)
         val reasoningItems = items.jsonArray.filter { it.jsonObject["type"]?.jsonPrimitive?.content == "reasoning" }
         assertEquals(5, reasoningItems.size)
         // 最早一轮：占位 + 无 encrypted_content
@@ -504,7 +504,7 @@ class ResponseAPIOpenCodeTest {
                 )
             )
         )
-        val items = api.buildMessages(listOf(assistant))
+        val items = buildMessages(listOf(assistant))
         val fco = items.jsonArray.first { it.jsonObject["type"]?.jsonPrimitive?.content == "function_call_output" }
         val output = fco.jsonObject["output"]?.jsonPrimitive?.content
         assertEquals(2500, output?.length)
@@ -521,7 +521,7 @@ class ResponseAPIOpenCodeTest {
                 UIMessagePart.Text("answer")
             )
         )
-        val body = api.buildRequestBody(
+        val body = buildRequestBody(
             openCodeSetting(),
             listOf(UIMessage.user("next"), assistant),
             reasoningParams(ReasoningLevel.HIGH),
@@ -553,7 +553,7 @@ class ResponseAPIOpenCodeTest {
                 )
             )
         )
-        val body = api.buildRequestBody(
+        val body = buildRequestBody(
             openCodeSetting(),
             listOf(UIMessage.user("1+1=?"), assistant),
             reasoningParams(ReasoningLevel.XHIGH),
@@ -586,7 +586,7 @@ class ResponseAPIOpenCodeTest {
                 )
             )
         )
-        val body = api.buildRequestBody(
+        val body = buildRequestBody(
             openCodeSetting(),
             listOf(UIMessage.user("1+1=?"), assistant),
             reasoningParams(ReasoningLevel.HIGH),
@@ -623,7 +623,7 @@ class ResponseAPIOpenCodeTest {
                 ),
             )
         )
-        val body = api.buildRequestBody(
+        val body = buildRequestBody(
             openCodeSetting(),
             listOf(UIMessage.user("你好"), assistant),
             reasoningParams(ReasoningLevel.XHIGH),

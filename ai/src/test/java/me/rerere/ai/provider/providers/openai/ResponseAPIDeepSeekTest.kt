@@ -46,7 +46,7 @@ class ResponseAPIDeepSeekTest {
         providerSetting: ProviderSetting.OpenAI,
         params: TextGenerationParams,
     ): JsonObject {
-        return api.buildRequestBody(providerSetting, listOf(UIMessage.user("hi")), params, stream = false)
+        return buildRequestBody(providerSetting, listOf(UIMessage.user("hi")), params, stream = false)
     }
 
     private fun reasoningParams(reasoningLevel: ReasoningLevel): TextGenerationParams {
@@ -146,7 +146,7 @@ class ResponseAPIDeepSeekTest {
                 UIMessagePart.Text("answer")
             )
         )
-        val items = api.buildMessages(listOf(assistant), usePlainReasoningContent = true)
+        val items = buildMessages(listOf(assistant), usePlainReasoningContent = true)
         val reasoningItem = items.jsonArray.first { it.jsonObject["type"]?.jsonPrimitive?.content == "reasoning" }
         assertEquals("thinking trace", reasoningItem.jsonObject["content"]?.jsonPrimitive?.content)
         assertNull(reasoningItem.jsonObject["summary"])
@@ -161,7 +161,7 @@ class ResponseAPIDeepSeekTest {
                 UIMessagePart.Text("answer")
             )
         )
-        val items = api.buildMessages(listOf(assistant))
+        val items = buildMessages(listOf(assistant))
         val reasoningItem = items.jsonArray.first { it.jsonObject["type"]?.jsonPrimitive?.content == "reasoning" }
         assertNull(reasoningItem.jsonObject["content"])
         val summary = reasoningItem.jsonObject["summary"]?.jsonArray

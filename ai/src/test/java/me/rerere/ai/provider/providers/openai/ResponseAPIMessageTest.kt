@@ -43,7 +43,7 @@ class ResponseAPIMessageTest {
 
     // Helper to invoke buildMessages method
     private fun invokeBuildMessages(messages: List<UIMessage>): JsonArray {
-        return api.buildMessages(messages)
+        return buildMessages(messages)
     }
 
     private fun invokeBuildRequestBody(
@@ -51,7 +51,7 @@ class ResponseAPIMessageTest {
         params: TextGenerationParams,
         stream: Boolean = false
     ): JsonObject {
-        return api.buildRequestBody(providerSetting, listOf(UIMessage.user("hello")), params, stream)
+        return buildRequestBody(providerSetting, listOf(UIMessage.user("hello")), params, stream)
     }
 
     private fun createReasoningParams(reasoningLevel: ReasoningLevel = ReasoningLevel.OFF): TextGenerationParams {
