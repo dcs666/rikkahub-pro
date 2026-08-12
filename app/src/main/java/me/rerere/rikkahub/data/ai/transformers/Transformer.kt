@@ -9,7 +9,7 @@ import me.rerere.rikkahub.data.model.Assistant
 import kotlin.uuid.Uuid
 
 class TransformerContext(
-    val context: Context,
+    val context: Context?,
     val model: Model,
     val assistant: Assistant,
     val settings: Settings,
@@ -63,7 +63,7 @@ interface OutputMessageTransformer : MessageTransformer {
 
 suspend fun List<UIMessage>.transforms(
     transformers: List<MessageTransformer>,
-    context: Context,
+    context: Context?,
     model: Model,
     assistant: Assistant,
     settings: Settings,
@@ -89,7 +89,7 @@ suspend fun List<UIMessage>.transforms(
 
 suspend fun List<UIMessage>.visualTransforms(
     transformers: List<MessageTransformer>,
-    context: Context,
+    context: Context?,
     model: Model,
     assistant: Assistant,
     settings: Settings,
@@ -106,7 +106,7 @@ suspend fun List<UIMessage>.visualTransforms(
 
 suspend fun List<UIMessage>.onGenerationFinish(
     transformers: List<MessageTransformer>,
-    context: Context,
+    context: Context?,
     model: Model,
     assistant: Assistant,
     settings: Settings,

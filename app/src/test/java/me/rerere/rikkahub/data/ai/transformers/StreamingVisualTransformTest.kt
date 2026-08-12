@@ -1,6 +1,5 @@
 package me.rerere.rikkahub.data.ai.transformers
 
-import android.content.Context
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.provider.Model
 import me.rerere.ai.ui.UIMessage
@@ -27,9 +26,9 @@ class StreamingVisualTransformTest {
 
     private fun ctx(assistant: Assistant = Assistant()): TransformerContext {
         // visualTransform 实现不使用 context 字段（ThinkTag 只看消息，Regex 只看 assistant），
-        // JVM 单测中传 null 即可；若未来用到 context 此处会 NPE 暴露。
+        // JVM 单测无 Android 环境，传 null（context 参数已可空化）。
         return TransformerContext(
-            context = null as Context,
+            context = null,
             model = Model(),
             assistant = assistant,
             settings = Settings(),
@@ -54,7 +53,7 @@ class StreamingVisualTransformTest {
         val last = messages.lastOrNull() ?: return messages
         return messages.dropLast(1) + listOf(last).visualTransforms(
             transformers = transformers,
-            context = null as Context,
+            context = null,
             model = Model(),
             assistant = Assistant(),
             settings = Settings(),
@@ -68,7 +67,7 @@ class StreamingVisualTransformTest {
     ): List<UIMessage> {
         return messages.visualTransforms(
             transformers = transformers,
-            context = null as Context,
+            context = null,
             model = Model(),
             assistant = Assistant(),
             settings = Settings(),

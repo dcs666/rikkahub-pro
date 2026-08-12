@@ -23,7 +23,7 @@ import java.util.Locale
 import java.util.TimeZone
 
 data class PlaceholderCtx(
-    val context: Context,
+    val context: Context?,
     val settingsStore: SettingsStore,
     val model: Model,
     val assistant: Assistant,
@@ -87,7 +87,7 @@ object DefaultPlaceholderProvider : PlaceholderProvider {
         }
 
         placeholder("battery_level", { Text(stringResource(R.string.placeholder_battery_level)) }) {
-            it.context.batteryLevel().toString()
+            it.context?.batteryLevel()?.toString() ?: "unknown"
         }
 
         placeholder("nickname", { Text(stringResource(R.string.placeholder_nickname)) }) {
