@@ -646,3 +646,9 @@ data class Assistant 差点匹配错位）；弹窗提取时 if 条件要保留�
 C1 已与 GoogleProvider 既有防御对齐人工验证。
 **测试技巧**：visualTransform 不读 context → `null as Context` 传参 JVM 单测可用
 （ThinkTag 只看消息、Regex 只看 assistant）；TransformerContext 全字段默认构造可行。
+
+### 工作模式命令（2026-08-12 19:2x，用户明确"写入底层"）
+**"不要闲着，在轮询 CI 过程中持续深度优化代码"**——已写入三层：
+① 记忆（memory_tool id=1）② /skills/code-optimization/SKILL.md 阶段五 ③ 本文件。
+流程：push 后建 CI monitor → 等待期间继续深读/优化其他代码 → 一轮 CI 结束看结果
+→ 仍在跑就继续优化 → 失败立即修复重推再继续优化。默认工作模式，自动遵守。
