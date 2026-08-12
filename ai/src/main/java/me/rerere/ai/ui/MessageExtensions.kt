@@ -444,5 +444,3 @@ fun <T> List<T>.migrateToolNodes(
 
     return result
 }
-
-@Serializable

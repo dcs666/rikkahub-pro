@@ -207,6 +207,7 @@ data class UIMessage(
     }
 }
 
+@Serializable
 data class MessageChunk(
     val id: String,
     val model: String,
