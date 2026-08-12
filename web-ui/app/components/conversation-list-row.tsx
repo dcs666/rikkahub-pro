@@ -25,7 +25,6 @@ import type {
 } from "~/types";
 
 export interface ConversationListRowProps {
-interface ConversationListRowProps {
   conversation: ConversationListDto;
   isActive: boolean;
   assistants: AssistantProfile[];
