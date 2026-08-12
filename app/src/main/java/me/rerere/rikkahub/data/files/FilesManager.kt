@@ -41,28 +41,6 @@ class FilesManager(
         private const val MAX_IMAGE_DIMENSION = 4096
     }
 
-    suspend fun saveManagedFromUri(
-        folder: String,
-        uri: Uri,
-        displayName: String? = null,
-        mimeType: String? = null,
-    ): ManagedFileEntity = withContext(Dispatchers.IO) {
-        val resolvedName = displayName ?: getFileNameFromUri(uri) ?: "file"
-        val resolvedMime = mimeType ?: getFileMimeType(uri) ?: "application/octet-stream"
-        val target = createTargetFile(folder, resolvedName, resolvedMime)
-        context.contentResolver.openInputStream(uri)?.use { input ->
-            target.outputStream().use { output ->
-                input.copyTo(output, 64 * 1024)
-            }
-        }
-        createManagedFileEntity(
-            folder = folder,
-            file = target,
-            displayName = resolvedName,
-            mimeType = resolvedMime,
-        )
-    }
-
     suspend fun saveManagedFromBytes(
         folder: String,
         bytes: ByteArray,
@@ -71,22 +49,6 @@ class FilesManager(
     ): ManagedFileEntity = withContext(Dispatchers.IO) {
         val target = createTargetFile(folder, displayName, mimeType)
         target.writeBytes(bytes)
-        createManagedFileEntity(
-            folder = folder,
-            file = target,
-            displayName = displayName,
-            mimeType = mimeType,
-        )
-    }
-
-    suspend fun saveManagedText(
-        folder: String,
-        text: String,
-        displayName: String = "pasted_text.txt",
-        mimeType: String = "text/plain",
-    ): ManagedFileEntity = withContext(Dispatchers.IO) {
-        val target = createTargetFile(folder, displayName, mimeType)
-        target.writeText(text)
         createManagedFileEntity(
             folder = folder,
             file = target,
@@ -326,14 +288,6 @@ class FilesManager(
         return file
     }
 
-    fun listImageFiles(): List<File> {
-        val imagesDir = getImagesDir()
-        return imagesDir.listFiles()
-            ?.filter { it.isFile && it.extension.lowercase() in listOf("png", "jpg", "jpeg", "webp") }
-            ?.toList()
-            ?: emptyList()
-    }
-
     @OptIn(ExperimentalEncodingApi::class)
     suspend fun saveMessageImage(activityContext: Context, image: String) = withContext(Dispatchers.IO) {
         val activity = requireNotNull(activityContext.getActivity()) { "Activity not found" }
@@ -553,17 +507,6 @@ object FileFolders {
     const val TOOL_OUTPUTS = "tool_outputs"
 }
 
-suspend fun FilesManager.saveUploadFromUri(
-    uri: Uri,
-    displayName: String? = null,
-    mimeType: String? = null,
-): ManagedFileEntity = saveManagedFromUri(
-    folder = FileFolders.UPLOAD,
-    uri = uri,
-    displayName = displayName,
-    mimeType = mimeType,
-)
-
 suspend fun FilesManager.saveUploadFromBytes(
     bytes: ByteArray,
     displayName: String,
@@ -571,17 +514,6 @@ suspend fun FilesManager.saveUploadFromBytes(
 ): ManagedFileEntity = saveManagedFromBytes(
     folder = FileFolders.UPLOAD,
     bytes = bytes,
-    displayName = displayName,
-    mimeType = mimeType,
-)
-
-suspend fun FilesManager.saveUploadText(
-    text: String,
-    displayName: String = "pasted_text.txt",
-    mimeType: String = "text/plain",
-): ManagedFileEntity = saveManagedText(
-    folder = FileFolders.UPLOAD,
-    text = text,
     displayName = displayName,
     mimeType = mimeType,
 )

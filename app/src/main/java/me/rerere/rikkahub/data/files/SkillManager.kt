@@ -78,18 +78,6 @@ class SkillManager(
         skillsCache = null
     }
 
-    fun readSkillBody(skillName: String): String? {
-        val skillFile = resolveSkillDir(skillName)?.resolve("SKILL.md") ?: return null
-        if (!skillFile.exists()) return null
-        return SkillFrontmatterParser.extractBody(skillFile.readText())
-    }
-
-    fun readSkillContent(skillName: String): String? {
-        val skillFile = resolveSkillDir(skillName)?.resolve("SKILL.md") ?: return null
-        if (!skillFile.exists()) return null
-        return skillFile.readText()
-    }
-
     fun saveSkill(name: String, content: String): SkillMetadata? {
         // 通过原子写入(staging + rename)落盘，避免直接 mkdirs 失败时
         // writeText 抛出 FileNotFoundException 导致崩溃
