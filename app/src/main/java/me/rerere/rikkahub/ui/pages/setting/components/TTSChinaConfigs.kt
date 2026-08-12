@@ -1,5 +1,4 @@
 package me.rerere.rikkahub.ui.pages.setting.components
-
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -14,9 +13,7 @@ import me.rerere.rikkahub.ui.components.ui.FormItem
 import me.rerere.rikkahub.ui.components.ui.OutlinedNumberInput
 import me.rerere.rikkahub.ui.components.ui.SelectTextField
 import me.rerere.tts.provider.TTSProviderSetting
-
 // [拆分] 国产系 TTS provider 配置（拆自 TTSProviderConfigure.kt，Strangler Fig）
-
 @Composable
 internal fun QwenTTSConfiguration(
     setting: TTSProviderSetting.Qwen,
@@ -36,7 +33,6 @@ internal fun QwenTTSConfiguration(
             placeholder = { Text("sk-xxx") },
         )
     }
-
     // Base URL
     FormItem(
         label = { Text(stringResource(R.string.setting_tts_page_base_url)) },
@@ -51,7 +47,6 @@ internal fun QwenTTSConfiguration(
             placeholder = { Text(stringResource(R.string.setting_tts_page_base_url_placeholder)) }
         )
     }
-
     // Model
     FormItem(
         label = { Text(stringResource(R.string.setting_tts_page_model)) },
@@ -66,7 +61,6 @@ internal fun QwenTTSConfiguration(
             placeholder = { Text("qwen3-tts-flash") }
         )
     }
-
     // Voice
     val voices = listOf(
         "Cherry", "Serene", "Ethan", "Chelsie",
@@ -76,7 +70,6 @@ internal fun QwenTTSConfiguration(
         "Mochi", "Bellona", "Vincent", "Bunny",
         "Neil", "Elias", "Arthur", "Nini"
     )
-
     FormItem(
         label = { Text(stringResource(R.string.setting_tts_page_voice)) },
         description = { Text(stringResource(R.string.setting_tts_page_voice_description)) }
@@ -93,10 +86,8 @@ internal fun QwenTTSConfiguration(
             modifier = Modifier.fillMaxWidth()
         )
     }
-
     // Language Type
     val languageTypes = listOf("Auto", "Chinese", "English", "Japanese", "Korean")
-
     FormItem(
         label = { Text("Language Type") },
         description = { Text("Language type for TTS synthesis") }
@@ -114,7 +105,6 @@ internal fun QwenTTSConfiguration(
         )
     }
 }
-
 @Composable
 internal fun MiMoTTSConfiguration(
     setting: TTSProviderSetting.MiMo,
@@ -135,7 +125,6 @@ internal fun MiMoTTSConfiguration(
             placeholder = { Text("mimo-xxx") },
         )
     }
-
     // Base URL
     FormItem(
         label = { Text(stringResource(R.string.setting_tts_page_base_url)) },
@@ -150,7 +139,6 @@ internal fun MiMoTTSConfiguration(
             placeholder = { Text("https://api.xiaomimimo.com/v1") }
         )
     }
-
     // Model
     FormItem(
         label = { Text(stringResource(R.string.setting_tts_page_model)) },
@@ -165,7 +153,6 @@ internal fun MiMoTTSConfiguration(
             placeholder = { Text("mimo-v2-tts") }
         )
     }
-
     // Voice
     FormItem(
         label = { Text(stringResource(R.string.setting_tts_page_voice)) },
@@ -181,7 +168,6 @@ internal fun MiMoTTSConfiguration(
         )
     }
 }
-
 @Composable
 internal fun MiniMaxTTSConfiguration(
     setting: TTSProviderSetting.MiniMax,
@@ -200,7 +186,6 @@ internal fun MiniMaxTTSConfiguration(
             modifier = Modifier.fillMaxWidth(),
         )
     }
-
     // Base URL
     FormItem(
         label = { Text(stringResource(R.string.setting_tts_page_base_url)) },
@@ -215,7 +200,6 @@ internal fun MiniMaxTTSConfiguration(
             placeholder = { Text(stringResource(R.string.setting_tts_page_base_url_placeholder)) }
         )
     }
-
     // Model
     FormItem(
         label = { Text(stringResource(R.string.setting_tts_page_model)) },
@@ -230,7 +214,6 @@ internal fun MiniMaxTTSConfiguration(
             placeholder = { Text("speech-2.5-hd-preview") }
         )
     }
-
     // Voice ID
     val voiceIds = listOf(
         "male-qn-qingse",
@@ -245,7 +228,6 @@ internal fun MiniMaxTTSConfiguration(
         "audiobook_female_1",
         "cartoon_pig"
     )
-
     FormItem(
         label = { Text(stringResource(R.string.setting_tts_page_voice_id)) },
         description = { Text(stringResource(R.string.setting_tts_page_voice_id_description)) }
@@ -262,7 +244,6 @@ internal fun MiniMaxTTSConfiguration(
             modifier = Modifier.fillMaxWidth()
         )
     }
-
     // Speed
     FormItem(
         label = { Text(stringResource(R.string.setting_tts_page_speed)) },
@@ -280,7 +261,6 @@ internal fun MiniMaxTTSConfiguration(
         )
     }
 }
-
 @Composable
 internal fun FishAudioTTSConfiguration(
     setting: TTSProviderSetting.FishAudio,
@@ -300,7 +280,6 @@ internal fun FishAudioTTSConfiguration(
             placeholder = { Text("https://fish.audio/app/api-keys") },
         )
     }
-
     // Base URL
     FormItem(
         label = { Text(stringResource(R.string.setting_tts_page_base_url)) },
@@ -315,7 +294,6 @@ internal fun FishAudioTTSConfiguration(
             placeholder = { Text("https://api.fish.audio") }
         )
     }
-
     // Model (下拉选择框 + 文本输入框，完全同 ElevenLabs 格式)
     val models = listOf(
         "s2.1-pro" to "S2.1-Pro (推荐)",
@@ -323,7 +301,6 @@ internal fun FishAudioTTSConfiguration(
         "s2-pro" to "S2-Pro",
         "s1" to "S1"
     )
-
     FormItem(
         label = { Text(stringResource(R.string.setting_tts_page_model)) },
         description = { Text(stringResource(R.string.setting_tts_page_model_description)) }
@@ -341,7 +318,6 @@ internal fun FishAudioTTSConfiguration(
             modifier = Modifier.fillMaxWidth()
         )
     }
-
     // Voice ID (reference_id)
     FormItem(
         label = { Text(stringResource(R.string.setting_tts_page_voice_id)) },
@@ -356,7 +332,6 @@ internal fun FishAudioTTSConfiguration(
             placeholder = { Text("802e3bc2b27e49c2995d23ef70e6ac89") }
         )
     }
-
     // Temperature
     FormItem(
         label = { Text(stringResource(R.string.setting_tts_page_temperature)) },
@@ -371,7 +346,6 @@ internal fun FishAudioTTSConfiguration(
             label = "0.7",
         )
     }
-
     // Speed
     FormItem(
         label = { Text(stringResource(R.string.setting_tts_page_speed)) },
@@ -387,5 +361,3 @@ internal fun FishAudioTTSConfiguration(
         )
     }
 }
-
-@Composable

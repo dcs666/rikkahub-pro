@@ -347,5 +347,3 @@ internal fun OllamaOptions(
         )
     }
 }
-
-@Composable
