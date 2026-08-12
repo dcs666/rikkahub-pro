@@ -652,3 +652,16 @@ C1 已与 GoogleProvider 既有防御对齐人工验证。
 ① 记忆（memory_tool id=1）② /skills/code-optimization/SKILL.md 阶段五 ③ 本文件。
 流程：push 后建 CI monitor → 等待期间继续深读/优化其他代码 → 一轮 CI 结束看结果
 → 仍在跑就继续优化 → 失败立即修复重推再继续优化。默认工作模式，自动遵守。
+
+### 深度审查专项 CI 修复链（2026-08-12 19:1x-19:3x）
+- run 398（edcde08a 前）: compileDebugKotlin 失败——P2 的 flushTranslationText 局部函数
+  未声明 suspend（内部调 emit）→ edcde08a 修复（1 行）
+- run 400（ChatboxImporterTest 首版）: compileDebugUnitTestKotlin 失败——putJsonObject(key,
+  JsonObject)/putJsonArray/JsonArrayBuilder.put 重载不存在 → 3274416a 改 JsonObject(buildMap)+成员 put
+- run 401: buildMap 的 receiver 是 MutableMap<String, JsonElement>，put("modelId", String)
+  需 JsonPrimitive 包装 → aa7547db 修复
+- 经验沉淀：① 测试里构造 JsonObject 用 JsonObject(buildMap{}) + put(key, JsonElement) 最稳；
+  buildJsonObject 的 String put 有重载（JsonObjectBuilder）但 buildMap 没有 ② putJsonArray/putJsonObject
+  的 builder 重载易与 (key, JsonObject) 混淆，避免 ③ 局部函数调 emit 必须 suspend
+- 47043c61: 清理 GenerationToolExecutor 孤儿 import（visualTransforms，拆分遗留）
+- 工作模式命令已写入底层（SKILL.md 阶段五第 3 条 + 手册 §5 + 本文件 + 记忆）：轮询期间持续优化
