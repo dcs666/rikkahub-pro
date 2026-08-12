@@ -4,11 +4,7 @@ import type { ComponentProps, CSSProperties, HTMLAttributes } from "react";
 import { Check, Copy, Download } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
-  bundledLanguages,
-  createHighlighter,
   type BundledLanguage,
-  type BundledTheme,
-  type HighlighterGeneric,
   type ThemedToken,
 } from "shiki";
 
