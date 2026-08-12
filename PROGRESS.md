@@ -501,3 +501,53 @@
 - 判定：[COMPLETE] 代码同步、CI 全绿（2b718e08 双绿 + Release success）、v1.9.2 已发布
 - 待用户验证：v1.9.2 装后 rd5 全场景（全量发送路径，预期回到 v1.8.9 稳定行为）
 - 已记录取舍：思维链瘦身优化（截断历史 reasoning）用户明确不做
+
+---
+
+### 大文件拆分专项（2026-08-12，Strangler Fig 第 6-38 步，用户要求"拆分剩下所有能够拆分的"）
+
+**目标**：>800 行文件全拆 + 尽可能拆到 <600 行。已拆分 33 个文件（按 commit 序）：
+
+| 文件 | 原行数 | 现行数 | 拆出 |
+|---|---|---|---|
+| ChatService.kt | 1291 | 746 | ChatErrors/ChatSessionManager/ChatToolBuilder/ChatMessageOps |
+| BackgroundTaskManager.kt | 1069 | 703 | CiTaskPoller/TimerTaskPoller |
+| PreferencesStore.kt | 801 | 519 | SettingsModels |
+| GoogleProvider.kt | 820 | 332 | GoogleRequestBodyBuilder/GoogleResponseParser |
+| TTSProviderConfigure.kt | 1203 | 166 | TTSOpenAICompatConfigs/TTSChinaConfigs/TTSOtherConfigs |
+| PromptPage.kt | 1194 | 166 | ModeInjection/Lorebook/RegexInjection |
+| SettingMcpPage.kt | 1106 | 441 | McpCommonOptionsConfigure/McpToolsUI/McpServerDialogs |
+| SettingSearchDetailPage.kt | 995 | 349 | SearchServiceOptionsConfigs |
+| MarkdownNew.kt | 970 | 163 | MarkdownHtmlElements/MarkdownStyleParser |
+| SettingSpeechPage.kt | 964 | 300 | SpeechTTSDomain/SpeechASRDomain |
+| ChatDrawer.kt | 930 | 675 | ChatDrawerSections |
+| WorkspaceDetailPage.kt | 913 | 322 | WorkspaceBasicSection/WorkspaceFilesSection |
+| SettingTasksPage.kt | 889 | 639 | TaskCardUI |
+| ChatList.kt | 865 | 545 | ChatListPreview |
+| ModelList.kt | 838 | 664 | ModelListItems |
+| ChatPage.kt | 833 | 508 | ChatFilesPickerSheet/ChatTopBar |
+| BuiltinToolUIs.kt | 827 | 580 | BuiltinToolUIsScreenTime/BuiltinToolUIsCalendar |
+| Markdown.kt | 801 | 457 | MarkdownNodeRenderer（v1.9.10 后二次拆分 1162→457） |
+| ChatInput.kt | 787 | 417 | ChatInputComponents |
+| ResponseAPI.kt | 783 | 465 | ResponseBodyBuilder（v1.9.10 后二次拆分 1411→465） |
+| GenerationHandler.kt | 776 | 648 | GenerationToolExecutor |
+| Export.kt | 780 | 239 | ExportMarkdown/ExportImage |
+| ImgGenPage.kt | 754 | 235 | ImgGenScreenSection/ImgGenGallerySection |
+| AssistantPromptPage.kt | 754 | 134 | AssistantPromptContent/AssistantRegexCard |
+| RouteActivity.kt | 744 | 591 | ScreenRoutes |
+| SettingThemePage.kt | 725 | 308 | ThemeCustomItems/ThemeColorTools |
+| ChatMessage.kt | 707 | 289 | MessagePartsBlock/CollapsedMessagePreview |
+| SimpleHtmlBlock.kt | 688 | 312 | SimpleHtmlTextBuilder/SimpleHtmlExtras |
+| ClaudeProvider.kt | 647 | 272 | ClaudeRequestBodyBuilder/ClaudeResponseParser |
+| ChatboxImporter.kt | 626 | 597 | ChatboxImportModels |
+| ConversationRepository.kt | 613 | 599 | ConversationRepositoryModels |
+
+**跳过（纯数据/注册表，拆分无价值）**：GoogleSans.kt 883（31 个 FontFamily val）、ModelRegistry.kt 677（模型/系列定义）。
+
+**已修复 CI 问题**：GoogleRequestBodyBuilder 缺 kotlinx.serialization.json.jsonObject import（cb40da39）。
+
+**流程要点**：
+- 提取脚本：先剥字符串（含单引号 Char 字面量）再剥注释，URL 里的 // 是坑；表达式体函数按范围切分
+- Python del 左闭右开易漏删函数结束 }；多次删除从后往前，索引基于删除前文件
+- private → internal 跨文件；@OptIn/@Composable 注解随函数迁移；常量（含 internal）随域搬迁
+- 已回写 SKILL：拆分流程 + 16 坑清单 + 新增提取脚本教训
