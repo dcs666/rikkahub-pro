@@ -66,6 +66,7 @@ import okhttp3.sse.EventSources
 import kotlin.time.Clock
 
 // [拆分] Claude 请求体构建域（拆自 ClaudeProvider.kt，Strangler Fig）
+private const val TAG = "ClaudeRequestBodyBuilder"
 
 internal fun buildMessageRequest(
         providerSetting: ProviderSetting.Claude,

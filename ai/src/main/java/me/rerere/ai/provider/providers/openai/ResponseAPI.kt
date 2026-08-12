@@ -413,7 +413,7 @@ class ResponseAPI(
 
 }
 
-private fun isModelAllowTemperature(model: Model): Boolean {
+internal fun isModelAllowTemperature(model: Model): Boolean {
     return !ModelRegistry.OPENAI_O_MODELS.match(model.modelId) && !ModelRegistry.GPT_5.match(model.modelId)
 }
 
