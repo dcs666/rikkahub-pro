@@ -171,7 +171,7 @@ internal fun parseInlineSpanStyle(
     return spanStyle.takeIf { hasStyle }
 }
 
-private fun parseBlockTextStyle(
+internal fun parseBlockTextStyle(
     style: String,
     density: Density,
     baseTextStyle: TextStyle,

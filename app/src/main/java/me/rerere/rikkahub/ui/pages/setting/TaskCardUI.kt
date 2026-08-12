@@ -309,7 +309,7 @@ internal fun parseRepoList(input: String): List<String> =
     input.split(',', '\n').map { it.trim() }.filter { it.isNotBlank() }.distinct()
 
 /** [⑧] 发送测试请求到完成回调 URL，验证可用性。 */
-private suspend fun testCompletionWebhook(url: String): Boolean = withContext(Dispatchers.IO) {
+internal suspend fun testCompletionWebhook(url: String): Boolean = withContext(Dispatchers.IO) {
     try {
         val payload = """{"event":"test","message":"RikkaHub background-task webhook test","timestamp":${System.currentTimeMillis()}}"""
         val client = okhttp3.OkHttpClient.Builder()

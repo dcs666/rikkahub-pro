@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.onTimeout
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -229,13 +230,13 @@ class BackgroundTaskManager(
      */
     suspend fun createCIMonitorTask(
         repo: String,
-        branch: String,
-        runId: Long,
-        workflowName: String,
-        conversationId: String,
-        pollIntervalMs: Long,
+        branch: String = "",
+        runId: Long = 0,
+        workflowName: String = "",
+        conversationId: String = "",
+        pollIntervalMs: Long = 30_000,
         autoAnalyzeOnFailure: Boolean = true,
-        notifyOnSuccess: Boolean = false,
+        notifyOnSuccess: Boolean = true,
         githubToken: String = "",
     ): String {
         val taskId = Uuid.random().toString()

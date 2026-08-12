@@ -84,7 +84,7 @@ import org.koin.androidx.compose.koinViewModel
 import kotlin.math.roundToInt
 import kotlin.uuid.Uuid
 
-private val themeJson = Json {
+internal val themeJson = Json {
     ignoreUnknownKeys = true
     prettyPrint = true
 }
