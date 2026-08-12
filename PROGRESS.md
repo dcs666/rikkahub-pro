@@ -619,3 +619,30 @@ data class Assistant 差点匹配错位）；弹窗提取时 if 条件要保留�
 - run 392：ChatGenerationCore 误 import model.toText（实为 UIMessage 成员方法）+
   ChatService 重写丢 R import
 - run 394：SettingsTasksSerializationTest 缺 POLL_INTERVAL_OPTIONS import（跨包 internal 需显式 import）
+
+### 深度审查修复专项（2026-08-12 19:0x，用户要求"全部修，不计时间 token"）
+**审查产出**：深度阅读核心链路（生成/流式/网络/存储/任务/UI），分级：
+- 🔴 C1 SSE 静默失败（4 端）→ ✅ 已修
+- 🟠 P1 流式每帧全量视觉转换 O(N) → ✅ 已修
+- 🟠 P2 翻译流式 O(n²) → ✅ 已修
+- 🟡 B1 自动监控重复创建 → ✅ 已修
+- ⚪ M2 togglePinStatus 全量加载 → ✅ 已修
+- ⚪ M3 ChatboxImporter 测试缺口 → ✅ 已补
+**6 commit（27783d2a..110da410）**：
+- a79f1393 fix: SSE onFailure 空 body 静默成功兜底（ChatCompletions/Claude/Response/Google 四端）
+  `close(exception ?: Exception("Stream failed: HTTP code"))`——HTTP 错误时 okhttp-sse 传 t=null、
+  网关空 body → 原 close(null) 正常结束流用户无感知失败
+- 11046df2 perf(streaming): ① onUpdateMessages 每帧 no-op transforms 删除（output transformers
+  均未实现 transform）+ visualTransform 只作用于最后一条（流式期间前面消息引用不变、视觉转换
+  逐条纯函数幂等）→ 长对话每帧 O(N)→O(1)；**关键坑：外层 messages 同步靠 onUpdateMessages
+  每帧回写，必须保留 messages=it（直接删 transforms 会断同步）** ② translateText 流式 O(n²) 缓解
+  （text-only StringBuilder 累积器 ~64ms 快照，fallback 路径语义不变，消费方全量覆盖模式）
+- 88bb939e fix: autoCreateCIMonitorByWebhook 四维查重（requested/queued/in_progress 三事件
+  原会创建 3 个重复任务；注释声称 createCIMonitorTask 去重但实际直接 insert）
+- eb1b40f1 test: StreamingVisualTransformTest（P1 守护：两帧间 last-only==full，ThinkTag/Regex）
+- 799e6c7d perf: togglePinStatus 单列查询 getPinStatus（原全量加载 nodes 只为读 isPinned）
+- 110da410 test: ChatboxImporterTest（importProviders 7 用例：映射/缺省/空 key/混合）
+**豁免**：C1/P2/B1 依赖 okhttp-sse 回调/flow/Room DAO，JVM 单测无 mockk/Robolectric 基建；
+C1 已与 GoogleProvider 既有防御对齐人工验证。
+**测试技巧**：visualTransform 不读 context → `null as Context` 传参 JVM 单测可用
+（ThinkTag 只看消息、Regex 只看 assistant）；TransformerContext 全字段默认构造可行。
