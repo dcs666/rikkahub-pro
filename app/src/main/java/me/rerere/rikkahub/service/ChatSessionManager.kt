@@ -120,6 +120,11 @@ class ChatSessionManager(
         return session.processingStatus
     }
 
+    /** 生成执行需要直接写入 processingStatus（GenerationHandler 更新进度文案）。 */
+    fun getProcessingStatusMutable(conversationId: Uuid): MutableStateFlow<String?> {
+        return getOrCreateSession(conversationId).processingStatus
+    }
+
     fun getConversationJobs(): Flow<Map<Uuid, Job?>> {
         return _sessionsVersion.flatMapLatest {
             val currentSessions = sessions.values.toList()

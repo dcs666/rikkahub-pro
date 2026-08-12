@@ -58,11 +58,11 @@ class TimerTaskPoller(
         val config = try {
             (json.decodeFromString(TaskConfig.serializer(), task.config) as? TaskConfig.Timer)
                 ?: run {
-                    onCompleteTask(task, success = false, error = "Invalid timer config type", resultJson = "", config = null, aiAction = false, steps = emptyList())
+                    onCompleteTask(task, false, "", "Invalid timer config type", null, false, emptyList())
                     return
                 }
         } catch (e: Exception) {
-            onCompleteTask(task, success = false, error = "Invalid timer config", resultJson = "", config = null, aiAction = false, steps = emptyList())
+            onCompleteTask(task, false, "", "Invalid timer config", null, false, emptyList())
             return
         }
         // [⑨ M2] 工作流步骤：配置了 steps 用 steps（多步），否则 message 单步
@@ -82,8 +82,8 @@ class TimerTaskPoller(
                     timerInjectionRetries.remove(task.id)
                     onCompleteTask(
                         task,
-                        success = true,
-                        resultJson = buildJsonObject {
+                        true,
+                        buildJsonObject {
                             put(
                                 "message",
                                 JsonPrimitive(
@@ -91,10 +91,10 @@ class TimerTaskPoller(
                                 )
                             )
                         }.toString(),
-                        error = "",
-                        config = null,
-                        aiAction = config.autoAi,
-                        steps = workflowSteps,
+                        "",
+                        null,
+                        config.autoAi,
+                        workflowSteps,
                     )
                     Log.w(TAG, "Timer ${task.id}: gave up injection after $retries retries (conversation busy)")
                     return
@@ -108,16 +108,16 @@ class TimerTaskPoller(
             // 到期：完成本次触发
             onCompleteTask(
                 task,
-                success = true,
-                resultJson = buildJsonObject {
+                true,
+                buildJsonObject {
                     put("message", JsonPrimitive(config.message))
                 }.toString(),
-                error = "",
-                config = null,
+                "",
+                null,
                 // [⑨] 定时 AI 动作：event.aiAction 透传，消费端据此触发 AI 生成；
                 // steps 工作流序列随事件传递（消费端按序注入执行）
-                aiAction = config.autoAi,
-                steps = workflowSteps,
+                config.autoAi,
+                workflowSteps,
             )
 
             // [⑥ 重复定时器] 安排下一次触发：

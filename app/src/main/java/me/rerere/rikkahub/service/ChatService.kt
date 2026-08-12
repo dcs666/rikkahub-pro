@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import me.rerere.ai.core.MessageRole
-import me.rerere.ai.core.ModelAbility
+import me.rerere.ai.provider.ModelAbility
 import me.rerere.ai.provider.ProviderManager
 import me.rerere.ai.ui.ToolApprovalState
 import me.rerere.ai.ui.UIMessage
@@ -411,7 +411,7 @@ class ChatService(
             generationHandler.generateText(
                 settings = settings,
                 model = model,
-                processingStatus = getProcessingStatusFlow(conversationId),
+                processingStatus = sessionManager.getProcessingStatusMutable(conversationId),
                 messages = conversation.currentMessages.let {
                     if (messageRange != null) {
                         it.subList(messageRange.start, messageRange.endInclusive + 1)

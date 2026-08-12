@@ -11,6 +11,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,6 +25,7 @@ import kotlinx.serialization.json.Json
 import me.rerere.rikkahub.data.event.AppEvent
 import me.rerere.rikkahub.data.event.AppEventBus
 import me.rerere.rikkahub.service.ChatService
+import me.rerere.rikkahub.service.TaskKeepAliveService
 import me.rerere.rikkahub.utils.JsonInstant
 import org.koin.java.KoinJavaComponent.getKoin
 import java.io.IOException
@@ -324,14 +326,12 @@ class BackgroundTaskManager(
     }
 
     suspend fun deleteTask(taskId: String): Boolean {
-        val deleted = taskDao.deleteById(taskId)
-        if (deleted) {
-            ciPoller.clearState(taskId)
-            timerPoller.clearState(taskId)
-            pollerWake.trySend(Unit)
-            return true
-        }
-        return false
+        val task = taskDao.getById(taskId) ?: return false
+        taskDao.delete(task)
+        ciPoller.clearState(taskId)
+        timerPoller.clearState(taskId)
+        pollerWake.trySend(Unit)
+        return true
     }
 
     suspend fun getTask(taskId: String): TaskEntity? = taskDao.getById(taskId)

@@ -62,18 +62,18 @@ class CiTaskPoller(
         val config = try {
             (json.decodeFromString(TaskConfig.serializer(), task.config) as? TaskConfig.CIMonitor)
                 ?: run {
-                    onCompleteTask(task, success = false, error = "Invalid config type", resultJson = "", config = null, aiAction = false, steps = emptyList())
+                    onCompleteTask(task, false, "", "Invalid config type", null, false, emptyList())
                     return
                 }
         } catch (e: Exception) {
             Log.e(TAG, "Invalid CI config for task ${task.id}", e)
-            onCompleteTask(task, success = false, error = "Invalid config", resultJson = "", config = null, aiAction = false, steps = emptyList())
+            onCompleteTask(task, false, "", "Invalid config", null, false, emptyList())
             return
         }
 
         // 检查是否超过最大轮询次数
         if (task.pollCount >= config.maxPollCount) {
-            onCompleteTask(task, success = false, error = "Max poll count reached (${config.maxPollCount})", resultJson = "", config = config, aiAction = false, steps = emptyList())
+            onCompleteTask(task, false, "", "Max poll count reached (${config.maxPollCount})", config, false, emptyList())
             return
         }
 
@@ -104,17 +104,9 @@ class CiTaskPoller(
                     val streak = (consecutiveNotFound.merge(task.id, 1, Int::plus) ?: 1)
                     if (streak >= CONSECUTIVE_NOT_FOUND_LIMIT) {
                         consecutiveNotFound.remove(task.id)
-                        onCompleteTask(
-                            task,
-                            success = false,
-                            resultJson = "",
-                            error = "No new workflow run found for ${config.repo}@" +
+                        onCompleteTask(task, false, "", "No new workflow run found for ${config.repo}@" +
                                 "${config.branch.ifBlank { "any" }}" +
-                                " (workflow: ${config.workflowName.ifBlank { "any" }}) after $streak checks",
-                            config = config,
-                            aiAction = false,
-                            steps = emptyList(),
-                        )
+                                " (workflow: ${config.workflowName.ifBlank { "any" }}) after $streak checks", config, false, emptyList())
                     } else {
                         onIncrementPollCount(task)
                     }
@@ -147,12 +139,12 @@ class CiTaskPoller(
                             val success = ciResult.conclusion == "success"
                             onCompleteTask(
                                 task,
-                                success = success,
-                                resultJson = json.encodeToString(CITaskResult.serializer(), finalResult),
-                                error = "",
-                                config = config,
-                                aiAction = false,
-                                steps = emptyList(),
+                                success,
+                                json.encodeToString(CITaskResult.serializer(), finalResult),
+                                "",
+                                config,
+                                false,
+                                emptyList(),
                             )
                         }
                     }
@@ -162,16 +154,8 @@ class CiTaskPoller(
                         val streak = (consecutiveNotFound.merge(task.id, 1, Int::plus) ?: 1)
                         if (streak >= CONSECUTIVE_NOT_FOUND_LIMIT) {
                             consecutiveNotFound.remove(task.id)
-                            onCompleteTask(
-                                task,
-                                success = false,
-                                resultJson = "",
-                                error = "No workflow run found for ${config.repo}@${config.branch.ifBlank { "any" }}" +
-                                    " (workflow: ${config.workflowName.ifBlank { "any" }}) after $streak checks",
-                                config = config,
-                                aiAction = false,
-                                steps = emptyList(),
-                            )
+                            onCompleteTask(task, false, "", "No workflow run found for ${config.repo}@${config.branch.ifBlank { "any" }}" +
+                                    " (workflow: ${config.workflowName.ifBlank { "any" }}) after $streak checks", config, false, emptyList())
                         } else {
                             onIncrementPollCount(task)
                         }
@@ -196,7 +180,7 @@ class CiTaskPoller(
                 val streak = (consecutiveFailures.merge(task.id, 1, Int::plus) ?: 1)
                 if (streak >= CONSECUTIVE_FAILURE_LIMIT) {
                     consecutiveFailures.remove(task.id)
-                    onCompleteTask(task, success = false, resultJson = "", error = "Repeated poll errors ($streak consecutive): ${e.message}", config = config, aiAction = false, steps = emptyList())
+                    onCompleteTask(task, false, "", "Repeated poll errors ($streak consecutive): ${e.message}", config, false, emptyList())
                 } else {
                     onIncrementPollCount(task)
                 }
