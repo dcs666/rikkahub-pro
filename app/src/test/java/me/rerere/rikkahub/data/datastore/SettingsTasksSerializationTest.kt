@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.data.datastore
 
 import kotlinx.serialization.json.Json
+import me.rerere.rikkahub.ui.pages.setting.POLL_INTERVAL_OPTIONS
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
