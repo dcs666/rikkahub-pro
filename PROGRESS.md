@@ -674,3 +674,18 @@ C1 已与 GoogleProvider 既有防御对齐人工验证。
 Build APK 成功 run 的 artifact → softprops 发布 → API 验证 3 assets。全自动零手工。
 **设备中断对话根因**：旧 APK 的 TaskNotificationManager 注入 sendMessage 无条件 cancel 生成
 Job（otb）→ 更新 v1.9.14 后解决（awaitGenerationIdle 保护）。
+
+### 拆分专项（2026-08-12 14:0x，用户"1 2 3 都做了"）
+- ① GenerationHandler 拆分（a68d6e5c）：translateText 移出至新 TranslationHandler（712→579+169），
+  构造注入 providerManager，门面转发调用方零改动；清理 7 个仅翻译用 import + 常量随迁
+- ② web-ui conversations.tsx 拆分（45bfa595）：11 纯函数+编辑类型/常量 → lib/conversation-editing.ts
+  （1228→1002）；**坑：python 原样复制丢失 export 前缀 → run 407 rollup not exported → 838e6f0c 补 export**；
+  顺带删 EMPTY_* 死常量
+- ③ web-ui chat-input.tsx 拆分（822cb80f）：4 纯函数 → lib/chat-input-parts.ts（815→747，手写带 export 无坑）
+- ④ **ScreenRoutes.kt 删除事故（063302ab→6f5255bb revert）**：grep 文件名零引用误判死文件，
+  但文件内 Screen sealed interface（49 成员）被 RouteActivity 导航 + ErrorCard 引用。
+  **教训：删文件前必须检查文件内每个顶层类型名的引用（文件名≠类型名）；Kotlin 文件名无需匹配类型名**
+- ⑤ ErrorParser when 穷尽 else 清理（e0041d8d）：JsonElement sealed 穷尽，else 仅兜底 JsonNull →
+  显式 JsonNull 分支（编译 warning 消除）
+- 保留：conversation-sidebar.tsx 1044（巨型 JSX 组件）、RouteActivity 590（Activity 内聚）、
+  BuiltinToolUIs 579（组件集合）——提取子组件需重构 props 传递，收益/风险不成比例
