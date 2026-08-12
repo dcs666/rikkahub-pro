@@ -544,7 +544,15 @@
 
 **跳过（纯数据/注册表，拆分无价值）**：GoogleSans.kt 883（31 个 FontFamily val）、ModelRegistry.kt 677（模型/系列定义）。
 
-**已修复 CI 问题**：GoogleRequestBodyBuilder 缺 kotlinx.serialization.json.jsonObject import（cb40da39）。
+**已修复 CI 问题（run 357-375 失败链）**：
+- cb40da39: GoogleRequestBodyBuilder 缺 jsonObject import
+- 2b1fcdbd: ModelAbility import 路径 / processingStatus 需 MutableStateFlow /
+  DEFAULT_TTS_PROVIDERS internal / TaskKeepAliveService+isActive import /
+  deleteTask 用 getById+delete / onCompleteTask 命名参数改位置（9 处）
+- 63391cba: ResponseAPI import 区损坏（'import import X' 残行拼接，11 处）/
+  MessageExtensions CONTEXT_KEEP_RATIO 重复声明
+- df65aab4: Message.kt 悬空 KDoc 未闭合（切掉 */ → MessageChunk 被吞进注释，
+  全模块 151 个 Unresolved 级联）
 
 **流程要点**：
 - 提取脚本：先剥字符串（含单引号 Char 字面量）再剥注释，URL 里的 // 是坑；表达式体函数按范围切分
