@@ -13,7 +13,7 @@ export interface TokenizedCode {
   tokens: ThemedToken[][];
 }
 
-function toDownloadFileName(language: string): string {
+export function toDownloadFileName(language: string): string {
   const normalized = language.trim().toLowerCase();
   if (!normalized) {
     return DEFAULT_DOWNLOAD_FILE_NAME;
@@ -43,7 +43,7 @@ const resolvedHighlighters = new Map<
 const tokensCache = new Map<string, TokenizedCode>();
 const subscribers = new Map<string, Set<(result: TokenizedCode) => void>>();
 
-function resolveShikiLanguage(language: string): BundledLanguage | null {
+export function resolveShikiLanguage(language: string): BundledLanguage | null {
   const normalized = language.trim().toLowerCase();
   if (!normalized) {
     return null;
@@ -56,11 +56,11 @@ function resolveShikiLanguage(language: string): BundledLanguage | null {
   return normalized as BundledLanguage;
 }
 
-function getTokensCacheKey(code: string, language: BundledLanguage): string {
+export function getTokensCacheKey(code: string, language: BundledLanguage): string {
   return `${language}\u0000${code}`;
 }
 
-function readTokensFromCache(cacheKey: string): TokenizedCode | null {
+export function readTokensFromCache(cacheKey: string): TokenizedCode | null {
   const cached = tokensCache.get(cacheKey);
   if (!cached) {
     return null;
@@ -71,7 +71,7 @@ function readTokensFromCache(cacheKey: string): TokenizedCode | null {
   return cached;
 }
 
-function writeTokensToCache(cacheKey: string, tokenized: TokenizedCode): void {
+export function writeTokensToCache(cacheKey: string, tokenized: TokenizedCode): void {
   if (tokensCache.size >= SHIKI_CACHE_LIMIT) {
     const oldest = tokensCache.keys().next().value;
     if (typeof oldest === "string") {
@@ -82,7 +82,7 @@ function writeTokensToCache(cacheKey: string, tokenized: TokenizedCode): void {
   tokensCache.set(cacheKey, tokenized);
 }
 
-function getHighlighter(
+export function getHighlighter(
   language: BundledLanguage,
 ): Promise<HighlighterGeneric<BundledLanguage, BundledTheme>> {
   const cached = highlighterCache.get(language);
@@ -98,7 +98,7 @@ function getHighlighter(
   return highlighterPromise;
 }
 
-function createRawTokens(code: string): TokenizedCode {
+export function createRawTokens(code: string): TokenizedCode {
   return {
     bg: "transparent",
     fg: "inherit",
@@ -115,7 +115,7 @@ function createRawTokens(code: string): TokenizedCode {
   };
 }
 
-function addKeysToTokens(lines: ThemedToken[][]): KeyedLine[] {
+export function addKeysToTokens(lines: ThemedToken[][]): KeyedLine[] {
   return lines.map((line, lineIndex) => ({
     key: `line-${lineIndex}`,
     tokens: line.map((token, tokenIndex) => ({
@@ -125,15 +125,15 @@ function addKeysToTokens(lines: ThemedToken[][]): KeyedLine[] {
   }));
 }
 
-function isItalic(fontStyle: number | undefined): boolean {
+export function isItalic(fontStyle: number | undefined): boolean {
   return ITALIC_STYLES.has(fontStyle ?? 0);
 }
 
-function isBold(fontStyle: number | undefined): boolean {
+export function isBold(fontStyle: number | undefined): boolean {
   return BOLD_STYLES.has(fontStyle ?? 0);
 }
 
-function isUnderline(fontStyle: number | undefined): boolean {
+export function isUnderline(fontStyle: number | undefined): boolean {
   return UNDERLINE_STYLES.has(fontStyle ?? 0);
 }
 
