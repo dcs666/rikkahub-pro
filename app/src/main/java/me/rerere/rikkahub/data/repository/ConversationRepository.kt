@@ -430,9 +430,11 @@ class ConversationRepository(
     }
 
     suspend fun togglePinStatus(conversationId: Uuid) {
+        // [PERF] 单列查询：原实现 getConversationById 全量加载会话+所有消息节点
+        // （decode 全部 parts）只为读 isPinned，大会话下白耗 IO/内存。
         conversationDAO.updatePinStatus(
             id = conversationId.toString(),
-            isPinned = !(getConversationById(conversationId)?.isPinned ?: false)
+            isPinned = !(conversationDAO.getPinStatus(conversationId.toString()) ?: false)
         )
     }
 

@@ -81,6 +81,9 @@ interface ConversationDAO {
     @Query("UPDATE conversationentity SET is_pinned = :isPinned WHERE id = :id")
     suspend fun updatePinStatus(id: String, isPinned: Boolean)
 
+    @Query("SELECT is_pinned FROM conversationentity WHERE id = :id")
+    suspend fun getPinStatus(id: String): Boolean?
+
     @Query("UPDATE conversationentity SET folder_id = :folderId WHERE id = :id")
     suspend fun updateFolderId(id: String, folderId: String)
 
