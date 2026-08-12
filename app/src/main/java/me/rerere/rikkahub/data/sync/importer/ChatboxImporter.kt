@@ -594,33 +594,3 @@ object ChatboxImporter {
     private val JsonElement.asInt: Int?
         get() = (this as? JsonPrimitive)?.contentOrNull?.toIntOrNull()
 }
-
-data class ChatboxImportPayload(
-    val providers: List<ProviderSetting>,
-    val conversations: ChatboxConversationImport,
-)
-
-data class ChatboxConversationImport(
-    val conversations: List<Conversation>,
-    val skippedImageParts: Int,
-    val skippedEmptyMessages: Int,
-)
-
-data class ChatboxStreamingImportResult(
-    val providers: List<ProviderSetting>,
-    val parsedConversations: Int,
-    val skippedImageParts: Int,
-    val skippedEmptyMessages: Int,
-    val hasConversationSystemPrompt: Boolean,
-)
-
-private data class ChatboxSessionParseResult(
-    val conversation: Conversation?,
-    val skippedImageParts: Int,
-    val skippedEmptyMessages: Int,
-)
-
-data class ChatboxPartParseResult(
-    val parts: List<UIMessagePart>,
-    val skippedImageParts: Int,
-)
