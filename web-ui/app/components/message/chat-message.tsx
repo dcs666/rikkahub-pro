@@ -41,6 +41,17 @@ import {
 import { ChatMessageAnnotationsRow } from "./chat-message-annotations";
 import { ChatMessageAvatarRow } from "./chat-message-avatar-row";
 import { MessageParts } from "./message-part";
+import {
+  buildCitationUrlMap,
+  buildCopyText,
+  formatNumber,
+  formatPartForCopy,
+  getDurationMs,
+  getNerdStats,
+  hasEditableContent,
+  hasRenderablePart,
+  parseToolOutputJson,
+} from "~/lib/message-utils";
 
 interface ChatMessageProps {
   node: MessageNodeDto;
@@ -55,176 +66,6 @@ interface ChatMessageProps {
   onDelete?: (messageId: string) => void | Promise<void>;
   onFork?: (messageId: string) => void | Promise<void>;
   onToolApproval?: (toolCallId: string, approved: boolean, reason: string, answer?: string) => void | Promise<void>;
-}
-
-function hasRenderablePart(part: UIMessagePart): boolean {
-  switch (part.type) {
-    case "text":
-      return part.text.trim().length > 0;
-    case "image":
-    case "video":
-    case "audio":
-      return part.url.trim().length > 0;
-    case "document":
-      return part.url.trim().length > 0 || part.fileName.trim().length > 0;
-    case "reasoning":
-      return part.reasoning.trim().length > 0;
-    case "tool":
-      return true;
-  }
-}
-
-function formatPartForCopy(part: UIMessagePart, t: TFunction): string | null {
-  switch (part.type) {
-    case "text":
-      return part.text;
-    case "image":
-      return `[${t("chat_message.copy_image")}] ${part.url}`;
-    case "video":
-      return `[${t("chat_message.copy_video")}] ${part.url}`;
-    case "audio":
-      return `[${t("chat_message.copy_audio")}] ${part.url}`;
-    case "document":
-      return `[${t("chat_message.copy_document")}] ${part.fileName}`;
-    case "reasoning":
-      return part.reasoning;
-    case "tool":
-      return `[${t("chat_message.copy_tool")}] ${part.toolName}`;
-  }
-}
-
-function buildCopyText(parts: UIMessagePart[], t: TFunction): string {
-  return parts
-    .map((part) => formatPartForCopy(part, t))
-    .filter((value): value is string => Boolean(value && value.trim().length > 0))
-    .join("\n\n")
-    .trim();
-}
-
-function hasEditableContent(parts: UIMessagePart[]): boolean {
-  return parts.some(
-    (part) =>
-      part.type === "text" ||
-      part.type === "image" ||
-      part.type === "video" ||
-      part.type === "audio" ||
-      part.type === "document",
-  );
-}
-
-function formatNumber(value: number): string {
-  return new Intl.NumberFormat().format(value);
-}
-
-function getDurationMs(createdAt: string, finishedAt?: string | null): number | null {
-  const start = Date.parse(createdAt);
-  if (Number.isNaN(start)) return null;
-
-  const end = finishedAt ? Date.parse(finishedAt) : Date.now();
-  if (Number.isNaN(end) || end <= start) return null;
-
-  return end - start;
-}
-
-function getNerdStats(
-  usage: TokenUsage,
-  createdAt: string,
-  finishedAt: string | null | undefined,
-  t: TFunction,
-) {
-  const stats: Array<{ key: string; icon: React.ReactNode; label: string }> = [];
-
-  stats.push({
-    key: "prompt",
-    icon: <ArrowUp className="size-3" />,
-    label:
-      usage.cachedTokens > 0
-        ? t("chat_message.prompt_tokens_with_cache", {
-            promptTokens: formatNumber(usage.promptTokens),
-            cachedTokens: formatNumber(usage.cachedTokens),
-          })
-        : t("chat_message.prompt_tokens", {
-            promptTokens: formatNumber(usage.promptTokens),
-          }),
-  });
-
-  stats.push({
-    key: "completion",
-    icon: <ArrowDown className="size-3" />,
-    label: t("chat_message.completion_tokens", {
-      completionTokens: formatNumber(usage.completionTokens),
-    }),
-  });
-
-  const durationMs = getDurationMs(createdAt, finishedAt);
-  if (durationMs && usage.completionTokens > 0) {
-    const durationSeconds = durationMs / 1000;
-    const tps = usage.completionTokens / durationSeconds;
-
-    stats.push({
-      key: "speed",
-      icon: <Zap className="size-3" />,
-      label: t("chat_message.tokens_per_second", {
-        value: tps.toFixed(1),
-      }),
-    });
-
-    stats.push({
-      key: "duration",
-      icon: <Clock3 className="size-3" />,
-      label: t("chat_message.duration_seconds", {
-        value: durationSeconds.toFixed(1),
-      }),
-    });
-  }
-
-  return stats;
-}
-
-function parseToolOutputJson(text: string): unknown {
-  const trimmed = text.trim();
-  if (!trimmed) return null;
-
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    // Some models wrap JSON in fenced blocks.
-    const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
-    if (!fenced) return null;
-    try {
-      return JSON.parse(fenced[1]);
-    } catch {
-      return null;
-    }
-  }
-}
-
-function buildCitationUrlMap(parts: UIMessagePart[]): Map<string, string> {
-  const map = new Map<string, string>();
-
-  parts.forEach((part) => {
-    if (part.type !== "tool" || part.toolName !== "search_web") return;
-    const outputText = part.output
-      .filter((outputPart): outputPart is { type: "text"; text: string } => outputPart.type === "text")
-      .map((outputPart) => outputPart.text)
-      .join("\n");
-    const parsed = parseToolOutputJson(outputText);
-    if (!parsed || typeof parsed !== "object") return;
-    const items = (parsed as { items?: unknown }).items;
-    if (!Array.isArray(items)) return;
-
-    items.forEach((item) => {
-      if (!item || typeof item !== "object") return;
-      const id = String((item as { id?: unknown }).id ?? "").trim();
-      const url = String((item as { url?: unknown }).url ?? "").trim();
-      if (!id || !url) return;
-      if (!map.has(id)) {
-        map.set(id, url);
-      }
-    });
-  });
-
-  return map;
 }
 
 const ChatMessageActionsRow = React.memo(({

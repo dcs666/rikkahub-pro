@@ -689,3 +689,21 @@ Job（otb）→ 更新 v1.9.14 后解决（awaitGenerationIdle 保护）。
   显式 JsonNull 分支（编译 warning 消除）
 - 保留：conversation-sidebar.tsx 1044（巨型 JSX 组件）、RouteActivity 590（Activity 内聚）、
   BuiltinToolUIs 579（组件集合）——提取子组件需重构 props 传递，收益/风险不成比例
+
+### 拆分专项 2（2026-08-12 15:0x，用户"继续拆分吧"）
+**8 个大文件拆分**（b23b2122..70c670b5）：
+- conversation-sidebar.tsx 1044→710（ConversationListRow 独立，b23b2122）
+- ChatDrawerSections.kt 773→242（7 对话框/Sheet → ChatDrawerDialogs.kt，23df9fe4）
+- SearchServiceOptionsConfigs.kt 715→352（8 服务 → SearchExtraServiceOptions.kt，4c87196c）
+- BuiltinToolUIs.kt 579→324（网页/搜索域 → BuiltinToolUIWeb.kt，ad1f056b）
+- SettingProviderDetailPage.kt 570→258（模型列表域 → SettingProviderModelList.kt，4905894a）
+- TTSChinaConfigs.kt 600→392（StepTTS → TTSChinaStepConfig.kt，7ec4b8bd）
+- code-block.tsx 718→501（shiki 纯逻辑 → lib/code-highlight.ts，90c1194c + import 清理 70c670b5）
+**CI 修复链**：
+- run 426：conversation-list-row.tsx **重复 interface 声明**（生成时 header 手写 export interface
+  + 原 block 内声明重复 → esbuild Unexpected {）→ 4367bcab 合并单一声明
+- 教训：python 生成文件的 header 与 block 边界不得重叠（①丢失 export 前缀②重复声明）
+  → 生成后自查：重复声明检测 + 括号平衡 + 主文件残留引用检查
+**保留理由**：ModelList（拖拽状态机）、BackgroundTaskManager（复杂状态）、GoogleSans（嵌套 object 树）、
+RouteActivity（Activity 内聚）、AssistantBasicPage（线性表单）、ConversationRepository（核心数据层）、
+tool-part/extension-picker/chat-input（巨型 JSX 组件，子组件提取需重构 props 传递）
