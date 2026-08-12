@@ -47,7 +47,7 @@ class ChatboxImporterTest {
         capabilities: List<String> = emptyList(),
     ): JsonObject = JsonObject(
         buildMap {
-            put("modelId", modelId)
+            put("modelId", JsonPrimitive(modelId))
             put("capabilities", JsonArray(capabilities.map { JsonPrimitive(it) }))
         }
     )
