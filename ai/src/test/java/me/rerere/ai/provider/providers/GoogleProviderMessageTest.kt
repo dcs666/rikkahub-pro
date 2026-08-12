@@ -32,14 +32,9 @@ class GoogleProviderMessageTest {
         provider = GoogleProvider(OkHttpClient())
     }
 
-    // Helper to invoke private buildContents method via reflection
+    // Helper: buildContents is a top-level function after Strangler Fig split
     private fun invokeBuildContents(messages: List<UIMessage>): JsonArray {
-        val method = GoogleProvider::class.java.getDeclaredMethod(
-            "buildContents",
-            List::class.java
-        )
-        method.isAccessible = true
-        return method.invoke(provider, messages) as JsonArray
+        return buildContents(messages)
     }
 
     @Test
