@@ -2,10 +2,9 @@ package me.rerere.rikkahub.data.sync.importer
 
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
-import kotlinx.serialization.json.putJsonObject
 import me.rerere.ai.provider.ModelAbility
 import me.rerere.ai.provider.Modality
 import me.rerere.ai.provider.ProviderSetting
@@ -27,27 +26,31 @@ class ChatboxImporterTest {
         openai: JsonObject? = null,
         claude: JsonObject? = null,
         gemini: JsonObject? = null,
-    ): JsonObject = buildJsonObject {
-        putJsonObject("providers") {
-            openai?.let { putJsonObject("openai", it) }
-            claude?.let { putJsonObject("claude", it) }
-            gemini?.let { putJsonObject("gemini", it) }
+    ): JsonObject = JsonObject(
+        buildMap {
+            put("providers", JsonObject(buildMap {
+                openai?.let { put("openai", it) }
+                claude?.let { put("claude", it) }
+                gemini?.let { put("gemini", it) }
+            }))
         }
-    }
+    )
 
-    private fun root(settings: JsonObject?): JsonObject = buildJsonObject {
-        settings?.let { putJsonObject("settings", it) }
-    }
+    private fun root(settings: JsonObject?): JsonObject = JsonObject(
+        buildMap {
+            settings?.let { put("settings", it) }
+        }
+    )
 
     private fun modelEntry(
         modelId: String,
         capabilities: List<String> = emptyList(),
-    ): JsonObject = buildJsonObject {
-        put("modelId", modelId)
-        putJsonArray("capabilities") {
-            capabilities.forEach { put(it) }
+    ): JsonObject = JsonObject(
+        buildMap {
+            put("modelId", modelId)
+            put("capabilities", JsonArray(capabilities.map { JsonPrimitive(it) }))
         }
-    }
+    )
 
     // ---- 空/缺省 ----
 
@@ -68,10 +71,15 @@ class ChatboxImporterTest {
                     openai = buildJsonObject {
                         put("apiHost", "https://my-gateway.example.com/")
                         put("apiKey", "sk-123")
-                        putJsonArray("models") {
-                            put(modelEntry("gpt-5", listOf("vision", "tool_use", "reasoning")))
-                            put(modelEntry("gpt-mini"))
-                        }
+                        put(
+                            "models",
+                            JsonArray(
+                                listOf(
+                                    modelEntry("gpt-5", listOf("vision", "tool_use", "reasoning")),
+                                    modelEntry("gpt-mini"),
+                                )
+                            )
+                        )
                     }
                 )
             )
