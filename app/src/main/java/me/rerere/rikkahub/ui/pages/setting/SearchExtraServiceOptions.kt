@@ -64,12 +64,9 @@ import me.rerere.search.SearchServiceOptions
 import org.koin.androidx.compose.koinViewModel
 import kotlin.uuid.Uuid
 
-// [拆分] 各搜索服务 Options 配置组件（拆自 SettingSearchDetailPage.kt，Strangler Fig）
-
-@Composable
-internal fun TavilyOptions(
-    options: SearchServiceOptions.TavilyOptions,
-    onUpdateOptions: (SearchServiceOptions.TavilyOptions) -> Unit
+internal fun PerplexityOptions(
+    options: SearchServiceOptions.PerplexityOptions,
+    onUpdateOptions: (SearchServiceOptions.PerplexityOptions) -> Unit
 ) {
     FormItem(
         label = {
@@ -87,32 +84,113 @@ internal fun TavilyOptions(
 
     FormItem(
         label = {
-            Text(stringResource(R.string.search_detail_depth))
+            Text(stringResource(R.string.search_detail_max_tokens))
         }
     ) {
-        val depthOptions = listOf("basic", "advanced")
-        SingleChoiceSegmentedButtonRow(
+        OutlinedTextField(
+            value = options.maxTokens?.takeIf { it > 0 }?.toString() ?: "",
+            onValueChange = { value ->
+                onUpdateOptions(options.copy(maxTokens = value.toIntOrNull()))
+            },
+            modifier = Modifier.fillMaxWidth(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+        )
+    }
+
+    FormItem(
+        label = {
+            Text(stringResource(R.string.search_detail_max_tokens_per_page))
+        }
+    ) {
+        OutlinedTextField(
+            value = options.maxTokensPerPage?.takeIf { it > 0 }?.toString() ?: "",
+            onValueChange = { value ->
+                onUpdateOptions(options.copy(maxTokensPerPage = value.toIntOrNull()))
+            },
+            modifier = Modifier.fillMaxWidth(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+        )
+    }
+}
+
+@Composable
+internal fun FirecrawlOptions(
+    options: SearchServiceOptions.FirecrawlOptions,
+    onUpdateOptions: (SearchServiceOptions.FirecrawlOptions) -> Unit
+) {
+    FormItem(
+        label = {
+            Text(stringResource(R.string.search_detail_api_key))
+        }
+    ) {
+        OutlinedTextField(
+            value = options.apiKey,
+            onValueChange = {
+                onUpdateOptions(options.copy(apiKey = it))
+            },
             modifier = Modifier.fillMaxWidth()
-        ) {
-            depthOptions.forEachIndexed { index, depth ->
-                SegmentedButton(
-                    shape = SegmentedButtonDefaults.itemShape(index = index, count = depthOptions.size),
-                    onClick = {
-                        onUpdateOptions(options.copy(depth = depth))
-                    },
-                    selected = options.depth == depth
-                ) {
-                    Text(depth.replaceFirstChar { it.uppercase() })
-                }
+        )
+    }
+}
+
+@Composable
+internal fun JinaOptions(
+    options: SearchServiceOptions.JinaOptions,
+    onUpdateOptions: (SearchServiceOptions.JinaOptions) -> Unit
+) {
+    FormItem(
+        label = {
+            Text(stringResource(R.string.search_detail_api_key))
+        }
+    ) {
+        OutlinedTextField(
+            value = options.apiKey,
+            onValueChange = {
+                onUpdateOptions(options.copy(apiKey = it))
+            },
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+
+    FormItem(
+        label = {
+            Text(stringResource(R.string.search_detail_search_url))
+        }
+    ) {
+        OutlinedTextField(
+            value = options.searchUrl,
+            onValueChange = {
+                onUpdateOptions(options.copy(searchUrl = it.trim()))
+            },
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = {
+                Text("https://s.jina.ai/")
             }
+        )
+    }
+
+    FormItem(
+        label = {
+            Text(stringResource(R.string.search_detail_scrape_url))
         }
+    ) {
+        OutlinedTextField(
+            value = options.scrapeUrl,
+            onValueChange = {
+                onUpdateOptions(options.copy(scrapeUrl = it.trim()))
+            },
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = {
+                Text("https://r.jina.ai/")
+            }
+        )
     }
 }
 
 @Composable
-internal fun ExaOptions(
-    options: SearchServiceOptions.ExaOptions,
-    onUpdateOptions: (SearchServiceOptions.ExaOptions) -> Unit
+internal fun BochaOptions(
+    options: SearchServiceOptions.BochaOptions,
+    onUpdateOptions: (SearchServiceOptions.BochaOptions) -> Unit
 ) {
     FormItem(
         label = {
@@ -127,108 +205,29 @@ internal fun ExaOptions(
             modifier = Modifier.fillMaxWidth()
         )
     }
+
+    FormItem(
+        label = {
+            Text(stringResource(R.string.search_detail_summary))
+        },
+        description = {
+            Text(stringResource(R.string.search_detail_summary_desc))
+        },
+        tail = {
+            Switch(
+                checked = options.summary,
+                onCheckedChange = { checked ->
+                    onUpdateOptions(options.copy(summary = checked))
+                }
+            )
+        }
+    )
 }
 
 @Composable
-internal fun ZhipuOptions(
-    options: SearchServiceOptions.ZhipuOptions,
-    onUpdateOptions: (SearchServiceOptions.ZhipuOptions) -> Unit
-) {
-    FormItem(
-        label = {
-            Text(stringResource(R.string.search_detail_api_key))
-        }
-    ) {
-        OutlinedTextField(
-            value = options.apiKey,
-            onValueChange = {
-                onUpdateOptions(options.copy(apiKey = it))
-            },
-            modifier = Modifier.fillMaxWidth()
-        )
-    }
-}
-
-@Composable
-internal fun SearXNGOptions(
-    options: SearchServiceOptions.SearXNGOptions,
-    onUpdateOptions: (SearchServiceOptions.SearXNGOptions) -> Unit
-) {
-    FormItem(
-        label = {
-            Text(stringResource(R.string.search_detail_api_url))
-        }
-    ) {
-        OutlinedTextField(
-            value = options.url,
-            onValueChange = {
-                onUpdateOptions(options.copy(url = it))
-            },
-            modifier = Modifier.fillMaxWidth()
-        )
-    }
-
-    FormItem(
-        label = {
-            Text(stringResource(R.string.search_detail_engines))
-        }
-    ) {
-        OutlinedTextField(
-            value = options.engines,
-            onValueChange = {
-                onUpdateOptions(options.copy(engines = it))
-            },
-            modifier = Modifier.fillMaxWidth()
-        )
-    }
-
-    FormItem(
-        label = {
-            Text(stringResource(R.string.search_detail_language))
-        }
-    ) {
-        OutlinedTextField(
-            value = options.language,
-            onValueChange = {
-                onUpdateOptions(options.copy(language = it))
-            },
-            modifier = Modifier.fillMaxWidth()
-        )
-    }
-
-    FormItem(
-        label = {
-            Text(stringResource(R.string.search_detail_username))
-        }
-    ) {
-        OutlinedTextField(
-            value = options.username,
-            onValueChange = {
-                onUpdateOptions(options.copy(username = it))
-            },
-            modifier = Modifier.fillMaxWidth()
-        )
-    }
-
-    FormItem(
-        label = {
-            Text(stringResource(R.string.search_detail_password))
-        }
-    ) {
-        OutlinedTextField(
-            value = options.password,
-            onValueChange = {
-                onUpdateOptions(options.copy(password = it))
-            },
-            modifier = Modifier.fillMaxWidth()
-        )
-    }
-}
-
-@Composable
-internal fun SearchLinkUpOptions(
-    options: SearchServiceOptions.LinkUpOptions,
-    onUpdateOptions: (SearchServiceOptions.LinkUpOptions) -> Unit
+internal fun RikkaHubOptions(
+    options: SearchServiceOptions.RikkaHubOptions,
+    onUpdateOptions: (SearchServiceOptions.RikkaHubOptions) -> Unit
 ) {
     FormItem(
         label = {
@@ -269,9 +268,9 @@ internal fun SearchLinkUpOptions(
 }
 
 @Composable
-internal fun BraveOptions(
-    options: SearchServiceOptions.BraveOptions,
-    onUpdateOptions: (SearchServiceOptions.BraveOptions) -> Unit
+internal fun TinyfishOptions(
+    options: SearchServiceOptions.TinyfishOptions,
+    onUpdateOptions: (SearchServiceOptions.TinyfishOptions) -> Unit
 ) {
     FormItem(
         label = {
@@ -289,9 +288,9 @@ internal fun BraveOptions(
 }
 
 @Composable
-internal fun SerperOptions(
-    options: SearchServiceOptions.SerperOptions,
-    onUpdateOptions: (SearchServiceOptions.SerperOptions) -> Unit
+internal fun GrokOptions(
+    options: SearchServiceOptions.GrokOptions,
+    onUpdateOptions: (SearchServiceOptions.GrokOptions) -> Unit
 ) {
     FormItem(
         label = {
@@ -306,46 +305,126 @@ internal fun SerperOptions(
             modifier = Modifier.fillMaxWidth()
         )
     }
-}
 
-@Composable
-internal fun MetasoOptions(
-    options: SearchServiceOptions.MetasoOptions,
-    onUpdateOptions: (SearchServiceOptions.MetasoOptions) -> Unit
-) {
     FormItem(
         label = {
-            Text(stringResource(R.string.search_detail_api_key))
+            Text(stringResource(R.string.search_detail_model))
         }
     ) {
         OutlinedTextField(
-            value = options.apiKey,
+            value = options.model,
             onValueChange = {
-                onUpdateOptions(options.copy(apiKey = it))
+                onUpdateOptions(options.copy(model = it))
             },
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+
+    FormItem(
+        label = {
+            Text(stringResource(R.string.search_detail_custom_url))
+        }
+    ) {
+        OutlinedTextField(
+            value = options.customUrl,
+            onValueChange = {
+                onUpdateOptions(options.copy(customUrl = it))
+            },
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+
+    FormItem(
+        label = {
+            Text(stringResource(R.string.search_detail_system_prompt))
+        }
+    ) {
+        OutlinedTextField(
+            value = options.systemPrompt,
+            onValueChange = {
+                onUpdateOptions(options.copy(systemPrompt = it))
+            },
+            minLines = 3,
             modifier = Modifier.fillMaxWidth()
         )
     }
 }
 
 @Composable
-internal fun OllamaOptions(
-    options: SearchServiceOptions.OllamaOptions,
-    onUpdateOptions: (SearchServiceOptions.OllamaOptions) -> Unit
+internal fun CustomJsOptions(
+    options: SearchServiceOptions.CustomJsOptions,
+    onUpdateOptions: (SearchServiceOptions.CustomJsOptions) -> Unit
 ) {
     FormItem(
         label = {
-            Text(stringResource(R.string.search_detail_api_key))
+            Text(stringResource(R.string.search_detail_name))
         }
     ) {
         OutlinedTextField(
-            value = options.apiKey,
+            value = options.name,
             onValueChange = {
-                onUpdateOptions(options.copy(apiKey = it))
+                onUpdateOptions(options.copy(name = it))
             },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = { Text(stringResource(R.string.search_detail_custom_search_placeholder)) }
+        )
+    }
+
+    val highlighter = LocalCodeHighlighter.current
+    val darkMode = LocalDarkMode.current
+
+    FormItem(
+        label = {
+            Text(stringResource(R.string.search_detail_search_script))
+        }
+    ) {
+        OutlinedTextField(
+            value = options.searchScript,
+            onValueChange = {
+                onUpdateOptions(options.copy(searchScript = it))
+            },
+            modifier = Modifier.fillMaxWidth(),
+            minLines = 8,
+            maxLines = 20,
+            visualTransformation = HighlightCodeVisualTransformation(
+                language = "javascript",
+                highlighter = highlighter,
+                darkMode = darkMode
+            ),
+            textStyle = MaterialTheme.typography.bodySmall.merge(fontFamily = JetbrainsMono),
+        )
+    }
+
+    FormItem(
+        label = {
+            Text(stringResource(R.string.search_detail_scrape_script))
+        },
+        description = {
+            Text(stringResource(R.string.search_detail_scrape_script_desc))
+        }
+    ) {
+        OutlinedTextField(
+            value = options.scrapeScript,
+            onValueChange = {
+                onUpdateOptions(options.copy(scrapeScript = it))
+            },
+            modifier = Modifier.fillMaxWidth(),
+            minLines = 4,
+            maxLines = 20,
+            placeholder = {
+                Text(
+                    text = SearchServiceOptions.CustomJsOptions.DEFAULT_SCRAPE_SCRIPT.trimIndent(),
+                    style = MaterialTheme.typography.bodySmall.merge(fontFamily = JetbrainsMono),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                )
+            },
+            visualTransformation = HighlightCodeVisualTransformation(
+                language = "javascript",
+                highlighter = highlighter,
+                darkMode = darkMode
+            ),
+            textStyle = MaterialTheme.typography.bodySmall.merge(fontFamily = JetbrainsMono),
         )
     }
 }
 
-@Composable
