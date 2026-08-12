@@ -601,3 +601,21 @@
 **教训**：workspace_edit_file 的 old_text 锚点必须唯一（Assistant.kt 两处
 data class Assistant 差点匹配错位）；弹窗提取时 if 条件要保留在调用处；
 状态机括号检查（/tmp/bracecheck.py）比正则剥离可靠（模板字符串/KDoc 花括号误报）。
+
+### ChatService 再拆分 + 补测试（2026-08-12 16:5x，用户要求"做到完美不计成本"）
+**ChatService 746→370 行**（13ec0c92）：
+- ChatGenerationCore.kt（新，~260 行）：handleMessageComplete/checkInvalidMessages/
+  cancelToolByUser/finishInterruptedPendingTools + transformers 常量 + WorkspaceReminderTransformer
+- ChatMessageActions.kt（新，~160 行）：sendMessage/regenerateAtMessage/handleToolApproval/stopGeneration
+- ChatService 保留：构造+域组装+门面转发+saveConversation（~370 行）
+- 公开 API 零变化；错误上报/持久化/标题生成用回调注入避免循环依赖
+**补测试 23 用例**（177e1ba2）：
+- ChatboxSessionParseTest 12 用例：parseSession（system 合并/image 计数/空消息计数/tool 解析/
+  content 兜底/时间戳/标题回退/无 id）+ importProviders（provider 提取/能力映射/apiKey 过滤）
+- RepoListParserTest 7 用例：parseRepoList（逗号/换行/混合/去空白/去重/空输入）
+- SettingsTasksSerializationTest 4 用例：task 字段默认值 + JSON 往返 + POLL_INTERVAL_OPTIONS
+- parseSession/importProviders private→internal 供同包测试
+**CI 修复链**（run 392/394→395）：
+- run 392：ChatGenerationCore 误 import model.toText（实为 UIMessage 成员方法）+
+  ChatService 重写丢 R import
+- run 394：SettingsTasksSerializationTest 缺 POLL_INTERVAL_OPTIONS import（跨包 internal 需显式 import）
