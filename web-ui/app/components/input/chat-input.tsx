@@ -98,82 +98,13 @@ async function detectUploadFile(
   return { allowed: false, mimeType: detected.mime };
 }
 
-function toMessagePart(
-  file: UploadFilesResponseDto["files"][number],
-): UIMessagePart {
-  if (file.mime.startsWith("image/")) {
-    return {
-      type: "image",
-      url: file.url,
-      metadata: { fileId: file.id },
-    };
-  }
+import {
+  toMessagePart,
+  partLabel,
+  getPartFileId,
+  hasFilesInDataTransfer,
+} from "~/lib/chat-input-parts";
 
-  if (file.mime.startsWith("video/")) {
-    return {
-      type: "video",
-      url: file.url,
-      metadata: { fileId: file.id },
-    };
-  }
-
-  if (file.mime.startsWith("audio/")) {
-    return {
-      type: "audio",
-      url: file.url,
-      metadata: { fileId: file.id },
-    };
-  }
-
-  return {
-    type: "document",
-    url: file.url,
-    fileName: file.fileName,
-    mime: file.mime,
-    metadata: { fileId: file.id },
-  };
-}
-
-function partLabel(part: UIMessagePart, t: (key: string) => string): string {
-  switch (part.type) {
-    case "document":
-      return part.fileName;
-    case "image":
-      return t("chat.attachment_image");
-    case "video":
-      return t("chat.attachment_video");
-    case "audio":
-      return t("chat.attachment_audio");
-    default:
-      return t("chat.attachment_file");
-  }
-}
-
-function partIcon(part: UIMessagePart) {
-  switch (part.type) {
-    case "image":
-      return <Image className="size-3.5" />;
-    case "video":
-      return <Video className="size-3.5" />;
-    case "audio":
-      return <Mic className="size-3.5" />;
-    case "document":
-      return <File className="size-3.5" />;
-    default:
-      return <File className="size-3.5" />;
-  }
-}
-
-function getPartFileId(part: UIMessagePart): number | null {
-  const value = part.metadata?.fileId;
-  return typeof value === "number" ? value : null;
-}
-
-function hasFilesInDataTransfer(dataTransfer: DataTransfer | null): boolean {
-  if (!dataTransfer) return false;
-  if (dataTransfer.files.length > 0) return true;
-  return Array.from(dataTransfer.items).some((item) => item.kind === "file");
-}
 
 function ChatInputInner({
   value,
