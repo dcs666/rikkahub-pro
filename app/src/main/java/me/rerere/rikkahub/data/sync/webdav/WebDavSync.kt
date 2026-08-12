@@ -12,6 +12,7 @@ import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.datastore.WebDavConfig
 import me.rerere.rikkahub.data.datastore.migration.SettingsJsonMigrator
+import me.rerere.rikkahub.data.sync.DatabaseBackupUtils
 import me.rerere.rikkahub.utils.fileSizeToString
 import java.io.File
 import java.io.FileInputStream
@@ -151,17 +152,17 @@ class WebDavSync(
             if (config.items.contains(WebDavConfig.BackupItem.DATABASE)) {
                 val dbFile = context.getDatabasePath("rikka_hub")
                 if (dbFile.exists()) {
+                    // [FIX] WAL 一致性：先尽力 checkpoint(TRUNCATE)，成功后主库自包含
+                    // （只备份主库）；失败则兜底备份主库+WAL（兼容旧备份格式，恢复端
+                    // 会处理）。-shm 是共享内存索引（临时文件），一律不备份。
+                    val checkpointed = DatabaseBackupUtils.checkpoint(dbFile)
                     addFileToZip(zipOut, dbFile, "rikka_hub.db")
-                }
-
-                val walFile = File(dbFile.parentFile, "rikka_hub-wal")
-                if (walFile.exists()) {
-                    addFileToZip(zipOut, walFile, "rikka_hub-wal")
-                }
-
-                val shmFile = File(dbFile.parentFile, "rikka_hub-shm")
-                if (shmFile.exists()) {
-                    addFileToZip(zipOut, shmFile, "rikka_hub-shm")
+                    if (!checkpointed) {
+                        val walFile = File(dbFile.parentFile, "rikka_hub-wal")
+                        if (walFile.exists() && walFile.length() > 0) {
+                            addFileToZip(zipOut, walFile, "rikka_hub-wal")
+                        }
+                    }
                 }
             }
 
@@ -239,33 +240,43 @@ class WebDavSync(
 
                         "rikka_hub.db", "rikka_hub-wal", "rikka_hub-shm" -> {
                             if (config.items.contains(WebDavConfig.BackupItem.DATABASE)) {
-                                val dbFile = when (zipEntry.name) {
-                                    "rikka_hub.db" -> context.getDatabasePath("rikka_hub")
-                                    "rikka_hub-wal" -> File(
-                                        context.getDatabasePath("rikka_hub").parentFile,
-                                        "rikka_hub-wal"
-                                    )
-
-                                    "rikka_hub-shm" -> File(
-                                        context.getDatabasePath("rikka_hub").parentFile,
-                                        "rikka_hub-shm"
-                                    )
-
-                                    else -> null
+                                // [FIX] -shm 是共享内存索引（临时文件）：不恢复（跳过），
+                                // 避免陈旧 SHM 让 SQLite 误判索引状态。旧备份含 shm 条目时忽略。
+                                if (zipEntry.name == "rikka_hub-shm") {
+                                    Log.i(TAG, "restoreFromBackupFile: Skipping shm entry (transient index file)")
+                                    return@let
+                                }
+                                val dbFile = context.getDatabasePath("rikka_hub")
+                                val targetFile = if (zipEntry.name == "rikka_hub.db") {
+                                    // 恢复主库前删除本地陈旧的 -wal/-shm，避免与新库混淆
+                                    DatabaseBackupUtils.deleteSidecarFiles(dbFile)
+                                    dbFile
+                                } else {
+                                    File(dbFile.parentFile, "rikka_hub-wal")
                                 }
 
-                                dbFile?.let { targetFile ->
-                                    Log.i(
-                                        TAG,
-                                        "restoreFromBackupFile: Restoring ${zipEntry.name} to ${targetFile.absolutePath}"
-                                    )
-                                    targetFile.parentFile?.mkdirs()
-                                    FileOutputStream(targetFile).use { outputStream ->
-                                        zipIn.copyTo(outputStream, 64 * 1024)
-                                    }
+                                targetFile.parentFile?.mkdirs()
+                                // [FIX] 原子替换：先写临时文件再 rename，避免中途崩溃留下半截 db
+                                val tempFile = File(targetFile.parentFile, "${targetFile.name}.restore-tmp")
+                                FileOutputStream(tempFile).use { outputStream ->
+                                    zipIn.copyTo(outputStream, 64 * 1024)
+                                }
+                                if (tempFile.renameTo(targetFile)) {
                                     Log.i(
                                         TAG,
                                         "restoreFromBackupFile: Restored ${zipEntry.name} (${targetFile.length()} bytes)"
+                                    )
+                                } else {
+                                    // rename 失败（极少见）时兜底直接覆盖
+                                    FileOutputStream(targetFile).use { outputStream ->
+                                        FileInputStream(tempFile).use { input ->
+                                            input.copyTo(outputStream, 64 * 1024)
+                                        }
+                                    }
+                                    tempFile.delete()
+                                    Log.i(
+                                        TAG,
+                                        "restoreFromBackupFile: Restored ${zipEntry.name} via fallback copy (${targetFile.length()} bytes)"
                                     )
                                 }
                             }
