@@ -113,17 +113,29 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
                 models.mapNotNull {
                     val modelObject = it.jsonObject
 
-                    // 忽略非chat/embedding模型
-                    val supportedGenerationMethods =
-                        modelObject["supportedGenerationMethods"]!!.jsonArray
-                            .map { method -> method.jsonPrimitive.content }
+                    // [FIX] 外部 API 数据防御：不同 Google 网关/代理返回的模型对象字段
+                    // 有差异（个别模型可能缺 supportedGenerationMethods/name/displayName），
+                    // 原 `!!` 硬解直接 NPE 中断整个模型列表。缺关键字段 → 跳过该模型。
+                    val supportedGenerationMethods = modelObject["supportedGenerationMethods"]
+                        ?.jsonArray
+                        ?.map { method -> method.jsonPrimitive.content }
+                        ?: return@mapNotNull null
                     if ("generateContent" !in supportedGenerationMethods && "embedContent" !in supportedGenerationMethods) {
                         return@mapNotNull null
                     }
 
+                    val modelId = modelObject["name"]
+                        ?.jsonPrimitive?.contentOrNull
+                        ?.substringAfter("/", missingDelimiterValue = "")
+                        ?.takeIf { it.isNotBlank() }
+                        ?: return@mapNotNull null
+                    val displayName = modelObject["displayName"]
+                        ?.jsonPrimitive?.contentOrNull
+                        ?: modelId
+
                     Model(
-                        modelId = modelObject["name"]!!.jsonPrimitive.content.substringAfter("/"),
-                        displayName = modelObject["displayName"]!!.jsonPrimitive.content,
+                        modelId = modelId,
+                        displayName = displayName,
                         type = if ("generateContent" in supportedGenerationMethods) ModelType.CHAT else ModelType.EMBEDDING,
                     )
                 }
