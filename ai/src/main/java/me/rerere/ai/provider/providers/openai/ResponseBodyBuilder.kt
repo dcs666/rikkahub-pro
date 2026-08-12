@@ -1,4 +1,4 @@
-package me.rerere.rikkahub.provider.providers.openai
+package me.rerere.ai.provider.providers.openai
 
 import android.util.Log
 import kotlinx.coroutines.channels.Channel

@@ -205,7 +205,7 @@ internal fun buildMessages(
                 if (message.role == MessageRole.ASSISTANT) {
                     addAssistantMessage(message)
                 } else {
-                    addUserMessage(message)
+                    addClaudeUserMessage(message)
                 }
             }
     }.let { messagesArray ->
@@ -295,7 +295,7 @@ internal fun JsonArrayBuilder.addAssistantMessage(message: UIMessage) {
         }
     }
 
-internal fun JsonArrayBuilder.addUserMessage(message: UIMessage) {
+internal fun JsonArrayBuilder.addClaudeUserMessage(message: UIMessage) {
         add(buildJsonObject {
             put("role", message.role.name.lowercase())
             putJsonArray("content") {

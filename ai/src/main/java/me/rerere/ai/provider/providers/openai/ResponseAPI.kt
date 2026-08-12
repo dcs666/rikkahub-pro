@@ -100,6 +100,9 @@ internal const val REASONING_PLACEHOLDER = "…"
 /** [L3] 工具输出回传上限：超长截断（对齐 opencode TOOL_OUTPUT_MAX_CHARS=2000 思路，取 2500） */
 internal const val MAX_TOOL_OUTPUT_CHARS = 2500
 
+/** 清空占位文本：opencode serialize() 对 compacted 工具输出用此文案 */
+internal const val CLEARED_TOOL_OUTPUT = "[Old tool result content cleared]"
+
 /**
  * [F2] 增量请求失败信号：streamText 外层捕获后自动回退全量重试一次
  *（增量是性能优化，失败不应让用户看到报错；codex 同样失败后回退全量）。
