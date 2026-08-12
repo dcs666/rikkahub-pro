@@ -37,14 +37,6 @@ class ClaudeProviderDeepSeekTest {
         baseUrl: String,
         reasoningLevel: ReasoningLevel,
     ): JsonObject {
-        val method = ClaudeProvider::class.java.getDeclaredMethod(
-            "buildMessageRequest",
-            ProviderSetting.Claude::class.java,
-            List::class.java,
-            TextGenerationParams::class.java,
-            Boolean::class.javaPrimitiveType
-        )
-        method.isAccessible = true
         val setting = ProviderSetting.Claude(
             apiKey = "test-key",
             baseUrl = baseUrl,
@@ -56,13 +48,7 @@ class ClaudeProviderDeepSeekTest {
             ),
             reasoningLevel = reasoningLevel,
         )
-        return method.invoke(
-            provider,
-            setting,
-            listOf(UIMessage.user("hi")),
-            params,
-            false
-        ) as JsonObject
+        return buildMessageRequest(setting, listOf(UIMessage.user("hi")), params, false)
     }
 
     @Test
