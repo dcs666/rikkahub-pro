@@ -144,22 +144,28 @@ class GenerationHandler(
                     settings = settings,
                     messages = messages,
                     onUpdateMessages = {
-                        messages = it.transforms(
-                            transformers = outputTransformers,
-                            context = context,
-                            model = model,
-                            assistant = assistant,
-                            settings = settings
-                        )
+                        // [PERF] 流式热路径：output transformers（ThinkTag/Base64/Regex）
+                        // 均未实现 transform（只实现 visualTransform/onGenerationFinish），
+                        // 原 transforms() 每帧纯属 no-op 白跑（fold 遍历+ctx 构建）——
+                        // 直接同步内层消息（it 即内层状态，等价且省掉每帧 fold）；
+                        // visualTransform 也只对最后一条消息有意义——流式期间前面消息
+                        // 引用不变、视觉转换是逐条纯函数（幂等），全量扫描从每帧 O(N)
+                        // （长对话每条消息正则 find/replace + 列表 copy）降为 O(1)。
+                        messages = it
+                        val last = it.lastOrNull()
                         emit(
                             GenerationChunk.Messages(
-                                messages.visualTransforms(
-                                    transformers = outputTransformers,
-                                    context = context,
-                                    model = model,
-                                    assistant = assistant,
-                                    settings = settings
-                                )
+                                if (last == null) {
+                                    it
+                                } else {
+                                    it.dropLast(1) + listOf(last).visualTransforms(
+                                        transformers = outputTransformers,
+                                        context = context,
+                                        model = model,
+                                        assistant = assistant,
+                                        settings = settings
+                                    ).single()
+                                }
                             )
                         )
                     },
@@ -594,7 +600,33 @@ class GenerationHandler(
             )
 
             var messages = listOf(UIMessage.user(prompt))
-            var translatedText = ""
+            // [PERF] 流式翻译 O(n²) 缓解：原实现每 chunk 全量 handleMessageChunk（列表拷贝）
+            // + toText()（joinToString 重拼整段）+ emit 全量文本，长文本翻译累计复制 O(n²)。
+            // 仿主链路 text-only 累积器：连续纯文本 delta 进 StringBuilder（O(1) append），
+            // 每 ~64ms 才快照 emit 一次；其余 chunk 类型（reasoning/usage/role 切换/非纯文本）
+            // 一律 fallback 原路径，语义完全不变。两个消费方（ChatMessageOps/TranslatorVM）
+            // 均为"全量覆盖最新值"模式，降频不丢内容。
+            var textBuf: StringBuilder? = null
+            var textBaseParts: List<UIMessagePart>? = null
+            var textMeta: JsonObject? = null
+            var lastTranslationFlush = 0L
+
+            fun flushTranslationText() {
+                val buf = textBuf ?: return
+                val base = textBaseParts ?: return
+                val last = messages.lastOrNull() ?: return
+                messages = messages.dropLast(1) + last.copy(
+                    parts = base + UIMessagePart.Text(text = buf.toString(), metadata = textMeta)
+                )
+                textBuf = null
+                textBaseParts = null
+                val translatedText = messages.lastOrNull()?.toText() ?: ""
+
+                if (translatedText.isNotBlank()) {
+                    onStreamUpdate?.invoke(translatedText)
+                    emit(translatedText)
+                }
+            }
 
             providerHandler.streamText(
                 providerSetting = provider,
@@ -604,14 +636,47 @@ class GenerationHandler(
                     reasoningLevel = ReasoningLevel.fromBudgetTokens(settings.translateThinkingBudget),
                 ),
             ).collect { chunk ->
-                messages = messages.handleMessageChunk(chunk)
-                translatedText = messages.lastOrNull()?.toText() ?: ""
+                val delta = chunk.choices.getOrNull(0)?.delta ?: chunk.choices.getOrNull(0)?.message
+                val deltaTextPart = (delta?.parts?.singleOrNull() as? UIMessagePart.Text)
+                val lastParts = messages.lastOrNull()?.parts
+                val canAbsorbText = deltaTextPart != null &&
+                    deltaTextPart.metadata == null &&
+                    chunk.usage == null &&
+                    delta?.role == messages.lastOrNull()?.role &&
+                    lastParts?.lastOrNull() is UIMessagePart.Text
 
-                if (translatedText.isNotBlank()) {
-                    onStreamUpdate?.invoke(translatedText)
-                    emit(translatedText)
+                if (canAbsorbText && deltaTextPart != null) {
+                    val dt = deltaTextPart.text
+                    if (dt.isNotEmpty()) {
+                        val buf = textBuf
+                        if (buf == null) {
+                            val lp = messages.last().parts
+                            val lastText = lp.last() as UIMessagePart.Text
+                            textBaseParts = lp.subList(0, lp.size - 1)
+                            textMeta = lastText.metadata
+                            textBuf = StringBuilder(lastText.text).append(dt)
+                        } else {
+                            buf.append(dt)
+                        }
+                        val now = SystemClock.elapsedRealtime()
+                        if (now - lastTranslationFlush >= 64L) {
+                            flushTranslationText()
+                            lastTranslationFlush = now
+                        }
+                    }
+                } else {
+                    flushTranslationText()
+                    messages = messages.handleMessageChunk(chunk)
+                    val translatedText = messages.lastOrNull()?.toText() ?: ""
+
+                    if (translatedText.isNotBlank()) {
+                        onStreamUpdate?.invoke(translatedText)
+                        emit(translatedText)
+                    }
+                    lastTranslationFlush = SystemClock.elapsedRealtime()
                 }
             }
+            flushTranslationText()
         } else {
             // Use Qwen MT model with special translation options
             val messages = listOf(UIMessage.user(cappedSource))
