@@ -463,7 +463,7 @@ class ChatCompletionsAPI(
                         // [防御] 空名工具跳过（与 ResponseBodyBuilder 一致）：
                         // 网关对 name 缺失/空白报 400 missing field name
                         if (tool.name.isBlank()) {
-                            Logging.log(TAG, "skip tool with blank name (index=$index) in buildChatCompletionsBody")
+                            Logging.log(CHAT_COMPLETIONS_TAG, "skip tool with blank name (index=$index) in buildChatCompletionsBody")
                             return@forEachIndexed
                         }
                         add(buildJsonObject {
