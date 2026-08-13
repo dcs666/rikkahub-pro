@@ -99,7 +99,8 @@ internal fun parseMessage(content: JsonArray): UIMessage {
                 }
 
                 "redacted_thinking" -> {
-                    val data = block["data"]?.jsonPrimitiveOrNull?.contentOrNull
+                    // 服务端已脱敏的思考内容（data 字段），当前版本有意不回传 UI：
+                    // 历史回传时签名块才关键（tool_use 校验），脱敏正文无上下文价值
                 }
 
                 "tool_use" -> {
