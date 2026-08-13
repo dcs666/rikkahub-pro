@@ -728,3 +728,15 @@ v1.9.15 首打 a012b552（docs）失败 → 删 tag 重指 330f628c（最后代�
 **发布后状态**：分支 CI 全绿（Unit Tests 197 + Build APK），无活跃后台任务，轮询已关闭。
 **版本线**：v1.9.12（死代码清理）→ v1.9.13（ChatService 拆分+23 测试）→ v1.9.14
 （深度审查 12 修复）→ v1.9.15（18 文件拆分）。剩余大文件均有意保留（理由见上）。
+
+### v1.9.16-turbo 发布成功（2026-08-13 00:00 UTC，Release ID 369592004）
+**3 APK**：arm64 37.0MB / universal 46.6MB / x86_64 37.6MB（大小与 v1.9.15 持平，重构无膨胀）。
+**含 3 commit（71f78ef2..c1b3f1ca）**：
+1. 71f78ef2 日志页实时刷新——Logging 监听器（CopyOnWriteArrayList，锁外通知）+ LogPage DisposableEffect 订阅
+2. 5689b3ab ErrorParserTest 10 用例（测试缺口闭环：递归/数组/primitive/JsonNull/深度上限/兜底）
+3. c1b3f1ca 编译修复（message 可空断言 !!）
+**本轮探索确认健康域**：ChatCompletionsAPI 全链路、TranslationHandler、GenerationHandler 主链路、
+BackgroundTaskManager、TaskNotificationManager（awaitGenerationIdle）、ConversationRepository、
+web-ui SSE 客户端、zustand selector、零组合期 IO、零空 catch、无 TODO 残留、架构 14 社区 0 警告。
+**版本线**：v1.9.12（死代码）→ v1.9.13（ChatService 拆分+测试）→ v1.9.14（深度审查 12 修复）→
+v1.9.15（18 文件拆分）→ v1.9.16（日志实时刷新 + 测试加固）。CI 全绿（207 测试）。
