@@ -270,6 +270,15 @@ internal fun buildRequestBody(
                         BuiltInTools.Search -> {
                             add(buildJsonObject {
                                 put("type", "web_search")
+                                // [FIX] Console Go 上游（opencode.ai → deepseek-v4-pro 后端）
+                                // 用 serde flatten 结构解析 tools，强制每个工具对象带顶层 name：
+                                // 不带 name 的内置工具会让整请求 400 "tools[i].function:
+                                // missing field `name`"（2026-08-13 网关实测：web_search /
+                                // web_search_preview / image_generation 均受影响，补 name 后
+                                // pro 与 flash 均 200）。仅 opencode.ai 补 name——其他 host 的
+                                // 内置工具本就无 name 字段（OpenAI 官方 web_search_preview），
+                                // 避免给严格 schema 的网关引入未知字段。
+                                if (host == "opencode.ai") put("name", "web_search")
                             })
                         }
 
@@ -278,6 +287,8 @@ internal fun buildRequestBody(
                         BuiltInTools.ImageGeneration -> {
                             add(buildJsonObject {
                                 put("type", "image_generation")
+                                // 同上：Console Go 上游要求 name，opencode.ai 补上
+                                if (host == "opencode.ai") put("name", "image_generation")
                                 put("model", "gpt-image-2")
                             })
                         }

@@ -38,7 +38,8 @@ class ResponseAPITest {
         }
         val result = summarizeTools(tools)
         assertTrue(result.contains("[0] type=function name=search"))
-        assertTrue(result.contains("desc=15ch"))
+        // "Search the web" = 14 字符
+        assertTrue(result.contains("desc=14ch"))
     }
 
     @Test
