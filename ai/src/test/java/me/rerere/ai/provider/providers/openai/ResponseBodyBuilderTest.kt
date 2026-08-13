@@ -132,6 +132,33 @@ class ResponseBodyBuilderTest {
     }
 
     @Test
+    fun `opencode 网关内置工具带 name 字段`() {
+        // [FIX] Console Go 上游（opencode.ai → deepseek-v4-pro）serde flatten schema
+        // 强制每个工具带顶层 name，缺 name 整请求 400 "missing field name"（网关实测）
+        val body = buildBody(
+            model = model(tools = setOf(BuiltInTools.Search, BuiltInTools.ImageGeneration)),
+        )
+
+        val tools = toolsArray(body)!!
+        assertEquals(2, tools.size)
+        assertEquals("web_search", tools[0].jsonObject["name"]?.jsonPrimitive?.contentOrNull)
+        assertEquals("image_generation", tools[1].jsonObject["name"]?.jsonPrimitive?.contentOrNull)
+    }
+
+    @Test
+    fun `非 opencode 网关内置工具不带 name`() {
+        // 其他 host 保持原样：内置工具按官方格式（无 name 字段），避免引入未知字段
+        val body = buildBody(
+            baseUrl = "https://api.openai.com/v1",
+            model = model(tools = setOf(BuiltInTools.Search)),
+        )
+
+        val tools = toolsArray(body)!!
+        assertEquals(1, tools.size)
+        assertNull("非 opencode 网关不应给内置工具加 name", tools[0].jsonObject["name"])
+    }
+
+    @Test
     fun `UrlContext 内置工具跳过且不发空 tools 数组`() {
         val body = buildBody(model = model(tools = setOf(BuiltInTools.UrlContext)))
 
