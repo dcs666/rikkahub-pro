@@ -66,7 +66,7 @@ fun LogPage() {
     // Compose state，否则跨线程写 snapshot state 刷新不可靠
     DisposableEffect(Unit) {
         val mainHandler = Handler(Looper.getMainLooper())
-        val listener = { mainHandler.post { logs = Logging.getRecentLogs() } }
+        val listener: () -> Unit = { mainHandler.post { logs = Logging.getRecentLogs() } }
         Logging.addLogListener(listener)
         onDispose { Logging.removeLogListener(listener) }
     }

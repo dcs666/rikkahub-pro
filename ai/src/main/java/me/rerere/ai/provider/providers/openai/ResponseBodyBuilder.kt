@@ -70,6 +70,7 @@ import kotlin.time.Clock
 
 // [拆分] Response API 请求体构建 + token 预算域（拆自 ResponseAPI.kt，Strangler Fig）
 
+private const val TAG = "ResponseBodyBuilder"
 private const val CHARS_PER_TOKEN = 4
 private const val COMPACTION_BUFFER = 20_000
 private const val CONTEXT_LIMIT = 140_000
@@ -239,7 +240,14 @@ internal fun buildRequestBody(
         if (useFunctionTools || params.model.tools.isNotEmpty()) {
             putJsonArray("tools") {
                 if (useFunctionTools) {
-                    params.tools.forEach { tool ->
+                    params.tools.forEachIndexed { index, tool ->
+                        // [防御] 空名工具直接跳过：网关（如 Console Go）对 name 缺失/空白
+                        // 报 "missing field name" 400，会整请求失败；空名工具本就无法被
+                        // 模型调用（工具名是调用句柄），跳过比带病发送更正确
+                        if (tool.name.isBlank()) {
+                            Logging.log(TAG, "skip tool with blank name (index=$index) in buildRequestBody")
+                            return@forEachIndexed
+                        }
                         add(buildJsonObject {
                             put("type", "function")
                             put("name", tool.name)

@@ -34,6 +34,7 @@ import me.rerere.ai.util.parseErrorDetail
 import me.rerere.ai.util.stringSafe
 import me.rerere.ai.util.toHeaders
 import me.rerere.common.http.await
+import me.rerere.common.http.jsonObjectOrNull
 import me.rerere.common.http.jsonPrimitiveOrNull
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
@@ -86,6 +87,26 @@ private fun summarizeInput(input: JsonElement?): String {
             else -> ""
         }
         "#$index {$type${id?.let { " id=$it" } ?: ""}${name?.let { " name=$it" } ?: ""}${callId?.let { " call=$it" } ?: ""}$contentInfo$outputInfo$textHead"
+    }.joinToString("\n")
+}
+
+/**
+ * 诊断：把 responses 请求的 tools 数组摘要化输出（每个工具的类型/name/function.name），
+ * 用于定位网关 400 如 "tools[i].function: missing field name" 的确切问题工具
+ * （扁平格式 name 在顶层，嵌套格式在 function.name——两种都展示，缺 name 标 MISSING）。
+ */
+private fun summarizeTools(tools: JsonElement?): String {
+    if (tools == null) return "null"
+    val arr = tools as? JsonArray
+    if (arr == null) return tools.toString().take(2000)
+    return arr.mapIndexed { index, item ->
+        val o = item as? JsonObject
+        val type = o?.get("type")?.jsonPrimitiveOrNull?.contentOrNull ?: "?"
+        val name = o?.get("name")?.jsonPrimitiveOrNull?.contentOrNull
+            ?: o?.get("function")?.jsonObjectOrNull?.get("name")?.jsonPrimitiveOrNull?.contentOrNull
+            ?: "MISSING"
+        val descLen = o?.get("description")?.jsonPrimitiveOrNull?.contentOrNull?.length
+        "[$index] type=$type name=$name${descLen?.let { " desc=${it}ch" } ?: ""}"
     }.joinToString("\n")
 }
 
@@ -289,6 +310,7 @@ class ResponseAPI(
                     val failBody = response.body?.stringSafe().orEmpty()
                     Logging.log(TAG, "onFailure code=400 body=${failBody.take(2000)}")
                     Logging.log(TAG, "onFailure request input-structure:\n${summarizeInput(requestBody["input"])}")
+                    Logging.log(TAG, "onFailure request tools-structure:\n${summarizeTools(requestBody["tools"])}")
                     invalidateIncremental(providerSetting, host, fullRequestBody)
                     Logging.log(TAG, "onFailure: incremental request failed (400) → retry full")
                     close(IncrementalFailedException(t))
@@ -302,6 +324,7 @@ class ResponseAPI(
                 if (response?.code == 400) {
                     Logging.log(TAG, "onFailure code=${response?.code} body=${bodyRaw?.take(2000)}")
                     Logging.log(TAG, "onFailure request input-structure:\n${summarizeInput(requestBody["input"])}")
+                    Logging.log(TAG, "onFailure request tools-structure:\n${summarizeTools(requestBody["tools"])}")
                 }
                 try {
                     if (!bodyRaw.isNullOrBlank()) {

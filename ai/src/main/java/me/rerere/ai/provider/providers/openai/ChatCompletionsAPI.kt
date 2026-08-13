@@ -51,6 +51,7 @@ import me.rerere.ai.util.mergeCustomBody
 import me.rerere.ai.util.parseErrorDetail
 import me.rerere.ai.util.stringSafe
 import me.rerere.ai.util.toHeaders
+import me.rerere.common.android.Logging
 import me.rerere.common.http.await
 import me.rerere.common.http.jsonArrayOrNull
 import me.rerere.common.http.jsonObjectOrNull
@@ -458,7 +459,13 @@ class ChatCompletionsAPI(
 
             if (params.model.abilities.contains(ModelAbility.TOOL) && params.tools.isNotEmpty()) {
                 putJsonArray("tools") {
-                    params.tools.forEach { tool ->
+                    params.tools.forEachIndexed { index, tool ->
+                        // [防御] 空名工具跳过（与 ResponseBodyBuilder 一致）：
+                        // 网关对 name 缺失/空白报 400 missing field name
+                        if (tool.name.isBlank()) {
+                            Logging.log(TAG, "skip tool with blank name (index=$index) in buildChatCompletionsBody")
+                            return@forEachIndexed
+                        }
                         add(buildJsonObject {
                             put("type", "function")
                             put("function", buildJsonObject {
