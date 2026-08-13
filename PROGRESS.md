@@ -740,3 +740,34 @@ BackgroundTaskManager、TaskNotificationManager（awaitGenerationIdle）、Conve
 web-ui SSE 客户端、zustand selector、零组合期 IO、零空 catch、无 TODO 残留、架构 14 社区 0 警告。
 **版本线**：v1.9.12（死代码）→ v1.9.13（ChatService 拆分+测试）→ v1.9.14（深度审查 12 修复）→
 v1.9.15（18 文件拆分）→ v1.9.16（日志实时刷新 + 测试加固）。CI 全绿（207 测试）。
+
+### v1.9.17-turbo 发布中（2026-08-13）——Console Go 上游 web_search 400 根因修复
+**现象**：deepseek-v4-pro 所有请求（chat/title/suggestion）400：
+`tools[i].function: missing field \`name\``（chat tools[21]、title/suggestion tools[0]）；
+flash 同 payload 全部 200 → 每次 pro 请求都静默降级 flash。
+**根因（网关实测复现，非猜测）**：opencode.ai zen 网关的 Console Go 上游
+（deepseek-v4-pro 后端）用 serde flatten 结构解析 tools，**强制每个工具对象带顶层
+name 字段**。App 发送的内置工具 `{"type":"web_search"}` / `{"type":"image_generation"}`
+无 name → 整请求 400。
+**实测矩阵**（2026-08-13 10:5x UTC，curl 直打 zen 网关）：
+- pro + `{"type":"web_search"}` → 400；flash 同 → 200
+- pro + `{"type":"web_search_preview"}` → 400（换名无用）
+- pro + 嵌套 `{"type":"function","function":{...}}` → 400（嵌套格式整个被拒）
+- pro + 扁平 `{"type":"function","name":...}` → 200（function 工具本就正常）
+- **pro + `{"type":"web_search","name":"web_search"}` → 200**（补 name 即通）
+- pro + image_generation 无 name → 400；补 name → 200
+- pro + 空 tools / 无 tools → 200
+**修复**：ResponseBodyBuilder 内置工具序列化补 name（仅 opencode.ai host 补，
+其他 host 保持官方格式避免引入未知字段）；+ 3 新测试（opencode 带 name /
+非 opencode 不带 / 既有内置测试）。
+**commit**：b2e461a6（主文件+ResponseAPITest desc 断言 15→14 修正，自动 commit 收录）
++ e69ed884（3 测试）。推送 perf/rendering-and-streaming @ e69ed884。
+
+### v1.9.18-turbo 发布成功（2026-08-13 03:08 UTC，Release ID 369643827）
+**3 APK**：arm64 38.8MB / universal 48.9MB / x86_64 39.4MB。tag v1.9.18-turbo @ e69ed884（最后有成功 Build APK 的代码 commit）。
+**含**：v1.9.17 之后全部 commit（8493e0c9 tools 诊断+空名防御 / 614b7d58 injections 修复 /
+caf7f0fd 测试 / aae5de35 TAG 修复 / f419ddd8 SSE 提示 / 3a92d13a 空 tools 防御 /
+ce7bc24a 测试 / b2e461a6 desc 断言 + **Console Go name 字段主修复** / e69ed884 3 测试）。
+**注**：v1.9.17-turbo 已于 01:36 被先前会话发布（tag 1c44fe92，XSS 修复），本会话开始时
+记忆缺失该条，已校正。
+**版本线**：v1.9.16（日志实时刷新）→ v1.9.17（XSS rehype-sanitize）→ v1.9.18（Console Go 修复）。
