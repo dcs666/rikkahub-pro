@@ -161,6 +161,11 @@ function useConversationDetail(activeId: string | null, updateSummary: Conversat
         onError: (streamError) => {
           if (!mounted) return;
           console.error("Conversation detail SSE error:", streamError);
+          // [FIX 静默失败] 断流/异常时 toast 提示（原只 console.error，
+          // UI 停在旧状态用户以为卡住）；不设 detailError 避免整页错误态
+          toast.warning(
+            streamError.message || t("conversations.errors.stream_disconnected"),
+          );
         },
       },
       { signal: abortController.signal },

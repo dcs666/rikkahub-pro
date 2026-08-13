@@ -266,6 +266,7 @@ async function sse<T>(
               callbacks.onMessage({ event: currentEvent, data, id: currentId });
             } catch {
               // Ignore JSON parse error
+              console.warn("[sse] failed to parse event data:", currentData.slice(0, 200));
             }
           }
           currentEvent = "message";

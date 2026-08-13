@@ -16,7 +16,8 @@
       "tool_with_name": "[工具] {{name}}"
     },
     "errors": {
-      "load_detail_failed": "加载会话详情失败"
+      "load_detail_failed": "加载会话详情失败",
+      "stream_disconnected": "实时流已断开"
     },
     "empty_state": {
       "select_title": "请选择会话",
