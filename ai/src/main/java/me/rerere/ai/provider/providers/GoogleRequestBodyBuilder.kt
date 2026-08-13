@@ -20,6 +20,7 @@ import me.rerere.ai.registry.ModelRegistry
 import me.rerere.ai.ui.GoogleThoughtMetadata
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.ai.ui.isUiNotice
 import me.rerere.ai.ui.metadataAs
 import me.rerere.ai.util.encodeBase64
 import me.rerere.ai.util.json

@@ -65,6 +65,7 @@ import okhttp3.sse.EventSourceListener
 import okhttp3.sse.EventSources
 import kotlin.time.Clock
 import me.rerere.ai.ui.OpenAIReasoningMetadata
+import me.rerere.ai.ui.isUiNotice
 import me.rerere.ai.ui.metadataAs
 
 /**
