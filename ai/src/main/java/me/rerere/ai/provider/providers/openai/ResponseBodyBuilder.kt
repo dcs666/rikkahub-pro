@@ -193,13 +193,18 @@ internal fun buildRequestBody(
         // be passed back to the API）
         put(
             "input",
+            // [FIX] Console Go 上游（opencode.ai → deepseek-v4-pro）要求 input items 带
+            // 顶层 id（含 function_call.id == 对应 call_id 的配对约束）且 assistant
+            // content 为纯字符串（2026-08-13 网关实测）；opencode.ai 走 opencodeStrict
+            // 新格式（id + 字符串 content），其他 host 保持官方格式并继续 strip id。
             buildMessages(
                 messages,
                 usePlainReasoningContent = host == "api.deepseek.com",
                 useReasoningTextArray = host == "opencode.ai",
                 forcePlaceholderReasoning = host == "opencode.ai" && params.reasoningLevel.isEnabled,
                 contextLimit = contextLimit,
-            ).stripItemIds()
+                opencodeStrict = host == "opencode.ai",
+            ).let { items -> if (host == "opencode.ai") items else items.stripItemIds() }
         )
 
         // reasoning
@@ -304,6 +309,7 @@ internal fun buildMessages(messages: List<UIMessage>,
     useReasoningTextArray: Boolean = false,
     forcePlaceholderReasoning: Boolean = false,
     contextLimit: Int = CONTEXT_LIMIT,
+    opencodeStrict: Boolean = false,
 ) = buildJsonArray {
     val filtered = messages.filter { it.isValidToUpload() && it.role != MessageRole.SYSTEM }
     // [L1-FIX] 按"含思维链的消息"计数而非全部 assistant 消息：工具轮次（fc+fco）
@@ -358,9 +364,10 @@ internal fun buildMessages(messages: List<UIMessage>,
                 keepToolOutput,
                 overflow,
                 clearedTools,
+                opencodeStrict,
             )
         } else {
-            addUserItems(message)
+            addUserItems(message, opencodeStrict)
         }
     }
 }

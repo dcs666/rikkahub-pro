@@ -42,8 +42,11 @@ class ResponseAPIMessageTest {
     }
 
     // Helper to invoke buildMessages method
-    private fun invokeBuildMessages(messages: List<UIMessage>): JsonArray {
-        return buildMessages(messages)
+    private fun invokeBuildMessages(
+        messages: List<UIMessage>,
+        opencodeStrict: Boolean = false
+    ): JsonArray {
+        return buildMessages(messages, opencodeStrict = opencodeStrict)
     }
 
     private fun invokeBuildRequestBody(
@@ -396,6 +399,96 @@ class ResponseAPIMessageTest {
         )
 
         assertFalse("tools key should not be written", requestBody.containsKey("tools"))
+    }
+
+    @Test
+    fun `opencode strict 模式 function_call 带 id 且等于 call_id`() {
+        // [FIX] Console Go 上游配对规则：fc 顶层 id 必须 == fco.call_id（网关实测）
+        val assistantMessage = UIMessage(
+            role = MessageRole.ASSISTANT,
+            parts = listOf(createExecutedTool("call_1", "search", "{}", "result"))
+        )
+
+        val result = invokeBuildMessages(
+            listOf(UIMessage.user("Use tool"), assistantMessage),
+            opencodeStrict = true
+        )
+
+        val fc = result.first { it.jsonObject["type"]?.jsonPrimitive?.content == "function_call" }.jsonObject
+        val fco = result.first { it.jsonObject["type"]?.jsonPrimitive?.content == "function_call_output" }.jsonObject
+
+        assertEquals("fc.id 应等于 call_id", "call_1", fc["id"]?.jsonPrimitive?.content)
+        assertEquals("fco 应带顶层 id", "out_call_1", fco["id"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `opencode strict 模式多文本 assistant content 合并为字符串`() {
+        // [FIX] Console Go 上游要求 assistant content 为纯字符串（content 数组被拒）
+        val assistantMessage = UIMessage(
+            role = MessageRole.ASSISTANT,
+            parts = listOf(
+                UIMessagePart.Text("Hello"),
+                UIMessagePart.Text("World"),
+                createExecutedTool("call_1", "search", "{}", "result"),
+                UIMessagePart.Text("Done")
+            )
+        )
+
+        val result = invokeBuildMessages(
+            listOf(UIMessage.user("Hi"), assistantMessage),
+            opencodeStrict = true
+        )
+
+        val assistantItems = result.filter { it.jsonObject["role"]?.jsonPrimitive?.content == "assistant" }
+        for (item in assistantItems) {
+            val content = item.jsonObject["content"]
+            assertTrue(
+                "opencode strict 下 assistant content 应为字符串: $content",
+                content is kotlinx.serialization.json.JsonPrimitive
+            )
+        }
+        val joined = assistantItems.joinToString("\n") {
+            it.jsonObject["content"]?.jsonPrimitive?.content ?: ""
+        }
+        assertTrue("应包含合并的文本", joined.contains("Hello\nWorld"))
+        assertTrue("应包含合并的文本", joined.contains("Done"))
+    }
+
+    @Test
+    fun `opencode strict 模式所有 input items 带顶层 id`() {
+        val assistantMessage = UIMessage(
+            role = MessageRole.ASSISTANT,
+            parts = listOf(
+                UIMessagePart.Reasoning("thinking..."),
+                UIMessagePart.Text("answer"),
+                createExecutedTool("call_1", "search", "{}", "result")
+            )
+        )
+
+        val result = invokeBuildMessages(
+            listOf(UIMessage.user("Question"), assistantMessage),
+            opencodeStrict = true
+        )
+
+        assertTrue("所有 item 都应带 id", result.all { it.jsonObject.containsKey("id") })
+    }
+
+    @Test
+    fun `非 opencode 模式 input items 不带 id`() {
+        val assistantMessage = UIMessage(
+            role = MessageRole.ASSISTANT,
+            parts = listOf(
+                UIMessagePart.Reasoning("thinking..."),
+                UIMessagePart.Text("answer"),
+                createExecutedTool("call_1", "search", "{}", "result")
+            )
+        )
+
+        val result = invokeBuildMessages(
+            listOf(UIMessage.user("Question"), assistantMessage)
+        )
+
+        assertFalse("默认模式不应带 id", result.any { it.jsonObject.containsKey("id") })
     }
 
     // ==================== Helper Functions ====================

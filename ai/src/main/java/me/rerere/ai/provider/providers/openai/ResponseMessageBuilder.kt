@@ -82,6 +82,7 @@ import kotlin.time.Clock
         keepToolOutput: Boolean = true,
         overflow: Boolean = false,
         clearedTools: Set<String> = emptySet(),
+        opencodeStrict: Boolean = false,
     ) {
         val groups = groupPartsByToolBoundary(message.parts)
         val contentBuffer = mutableListOf<UIMessagePart>()
@@ -103,13 +104,16 @@ import kotlin.time.Clock
                             is UIMessagePart.Reasoning -> {
                                 // 先输出累积的文本/图片内容
                                 if (contentBuffer.isNotEmpty()) {
-                                    addContentItem(MessageRole.ASSISTANT, contentBuffer)
+                                    addContentItem(MessageRole.ASSISTANT, contentBuffer, "msg_${message.id}", opencodeStrict)
                                     contentBuffer.clear()
                                 }
                                 // 输出 reasoning item
                                 val reasoningMetadata = part.metadataAs<OpenAIReasoningMetadata>()
                                 add(buildJsonObject {
                                     put("type", "reasoning")
+                                    // [FIX] Console Go 上游要求 input items 带顶层 id
+                                    //（2026-08-13 实测：缺 id 400 "missing field id"）
+                                    if (opencodeStrict) put("id", "rsn_${message.id}")
                                     // [codex 经验] 回传 input 时不带服务端生成的 item id：
                                     // openai/codex 的 prepare_response_items_for_request 发送前
                                     // 清除所有非 prefixed id（服务端按位置/内容重建关联），
@@ -166,10 +170,10 @@ import kotlin.time.Clock
 
                             is UIMessagePart.Image -> {
                                 if (contentBuffer.isNotEmpty()) {
-                                    addContentItem(MessageRole.ASSISTANT, contentBuffer)
+                                    addContentItem(MessageRole.ASSISTANT, contentBuffer, "msg_${message.id}", opencodeStrict)
                                     contentBuffer.clear()
                                 }
-                                addContentItem(MessageRole.USER, listOf(part))
+                                addContentItem(MessageRole.USER, listOf(part), "img_${message.id}", opencodeStrict)
                             }
 
                             is UIMessagePart.Text -> {
@@ -184,7 +188,7 @@ import kotlin.time.Clock
                 is PartGroup.Tools -> {
                     // 先输出累积的内容
                     if (contentBuffer.isNotEmpty()) {
-                        addContentItem(MessageRole.ASSISTANT, contentBuffer)
+                        addContentItem(MessageRole.ASSISTANT, contentBuffer, "msg_${message.id}", opencodeStrict)
                         contentBuffer.clear()
                     }
 
@@ -195,6 +199,7 @@ import kotlin.time.Clock
                     if (forcePlaceholderReasoning && !reasoningEmitted) {
                         add(buildJsonObject {
                             put("type", "reasoning")
+                            if (opencodeStrict) put("id", "rsn_${message.id}")
                             put("content", buildJsonArray {
                                 add(buildJsonObject {
                                     put("type", "reasoning_text")
@@ -214,6 +219,7 @@ import kotlin.time.Clock
                         if (forcePlaceholderReasoning && fcSinceReasoning > 0) {
                             add(buildJsonObject {
                                 put("type", "reasoning")
+                                if (opencodeStrict) put("id", "rsn_${message.id}_$fcSinceReasoning")
                                 put("content", buildJsonArray {
                                     add(buildJsonObject {
                                         put("type", "reasoning_text")
@@ -226,6 +232,11 @@ import kotlin.time.Clock
                         add(buildJsonObject {
                             put("type", "function_call")
                             put("call_id", tool.toolCallId)
+                            // [FIX] Console Go 上游（opencode.ai）配对规则：function_call
+                            // 项的顶层 id 会被网关用作上游 tool_call 的 id，必须与
+                            // function_call_output 的 call_id 一致，否则 400
+                            // "tool_call_ids did not have response messages"（2026-08-13 实测）
+                            if (opencodeStrict) put("id", tool.toolCallId)
                             put("name", tool.toolName)
                             // 使用 inputAsJson() 归一化，避免流式中断导致的残缺 JSON 被发送
                             put("arguments", tool.inputAsJson().toString())
@@ -233,6 +244,8 @@ import kotlin.time.Clock
                         add(buildJsonObject {
                             put("type", "function_call_output")
                             put("call_id", tool.toolCallId)
+                            // Console Go 上游同样要求 fco 项带顶层 id（实测缺失会卡反序列化）
+                            if (opencodeStrict) put("id", "out_${tool.toolCallId}")
                             val hasImage = tool.output.any { it is UIMessagePart.Image }
                             if (tool.toolCallId in clearedTools) {
                                 // [L3-FIX] prune 清空优先于一切（含图片输出）：
@@ -289,25 +302,37 @@ import kotlin.time.Clock
 
         // 输出剩余内容
         if (contentBuffer.isNotEmpty()) {
-            addContentItem(MessageRole.ASSISTANT, contentBuffer)
+            addContentItem(MessageRole.ASSISTANT, contentBuffer, "msg_${message.id}", opencodeStrict)
         }
     }
 
-    internal fun JsonArrayBuilder.addUserItems(message: UIMessage) {
+    internal fun JsonArrayBuilder.addUserItems(message: UIMessage, opencodeStrict: Boolean = false) {
         val contentParts = message.parts.filter { it is UIMessagePart.Text || it is UIMessagePart.Image }
         if (contentParts.isNotEmpty()) {
-            addContentItem(message.role, contentParts)
+            addContentItem(message.role, contentParts, "msg_${message.id}", opencodeStrict)
         }
     }
 
-    internal fun JsonArrayBuilder.addContentItem(role: MessageRole, parts: List<UIMessagePart>) {
+    internal fun JsonArrayBuilder.addContentItem(
+        role: MessageRole,
+        parts: List<UIMessagePart>,
+        itemId: String? = null,
+        opencodeStrict: Boolean = false,
+    ) {
         if (parts.isEmpty()) return
 
         add(buildJsonObject {
             put("role", JsonPrimitive(role.name.lowercase()))
+            // [FIX] Console Go 上游要求 input items 带顶层 id（2026-08-13 实测）
+            if (opencodeStrict) itemId?.let { put("id", it) }
 
             if (parts.isOnlyTextPart()) {
                 put("content", (parts.first() as UIMessagePart.Text).text)
+            } else if (opencodeStrict && parts.all { it is UIMessagePart.Text }) {
+                // Console Go 上游（deepseek-v4-pro）要求 assistant content 为纯字符串，
+                // content 数组会被拒（"content or tool_calls must be set"，实测）；
+                // 多文本 part 用换行合并（flash 后端同样接受字符串，T3 实测）
+                put("content", parts.joinToString("\n") { (it as UIMessagePart.Text).text })
             } else {
                 putJsonArray("content") {
                     parts.forEach { part ->
