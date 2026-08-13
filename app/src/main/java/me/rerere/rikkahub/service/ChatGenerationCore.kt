@@ -9,6 +9,7 @@ import me.rerere.ai.ui.ToolApprovalState
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.canResumeToolExecution
 import me.rerere.ai.ui.finishPendingTools
+import me.rerere.ai.ui.appendInterruptionNotice
 import me.rerere.ai.ui.finishReasoning
 import me.rerere.common.android.Logging
 import me.rerere.rikkahub.AppScope
@@ -317,6 +318,26 @@ internal class ChatGenerationCore(
             )
         )
         onSaveConversation(conversationId, updatedConversation)
+    }
+
+    /**
+     * [打断标记] 生成被新消息/停止打断时，给末尾 assistant 消息追加可见警示
+     * （幂等，元数据 uiNotice/interruptedNotice 标记，请求构建时过滤不上传）。
+     * 返回是否追加成功；追加时写 App 内存日志便于远程诊断。
+     */
+    suspend fun markInterruptedReply(conversationId: Uuid): Boolean {
+        val currentConversation = getConversationFlow(conversationId).value
+        val lastNode = currentConversation.messageNodes.lastOrNull() ?: return false
+        val (updatedMessages, appended) = lastNode.messages.appendInterruptionNotice()
+        if (!appended) return false
+        val updatedConversation = currentConversation.copy(
+            messageNodes = currentConversation.messageNodes.dropLast(1) +
+                lastNode.copy(messages = updatedMessages)
+        )
+        onSaveConversation(conversationId, updatedConversation)
+        val messageId = lastNode.currentMessage.id
+        Logging.log(TAG, "generation interrupted (${conversationId.toHexString()}), notice appended to message ${messageId.toHexString()}")
+        return true
     }
 
     // ---- 内部辅助 ----

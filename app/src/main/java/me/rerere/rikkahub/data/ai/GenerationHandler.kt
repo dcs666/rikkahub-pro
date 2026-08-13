@@ -558,6 +558,7 @@ class GenerationHandler(
                 text = notice,
                 metadata = buildJsonObject {
                     put("truncatedNotice", JsonPrimitive(true))
+                    put("uiNotice", JsonPrimitive(true))
                 }
             )
         )

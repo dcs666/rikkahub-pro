@@ -252,7 +252,7 @@ internal fun JsonArrayBuilder.addUserMessage(message: UIMessage) {
 }
 
 internal fun UIMessagePart.toGooglePart(): JsonObject? = when (this) {
-    is UIMessagePart.Text -> buildJsonObject {
+    is UIMessagePart.Text -> if (isUiNotice) null else buildJsonObject {
         put("text", text)
     }
 

@@ -99,7 +99,7 @@ internal fun JsonArrayBuilder.addAssistantMessages(
                     }
                 }
                 group.parts
-                    .filter { it is UIMessagePart.Text || it is UIMessagePart.Image }
+                    .filter { (it is UIMessagePart.Text || it is UIMessagePart.Image) && !it.isUiNotice }
                     .forEach { contentBuffer.add(it) }
             }
 
@@ -239,6 +239,7 @@ internal fun JsonArrayBuilder.addNonAssistantMessage(message: UIMessage) {
         } else {
             putJsonArray("content") {
                 message.parts.forEach { part ->
+                    if (part.isUiNotice) return@forEach
                     when (part) {
                         is UIMessagePart.Text -> {
                             add(buildJsonObject {

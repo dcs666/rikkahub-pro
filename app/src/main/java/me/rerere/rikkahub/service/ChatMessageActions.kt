@@ -45,12 +45,16 @@ internal class ChatMessageActions(
         if (content.isEmptyInputMessage()) return
 
         val previousJob = sessionManager.getGenerationJob(conversationId)
+        // [打断标记] 捕获取消前状态：job 存在且活跃 = 本次取消确实打断了生成，
+        // 完成后给被打断的消息补可见警示（含日志），避免半截回复被误认为"卡死"
+        val interrupted = previousJob != null && previousJob.isActive
         previousJob?.cancel()
 
         val job = appScope.launch {
             try {
                 runCatching { previousJob?.join() }
                 core.finishInterruptedPendingTools(conversationId)
+                if (interrupted) core.markInterruptedReply(conversationId)
 
                 val currentConversation = sessionManager.getConversationFlow(conversationId).value
                 val settings = settingsStore.settingsFlow.first()
@@ -187,8 +191,10 @@ internal class ChatMessageActions(
     // 停止当前会话生成任务（不清理会话缓存）
     suspend fun stopGeneration(conversationId: Uuid) {
         val job = sessionManager.getGenerationJob(conversationId) ?: return
+        val interrupted = job.isActive
         job.cancel()
         runCatching { job.join() }
         core.finishInterruptedPendingTools(conversationId)
+        if (interrupted) core.markInterruptedReply(conversationId)
     }
 }

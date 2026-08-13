@@ -4,6 +4,7 @@ import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.contentOrNull
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.TokenUsage
 import me.rerere.ai.provider.Model
@@ -443,4 +444,50 @@ fun <T> List<T>.migrateToolNodes(
     }
 
     return result
+}
+
+/**
+ * [UI-ONLY 提示标记] 部分 Text part 是纯 UI 提示（截断/打断警示条），
+ * 带 uiNotice 元数据标记。构建请求体时应过滤掉，避免作为历史回传污染模型上下文。
+ */
+val UIMessagePart.isUiNotice: Boolean
+    get() = metadata?.get("uiNotice")?.let {
+        (it as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull == "true"
+    } ?: false
+
+/**
+ * [打断标记] 生成被取消（新消息/停止）时给末尾 assistant 消息追加可见警示，
+ * 幂等（已有打断或截断标记则跳过）。返回 (新列表, 是否追加)。
+ */
+fun List<UIMessage>.appendInterruptionNotice(): Pair<List<UIMessage>, Boolean> {
+    val last = lastOrNull() ?: return this to false
+    if (last.role != MessageRole.ASSISTANT) return this to false
+    val hasUsableContent = last.parts.any { part ->
+        when (part) {
+            is UIMessagePart.Text -> part.text.isNotBlank()
+            is UIMessagePart.Reasoning -> part.reasoning.isNotBlank()
+            else -> false
+        }
+    }
+    if (!hasUsableContent) return this to false
+    if (last.parts.any { part ->
+            part.isUiNotice &&
+                (part.metadata?.get("interruptedNotice")?.let {
+                    (it as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull == "true"
+                } ?: false)
+        }
+    ) {
+        return this to false
+    }
+    val notice = "\n\n> ⚠️ 生成被新消息打断，回复不完整（已取消）"
+    val updated = dropLast(1) + last.copy(
+        parts = last.parts + UIMessagePart.Text(
+            text = notice,
+            metadata = kotlinx.serialization.json.buildJsonObject {
+                put("uiNotice", kotlinx.serialization.json.JsonPrimitive(true))
+                put("interruptedNotice", kotlinx.serialization.json.JsonPrimitive(true))
+            }
+        )
+    )
+    return updated to true
 }

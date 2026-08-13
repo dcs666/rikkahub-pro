@@ -316,7 +316,7 @@ import kotlin.time.Clock
     }
 
     internal fun JsonArrayBuilder.addUserItems(message: UIMessage, opencodeStrict: Boolean = false) {
-        val contentParts = message.parts.filter { it is UIMessagePart.Text || it is UIMessagePart.Image }
+        val contentParts = message.parts.filter { (it is UIMessagePart.Text || it is UIMessagePart.Image) && !it.isUiNotice }
         if (contentParts.isNotEmpty()) {
             addContentItem(message.role, contentParts, "msg_${message.id}", opencodeStrict)
         }

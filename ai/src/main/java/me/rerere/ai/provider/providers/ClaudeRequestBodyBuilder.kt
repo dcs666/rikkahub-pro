@@ -306,7 +306,7 @@ internal fun JsonArrayBuilder.addClaudeUserMessage(message: UIMessage) {
     }
 
 internal fun UIMessagePart.toContentBlock(): JsonObject? = when (this) {
-        is UIMessagePart.Text -> buildJsonObject {
+        is UIMessagePart.Text -> if (isUiNotice) null else buildJsonObject {
             put("type", "text")
             put("text", text)
         }
