@@ -94,11 +94,13 @@ private fun summarizeInput(input: JsonElement?): String {
  * 诊断：把 responses 请求的 tools 数组摘要化输出（每个工具的类型/name/function.name），
  * 用于定位网关 400 如 "tools[i].function: missing field name" 的确切问题工具
  * （扁平格式 name 在顶层，嵌套格式在 function.name——两种都展示，缺 name 标 MISSING）。
+ * internal：供单测覆盖（诊断逻辑是 400 定位的关键路径）。
  */
-private fun summarizeTools(tools: JsonElement?): String {
+internal fun summarizeTools(tools: JsonElement?): String {
     if (tools == null) return "null"
     val arr = tools as? JsonArray
     if (arr == null) return tools.toString().take(2000)
+    if (arr.isEmpty()) return "[]"
     return arr.mapIndexed { index, item ->
         val o = item as? JsonObject
         val type = o?.get("type")?.jsonPrimitiveOrNull?.contentOrNull ?: "?"
