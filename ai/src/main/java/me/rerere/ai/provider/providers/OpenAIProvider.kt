@@ -12,9 +12,6 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonArray
-import me.rerere.ai.provider.EmbeddingGenerationParams
-import me.rerere.ai.provider.EmbeddingGenerationResult
 import me.rerere.ai.provider.ImageEditParams
 import me.rerere.ai.provider.ImageGenerationParams
 import me.rerere.ai.provider.Model
@@ -145,57 +142,6 @@ class OpenAIProvider(
             providerSetting = providerSetting,
             messages = messages,
             params = params
-        )
-    }
-
-    override suspend fun generateEmbedding(
-        providerSetting: ProviderSetting.OpenAI,
-        params: EmbeddingGenerationParams
-    ): EmbeddingGenerationResult = withContext(Dispatchers.IO) {
-        require(params.input.isNotEmpty()) { "Embedding input cannot be empty" }
-
-        val key = keyRoulette.next(providerSetting.apiKey, providerSetting.id.toString())
-        val requestBody = json.encodeToString(
-            buildJsonObject {
-                put("model", params.model.modelId)
-                if (params.input.size == 1) {
-                    put("input", params.input.first())
-                } else {
-                    putJsonArray("input") {
-                        params.input.forEach { add(JsonPrimitive(it)) }
-                    }
-                }
-                params.dimensions?.let { put("dimensions", it) }
-            }.mergeCustomBody(params.customBody)
-        )
-
-        val request = Request.Builder()
-            .url(buildEndpoint(providerSetting.baseUrl, "/embeddings"))
-            .headers(params.customHeaders.toHeaders())
-            .addHeader("Authorization", "Bearer $key")
-            .addHeader("Content-Type", "application/json")
-            .post(requestBody.toRequestBody("application/json".toMediaType()))
-            .build()
-
-        val response = client.newCall(request).await()
-        if (!response.isSuccessful) {
-            error("Failed to generate embedding: ${response.code} ${response.body?.string()}")
-        }
-
-        val bodyStr = response.body?.string() ?: ""
-        val bodyJson = json.parseToJsonElement(bodyStr).jsonObject
-        val data = bodyJson["data"]?.jsonArray ?: error("No data in response")
-        val model = bodyJson["model"]?.jsonPrimitive?.contentOrNull ?: params.model.modelId
-
-        val embeddings = data.map { embeddingJson ->
-            val embeddingArray = embeddingJson.jsonObject["embedding"]?.jsonArray
-                ?: error("No embedding in response")
-            embeddingArray.map { it.jsonPrimitive.content.toFloat() }
-        }
-
-        EmbeddingGenerationResult(
-            model = model,
-            embeddings = embeddings
         )
     }
 

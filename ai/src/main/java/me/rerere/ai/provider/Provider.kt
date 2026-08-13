@@ -31,13 +31,6 @@ interface Provider<T : ProviderSetting> {
         params: TextGenerationParams,
     ): Flow<MessageChunk>
 
-    suspend fun generateEmbedding(
-        providerSetting: T,
-        params: EmbeddingGenerationParams,
-    ): EmbeddingGenerationResult {
-        error("Embedding generation is not supported")
-    }
-
     suspend fun generateImage(
         providerSetting: ProviderSetting,
         params: ImageGenerationParams,
@@ -86,21 +79,6 @@ data class ImageEditParams(
     val partialImages: Int = 2,
     val customHeaders: List<CustomHeader> = emptyList(),
     val customBody: List<CustomBody> = emptyList(),
-)
-
-@Serializable
-data class EmbeddingGenerationParams(
-    val model: Model,
-    val input: List<String>,
-    val dimensions: Int? = null,
-    val customHeaders: List<CustomHeader> = emptyList(),
-    val customBody: List<CustomBody> = emptyList(),
-)
-
-@Serializable
-data class EmbeddingGenerationResult(
-    val model: String,
-    val embeddings: List<List<Float>>,
 )
 
 @Serializable
