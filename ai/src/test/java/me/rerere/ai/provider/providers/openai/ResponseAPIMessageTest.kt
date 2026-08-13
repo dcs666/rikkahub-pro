@@ -474,6 +474,52 @@ class ResponseAPIMessageTest {
     }
 
     @Test
+    fun `opencode strict 模式同一消息多段 item id 唯一`() {
+        // [C1-FIX] 文本缓冲被工具组打断后多次 flush，此前各段复用 msg_<id> 产生重复顶层 id
+        val assistantMessage = UIMessage(
+            role = MessageRole.ASSISTANT,
+            parts = listOf(
+                UIMessagePart.Text("Before"),
+                createExecutedTool("call_1", "search", "{}", "result"),
+                UIMessagePart.Text("Between"),
+                createExecutedTool("call_2", "calc", "{}", "4"),
+                UIMessagePart.Text("After")
+            )
+        )
+
+        val result = invokeBuildMessages(
+            listOf(UIMessage.user("Question"), assistantMessage),
+            opencodeStrict = true
+        )
+
+        val ids = result.mapNotNull { it.jsonObject["id"]?.jsonPrimitive?.content }
+        assertEquals("每个 item 的顶层 id 都应唯一: $ids", ids.size, ids.toSet().size)
+    }
+
+    @Test
+    fun `opencode strict 模式多图片 item id 唯一`() {
+        // [C1-FIX] 同一消息多张图片此前共用 img_<id>，产生重复顶层 id
+        val assistantMessage = UIMessage(
+            role = MessageRole.ASSISTANT,
+            parts = listOf(
+                UIMessagePart.Text("Two images:"),
+                UIMessagePart.Image(url = "http://example.com/a.png"),
+                UIMessagePart.Image(url = "http://example.com/b.png")
+            )
+        )
+
+        val result = invokeBuildMessages(
+            listOf(UIMessage.user("Show images"), assistantMessage),
+            opencodeStrict = true
+        )
+
+        val imgIds = result.mapNotNull { it.jsonObject["id"]?.jsonPrimitive?.content }
+            .filter { it.startsWith("img_") }
+        assertEquals("两张图片应产生两个不同 img id: $imgIds", 2, imgIds.size)
+        assertEquals("img id 互不重复", imgIds.size, imgIds.toSet().size)
+    }
+
+    @Test
     fun `非 opencode 模式 input items 不带 id`() {
         val assistantMessage = UIMessage(
             role = MessageRole.ASSISTANT,

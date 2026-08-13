@@ -95,6 +95,15 @@ import kotlin.time.Clock
         //（实测：占位符可接受、assistant content 不能替代、reasoning 补在 fc 之后无效）。
         // 用计数器跟踪"距上次 reasoning 输出后已输出的 fc 数"，>0 时在下一个 fc 前补占位。
         var fcSinceReasoning = 0
+        // [C1-FIX] 同一 assistant 消息可能产生多个 content/reasoning/image item
+        //（文本缓冲被图片/推理/工具组打断后多次 flush），id 若仅基于 message.id
+        // 会生成重复顶层 id。Console Go 上游按 id 反序列化输入数组，重复 id 有
+        // 覆盖/被拒风险（此前 msg_<id> 复用、多图 img_<id> 复用、多段真实
+        // reasoning rsn_<id> 复用）。用消息内自增序号保证唯一：
+        // msg_<id>_N / rsn_<id>_N / img_<id>_N。
+        // fc/fco 的 id 不受此约束（toolCallId 天然唯一，且 fc.id 必须 == fco.call_id）。
+        var itemSeq = 0
+        fun nextItemId(prefix: String) = "${prefix}_${message.id}_${itemSeq++}"
 
         for (group in groups) {
             when (group) {
@@ -104,7 +113,7 @@ import kotlin.time.Clock
                             is UIMessagePart.Reasoning -> {
                                 // 先输出累积的文本/图片内容
                                 if (contentBuffer.isNotEmpty()) {
-                                    addContentItem(MessageRole.ASSISTANT, contentBuffer, "msg_${message.id}", opencodeStrict)
+                                    addContentItem(MessageRole.ASSISTANT, contentBuffer, nextItemId("msg"), opencodeStrict)
                                     contentBuffer.clear()
                                 }
                                 // 输出 reasoning item
@@ -113,7 +122,7 @@ import kotlin.time.Clock
                                     put("type", "reasoning")
                                     // [FIX] Console Go 上游要求 input items 带顶层 id
                                     //（2026-08-13 实测：缺 id 400 "missing field id"）
-                                    if (opencodeStrict) put("id", "rsn_${message.id}")
+                                    if (opencodeStrict) put("id", nextItemId("rsn"))
                                     // [codex 经验] 回传 input 时不带服务端生成的 item id：
                                     // openai/codex 的 prepare_response_items_for_request 发送前
                                     // 清除所有非 prefixed id（服务端按位置/内容重建关联），
@@ -170,10 +179,10 @@ import kotlin.time.Clock
 
                             is UIMessagePart.Image -> {
                                 if (contentBuffer.isNotEmpty()) {
-                                    addContentItem(MessageRole.ASSISTANT, contentBuffer, "msg_${message.id}", opencodeStrict)
+                                    addContentItem(MessageRole.ASSISTANT, contentBuffer, nextItemId("msg"), opencodeStrict)
                                     contentBuffer.clear()
                                 }
-                                addContentItem(MessageRole.USER, listOf(part), "img_${message.id}", opencodeStrict)
+                                addContentItem(MessageRole.USER, listOf(part), nextItemId("img"), opencodeStrict)
                             }
 
                             is UIMessagePart.Text -> {
@@ -188,7 +197,7 @@ import kotlin.time.Clock
                 is PartGroup.Tools -> {
                     // 先输出累积的内容
                     if (contentBuffer.isNotEmpty()) {
-                        addContentItem(MessageRole.ASSISTANT, contentBuffer, "msg_${message.id}", opencodeStrict)
+                        addContentItem(MessageRole.ASSISTANT, contentBuffer, nextItemId("msg"), opencodeStrict)
                         contentBuffer.clear()
                     }
 
@@ -199,7 +208,7 @@ import kotlin.time.Clock
                     if (forcePlaceholderReasoning && !reasoningEmitted) {
                         add(buildJsonObject {
                             put("type", "reasoning")
-                            if (opencodeStrict) put("id", "rsn_${message.id}")
+                            if (opencodeStrict) put("id", nextItemId("rsn"))
                             put("content", buildJsonArray {
                                 add(buildJsonObject {
                                     put("type", "reasoning_text")
@@ -219,7 +228,7 @@ import kotlin.time.Clock
                         if (forcePlaceholderReasoning && fcSinceReasoning > 0) {
                             add(buildJsonObject {
                                 put("type", "reasoning")
-                                if (opencodeStrict) put("id", "rsn_${message.id}_$fcSinceReasoning")
+                                if (opencodeStrict) put("id", nextItemId("rsn"))
                                 put("content", buildJsonArray {
                                     add(buildJsonObject {
                                         put("type", "reasoning_text")
@@ -302,7 +311,7 @@ import kotlin.time.Clock
 
         // 输出剩余内容
         if (contentBuffer.isNotEmpty()) {
-            addContentItem(MessageRole.ASSISTANT, contentBuffer, "msg_${message.id}", opencodeStrict)
+            addContentItem(MessageRole.ASSISTANT, contentBuffer, nextItemId("msg"), opencodeStrict)
         }
     }
 
