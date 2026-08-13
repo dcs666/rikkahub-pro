@@ -186,7 +186,9 @@ import kotlin.time.Clock
                             }
 
                             is UIMessagePart.Text -> {
-                                contentBuffer.add(part)
+                                // [UI-ONLY] uiNotice 标记的警示条（截断/打断）不回传，
+                                // 避免污染模型历史上下文
+                                if (!part.isUiNotice) contentBuffer.add(part)
                             }
 
                             else -> {}
