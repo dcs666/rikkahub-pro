@@ -466,22 +466,30 @@ private fun validateConversationInjectionIds(
     modeInjectionIds: List<String>,
     lorebookIds: List<String>,
 ): ConversationInjectionIds {
-    val validModeInjectionIds = settings.modeInjections.map { it.id }.toSet()
-    val requestedModeInjectionIds = modeInjectionIds.map { it.toUuid("modeInjectionIds") }.toSet()
-    if (!validModeInjectionIds.containsAll(requestedModeInjectionIds)) {
-        throw BadRequestException("modeInjectionIds contains unknown injection id")
-    }
-
-    val validLorebookIds = settings.lorebooks.map { it.id }.toSet()
-    val requestedLorebookIds = lorebookIds.map { it.toUuid("lorebookIds") }.toSet()
-    if (!validLorebookIds.containsAll(requestedLorebookIds)) {
-        throw BadRequestException("lorebookIds contains unknown lorebook id")
-    }
-
     return ConversationInjectionIds(
-        modeInjectionIds = requestedModeInjectionIds,
-        lorebookIds = requestedLorebookIds,
+        modeInjectionIds = validateInjectionIds(
+            validIds = settings.modeInjections.map { it.id }.toSet(),
+            requested = modeInjectionIds,
+            fieldName = "modeInjectionIds",
+        ),
+        lorebookIds = validateInjectionIds(
+            validIds = settings.lorebooks.map { it.id }.toSet(),
+            requested = lorebookIds,
+            fieldName = "lorebookIds",
+        ),
     )
+}
+
+private fun validateInjectionIds(
+    validIds: Set<Uuid>,
+    requested: List<String>,
+    fieldName: String,
+): Set<Uuid> {
+    val parsed = requested.map { it.toUuid(fieldName) }.toSet()
+    if (!validIds.containsAll(parsed)) {
+        throw BadRequestException("$fieldName contains unknown injection id")
+    }
+    return parsed
 }
 
 private suspend fun applyInitialConversationInjections(
@@ -506,11 +514,27 @@ private suspend fun applyInitialConversationInjections(
         return
     }
 
-    val (requestedModeInjectionIds, requestedLorebookIds) = validateConversationInjectionIds(
-        settings = settings,
-        modeInjectionIds = modeInjectionIds ?: conversation.modeInjectionIds.map { it.toString() },
-        lorebookIds = lorebookIds ?: conversation.lorebookIds.map { it.toString() },
-    )
+    // 只校验并更新「本次传入」的字段；未传字段保留会话现值——
+    // 若用旧值重新校验，会话里已失效的 injection id（配置后被删除）会让
+    // 「只想设置 lorebook」的部分更新请求意外失败（部分字段更新语义）
+    val requestedModeInjectionIds = if (modeInjectionIds != null) {
+        validateInjectionIds(
+            validIds = settings.modeInjections.map { it.id }.toSet(),
+            requested = modeInjectionIds,
+            fieldName = "modeInjectionIds",
+        )
+    } else {
+        conversation.modeInjectionIds
+    }
+    val requestedLorebookIds = if (lorebookIds != null) {
+        validateInjectionIds(
+            validIds = settings.lorebooks.map { it.id }.toSet(),
+            requested = lorebookIds,
+            fieldName = "lorebookIds",
+        )
+    } else {
+        conversation.lorebookIds
+    }
 
     chatService.updateConversationState(conversationId) {
         it.copy(
