@@ -40,6 +40,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import android.os.Handler
+import android.os.Looper
 import kotlinx.coroutines.launch
 import me.rerere.common.android.LogEntry
 import me.rerere.common.android.Logging
@@ -60,8 +62,11 @@ fun LogPage() {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     // [实时刷新] 订阅日志变更：进入页面即时反映新日志（原一次性快照需退出重进）
+    // 日志写入方多为后台线程（OkHttp interceptor/协程），必须 post 回主线程再写
+    // Compose state，否则跨线程写 snapshot state 刷新不可靠
     DisposableEffect(Unit) {
-        val listener = { logs = Logging.getRecentLogs() }
+        val mainHandler = Handler(Looper.getMainLooper())
+        val listener = { mainHandler.post { logs = Logging.getRecentLogs() } }
         Logging.addLogListener(listener)
         onDispose { Logging.removeLogListener(listener) }
     }
