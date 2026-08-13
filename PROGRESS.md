@@ -771,3 +771,17 @@ ce7bc24a 测试 / b2e461a6 desc 断言 + **Console Go name 字段主修复** / e
 **注**：v1.9.17-turbo 已于 01:36 被先前会话发布（tag 1c44fe92，XSS 修复），本会话开始时
 记忆缺失该条，已校正。
 **版本线**：v1.9.16（日志实时刷新）→ v1.9.17（XSS rehype-sanitize）→ v1.9.18（Console Go 修复）。
+
+### v1.9.19-turbo 发布成功（2026-08-13 04:07 UTC，Release ID 369660977）
+**3 APK**：arm64 38.8MB / universal 48.9MB / x86_64 39.4MB。tag v1.9.19-turbo @ aaa83e82。
+**含**：Console Go 上游 input items 严格 schema 修复（id + assistant 字符串 content + fc.id==call_id 配对）。
+**根因（网关实测，18 组 curl）**：Console Go 上游（deepseek-v4-pro）对 input 要求：
+① 每 item 带顶层 id（缺 → 'messages[i]: missing field id'）② fc 顶层 id 被网关用作
+上游 tool_call id，必须 == fco.call_id（否则 'tool_call_ids did not have response
+messages'）③ assistant content 必须纯字符串（数组 → 'content or tool_calls must be
+set'）④ reasoning item 被网关丢弃；flash 后端全宽松（新旧格式 200）。
+**修复**：buildMessages 加 opencodeStrict（仅 opencode.ai）：全 item 补 id
+（user/assistant=msg_<uuid>、reasoning=rsn_<uuid>、fc=toolCallId、fco=out_<id>）、
+assistant 多文本合并 \\n 字符串（图片场景保持数组）、非 opencode 维持 stripItemIds 兜底。
+**版本线**：v1.9.17（XSS）→ v1.9.18（tools name）→ v1.9.19（input id + 字符串 content）。
+**遗留待测**：user 发图（input_image 数组）走 pro 是否被上游接受（本会话未覆盖）。
