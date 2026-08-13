@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import { cn } from "~/lib/utils";
 import { getCodePreviewLanguage } from "~/components/workbench/code-preview-language";
 import { useOptionalWorkbench } from "~/components/workbench/workbench-context";
@@ -67,6 +68,21 @@ type MarkdownProps = {
   isAnimating?: boolean;
 };
 
+// [SECURITY] rehype-sanitize 清洗 LLM 输出中的原始 HTML（rehypeRaw 会解析任意 HTML）：
+// - 默认 schema 已禁 script/iframe/object/embed/form/meta/link/base 等危险标签
+// - 默认 protocols 已禁 javascript:/data: 等危险 href（防点击执行/钓鱼）
+// - 定制保留：className（katex 公式体系 / citation-badge / code language-* 高亮需要）、
+//   style（katex strut 行高内联样式需要——残余 CSS 注入面接受，内容源为可信 LLM 输出）
+const MARKDOWN_SANITIZE_SCHEMA = {
+  ...defaultSchema,
+  attributes: {
+    ...defaultSchema.attributes,
+    "*": ["className", "style"],
+    a: [...(defaultSchema.attributes.a ?? ["href", "title"]), "target", "rel"],
+    img: [...(defaultSchema.attributes.img ?? ["src", "alt", "title"]), "loading"],
+  },
+};
+
 function getNodeText(node: React.ReactNode): string {
   if (node == null || typeof node === "boolean") return "";
   if (typeof node === "string" || typeof node === "number") return String(node);
@@ -113,7 +129,11 @@ export default function Markdown({
     <div className={cn("markdown", className)}>
       <Streamdown
         remarkPlugins={[remarkGfm, remarkMath]}
-        rehypePlugins={[[rehypeKatex, { trust: true, strict: false }], rehypeRaw]}
+        rehypePlugins={[
+          [rehypeKatex, { trust: true, strict: false }],
+          rehypeRaw,
+          [rehypeSanitize, MARKDOWN_SANITIZE_SCHEMA],
+        ]}
         plugins={{ cjk: cjk }}
         animated={{ animation: "fadeIn", sep: 'word', duration: 150 }}
         isAnimating={isAnimating}
