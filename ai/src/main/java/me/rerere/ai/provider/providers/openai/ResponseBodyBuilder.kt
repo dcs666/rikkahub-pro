@@ -237,7 +237,10 @@ internal fun buildRequestBody(
         // 否则后写入的会覆盖前者
         val useFunctionTools =
             params.model.abilities.contains(ModelAbility.TOOL) && params.tools.isNotEmpty()
-        if (useFunctionTools || params.model.tools.isNotEmpty()) {
+        // [防御] UrlContext 不支持（跳过渲染），若内置工具仅有它则整体不发 tools 键——
+        // 空数组 "tools": [] 部分网关 schema 拒绝（要求至少一个元素）
+        val hasSupportedBuiltInTools = params.model.tools.any { it != BuiltInTools.UrlContext }
+        if (useFunctionTools || hasSupportedBuiltInTools) {
             putJsonArray("tools") {
                 if (useFunctionTools) {
                     params.tools.forEachIndexed { index, tool ->

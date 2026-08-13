@@ -132,10 +132,22 @@ class ResponseBodyBuilderTest {
     }
 
     @Test
-    fun `UrlContext 内置工具跳过`() {
+    fun `UrlContext 内置工具跳过且不发空 tools 数组`() {
         val body = buildBody(model = model(tools = setOf(BuiltInTools.UrlContext)))
 
-        assertNull("UrlContext 不支持应整体不发 tools 键", body["tools"])
+        // UrlContext 不支持：不应发空数组 "tools": []（部分网关 schema 拒绝空数组）
+        assertNull(body["tools"])
+    }
+
+    @Test
+    fun `UrlContext 与其他内置混用时跳过 UrlContext`() {
+        val body = buildBody(
+            model = model(tools = setOf(BuiltInTools.UrlContext, BuiltInTools.Search)),
+        )
+
+        val tools = toolsArray(body)!!
+        assertEquals(1, tools.size)
+        assertEquals("web_search", tools[0].jsonObject["type"]?.jsonPrimitive?.contentOrNull)
     }
 
     @Test
