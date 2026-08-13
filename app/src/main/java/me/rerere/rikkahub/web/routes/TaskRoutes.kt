@@ -50,26 +50,37 @@ fun Route.taskWebhookRoute(
             val eventType = call.request.headers["X-GitHub-Event"] ?: ""
             val secret = settingsStore.settingsFlow.value.taskGithubToken
 
-            // 读原始 body 一次：需要 HMAC 校验时用文本，否则直接 JSON 解析
+            // [SEC] 无 token 时 webhook 完全不校验签名：设备上任意 App（或同网段进程）
+            // 都能 POST 伪造的 CI 结果——除通知骚扰外，resultSummary 还会被注入用户
+            // 对话（可对带工具权限的 AI 智能体做提示词注入）。轮询兜底通道本就存在，
+            // 未配置 token 的用户不需要 webhook：直接关闭端点，强制签名认证。
+            if (secret.isBlank()) {
+                call.respond(
+                    HttpStatusCode.Forbidden,
+                    mapOf("error" to "Webhook disabled: configure taskGithubToken to enable signed webhooks"),
+                )
+                return@post
+            }
+
+            // 读原始 body 一次：HMAC 校验用文本
             val bodyText = call.receiveText()
             val signature = call.request.headers["X-Hub-Signature-256"]
 
-            if (secret.isNotBlank()) {
-                // [FIX] expected 也必须是纯 hex（与 provided 同格式）：
-                // 原来 expected 带 "sha256=" 前缀而 provided 已 removePrefix，
-                // MessageDigest.isEqual 对长度不同的数组恒返回 false → 配置 Token 后
-                // webhook 永远 401，秒级通知通道失效（只剩轮询兜底）。
-                val expected = hmacSha256Hex(secret, bodyText)
-                val provided = signature?.lowercase()?.removePrefix("sha256=")
-                val valid = provided != null &&
-                    MessageDigest.isEqual(
-                        expected.toByteArray(Charsets.UTF_8),
-                        provided.toByteArray(Charsets.UTF_8)
-                    )
-                if (!valid) {
-                    call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Invalid webhook signature"))
-                    return@post
-                }
+            // [FIX] expected 也必须是纯 hex（与 provided 同格式）：
+            // 原来 expected 带 "sha256=" 前缀而 provided 已 removePrefix，
+            // MessageDigest.isEqual 对长度不同的数组恒返回 false → 配置 Token 后
+            // webhook 永远 401，秒级通知通道失效（只剩轮询兜底）。
+            // [SEC] 上方已保证 secret 非空：签名校验现在无条件强制。
+            val expected = hmacSha256Hex(secret, bodyText)
+            val provided = signature?.lowercase()?.removePrefix("sha256=")
+            val valid = provided != null &&
+                MessageDigest.isEqual(
+                    expected.toByteArray(Charsets.UTF_8),
+                    provided.toByteArray(Charsets.UTF_8)
+                )
+            if (!valid) {
+                call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Invalid webhook signature"))
+                return@post
             }
 
             val body = runCatching {
