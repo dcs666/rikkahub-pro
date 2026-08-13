@@ -130,7 +130,25 @@ class RequestLoggingInterceptor : Interceptor {
         val stream: Boolean?
     )
 
+    // [SECURITY] 敏感 header 脱敏：Authorization/x-api-key/cookie 等不得进入内存日志
+    // （日志页明文展示 requestHeaders，API key 会直接泄露在日志详情里）
+    private val SENSITIVE_HEADERS = setOf(
+        "authorization",
+        "proxy-authorization",
+        "cookie",
+        "set-cookie",
+        "x-api-key",
+        "api-key",
+        "x-auth-token",
+        "x-access-token",
+        "x-auth",
+        "token",
+    )
+
     private fun okhttp3.Headers.toMap(): Map<String, String> {
-        return names().associateWith { get(it) ?: "" }
+        return names().associateWith { name ->
+            val value = get(name) ?: ""
+            if (name.lowercase() in SENSITIVE_HEADERS) "***" else value
+        }
     }
 }
